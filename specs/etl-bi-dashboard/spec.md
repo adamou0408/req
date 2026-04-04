@@ -1,6 +1,6 @@
 # ETL 排程 + BI 報表 + 自訂 Dashboard
 
-## 狀態：`draft`
+## 狀態：`approved`
 
 ## 來源追溯
 - 原始需求：[intake/raw/2026-04-04-sync-config-ui-and-etl-bi-dashboard.md](../../intake/raw/2026-04-04-sync-config-ui-and-etl-bi-dashboard.md)（需求二）
@@ -78,7 +78,7 @@
   - [ ] ETL 執行的資源使用可監控
 
 ## 衝突標記
-- ⚠️ **各部門使用者**想要自由查詢任意資料表，但 **MIS 管理員**擔心效能和安全性 → 見 conflicts/CONFLICT-005.md
+- ✅ ~~CONFLICT-005~~ BI 查詢 vs DB 效能 → **已解決**：BI 只查同步副本（platform DB），不直接查 Tiptop → [CONFLICT-005](../../conflicts/CONFLICT-005.md)
 
 ## 非功能需求
 - 效能：查詢 timeout 上限 30 秒；ETL 單次執行上限 10 分鐘
@@ -86,7 +86,13 @@
 - 可用性：chart builder 用拖拉介面，不需要寫 SQL
 - 儲存：Dashboard 定義儲存在 platform DB（JSON 格式）
 
+## 已確認的設計決策（補充）
+- **BI 查詢範圍**：只對 platform DB 中的同步副本查詢，不直接查 Tiptop（CONFLICT-005）
+- **SQL 直接查詢**：第一階段不支援，只用拖拉介面
+- **Dashboard 分享**：需要審核流程（分享者提交 → 管理者核准 → 其他人可見）
+- **Email 報表**：有現成 SMTP server，可直接整合
+
 ## 開放問題
-- [ ] 是否需要支援 SQL 直接查詢模式（給進階使用者）？
-- [ ] Dashboard 分享是否需要審核流程，還是直接分享？
-- [ ] 定時寄送報表需要設定 email server（SMTP），是否有現成的？
+- [x] ~~是否需要支援 SQL 直接查詢模式？~~ → 先不要，只用拖拉
+- [x] ~~Dashboard 分享是否需要審核流程？~~ → 需要審核
+- [x] ~~定時寄送報表需要 SMTP？~~ → 有現成的

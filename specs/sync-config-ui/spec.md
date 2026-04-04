@@ -1,6 +1,6 @@
 # 同步設定管理介面（Sync Config UI）
 
-## 狀態：`draft`
+## 狀態：`approved`
 
 ## 來源追溯
 - 原始需求：[intake/raw/2026-04-04-sync-config-ui-and-etl-bi-dashboard.md](../../intake/raw/2026-04-04-sync-config-ui-and-etl-bi-dashboard.md)（需求一）
