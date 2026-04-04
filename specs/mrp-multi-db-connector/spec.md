@@ -11,7 +11,7 @@
 群聯電子需要一個跨部門資料整合平台，第一階段解決 MRP（物料需求計畫）問題。平台需整合 Tiptop ERP（Oracle）、PostgreSQL 及未來持續增加的資料來源。核心功能是提供網頁介面讓管理者輸入資料庫連線資訊，自動探索資料表和 function 清單，使各部門（製造、市場、測試、業務、PM、HW RD、FW）能在統一平台上交換資訊。目前為單向讀取，後續視明確需求由 MIS 協助開發 Tiptop 寫回功能。
 
 ## 已確認的設計決策
-- **MRP 運算邏輯**：自行開發 MRP II（Manufacturing Resource Planning），涵蓋經營規劃、銷售規劃、能力需求計劃（CRP）和財務管理
+- **MRP 運算邏輯**：自行開發 MRP II（Manufacturing Resource Planning），第一階段涵蓋經營規劃、銷售規劃、能力需求計劃（CRP）。**財務管理不在第一階段範圍**，後續視需求擴展
 - **資料更新策略**：CDC 即時 + 批次混用（依資料類型決定）
 - **身份驗證**：整合 Active Directory（AD），後續可擴展 SSO
 - **Tiptop 寫回**：不在第一階段範圍，需有明確需求才會請 Tiptop 人員開發
