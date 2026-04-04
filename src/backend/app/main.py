@@ -44,6 +44,12 @@ def create_app() -> FastAPI:
     _include_router(application, "app.api.connections", prefix="/api/connections", tags=["connections"])
     _include_router(application, "app.api.schema", prefix="/api/schema", tags=["schema"])
     _include_router(application, "app.api.audit", prefix="/api/audit", tags=["audit"])
+    _include_router(application, "app.api.sync", prefix="/api/sync", tags=["sync"])
+    _include_router(application, "app.api.mappings", prefix="/api/mappings", tags=["mappings"])
+    _include_router(application, "app.api.combos", prefix="/api/combos", tags=["combos"])
+    _include_router(application, "app.api.inventory", prefix="/api/inventory", tags=["inventory"])
+    _include_router(application, "app.api.procurement", prefix="/api/procurement", tags=["procurement"])
+    _include_router(application, "app.api.reports", prefix="/api/reports", tags=["reports"])
 
     @application.get("/health", tags=["ops"])
     async def health_check() -> dict[str, str]:
