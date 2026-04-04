@@ -8,6 +8,13 @@ import {
   MenuUnfoldOutlined,
   UserOutlined,
   LogoutOutlined,
+  AppstoreOutlined,
+  SearchOutlined,
+  CalculatorOutlined,
+  ScheduleOutlined,
+  FundProjectionScreenOutlined,
+  ExperimentOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -26,17 +33,44 @@ const MainLayout: React.FC = () => {
     {
       key: '/dashboard',
       icon: <DashboardOutlined />,
-      label: '儀表板',
+      label: '首頁',
     },
     {
-      key: '/connections',
+      key: 'data-mgmt',
       icon: <DatabaseOutlined />,
-      label: '資料庫連線',
+      label: '資料管理',
+      children: [
+        { key: '/connections', icon: <DatabaseOutlined />, label: 'DB 連線' },
+        { key: '/schema', icon: <TableOutlined />, label: 'Schema 探索' },
+      ],
     },
     {
-      key: '/schema',
-      icon: <TableOutlined />,
-      label: '結構瀏覽器',
+      key: 'market',
+      icon: <AppstoreOutlined />,
+      label: '市場與業務',
+      children: [
+        { key: '/combos', icon: <AppstoreOutlined />, label: '主力組合' },
+        { key: '/inventory', icon: <SearchOutlined />, label: '庫存查詢' },
+      ],
+    },
+    {
+      key: 'mrp-group',
+      icon: <CalculatorOutlined />,
+      label: 'MRP',
+      children: [
+        { key: '/mrp', icon: <CalculatorOutlined />, label: 'MRP 總覽' },
+        { key: '/mrp/mps', icon: <ScheduleOutlined />, label: '生產排程' },
+      ],
+    },
+    {
+      key: 'dashboards',
+      icon: <FundProjectionScreenOutlined />,
+      label: '儀表板',
+      children: [
+        { key: '/dashboards/pm', icon: <FundProjectionScreenOutlined />, label: 'PM 儀表板' },
+        { key: '/dashboards/quality', icon: <ExperimentOutlined />, label: '品質分析' },
+        { key: '/dashboards/sync', icon: <SyncOutlined />, label: '同步監控' },
+      ],
     },
   ];
 
@@ -56,6 +90,13 @@ const MainLayout: React.FC = () => {
     const path = location.pathname;
     if (path.startsWith('/connections')) return '/connections';
     if (path.startsWith('/schema')) return '/schema';
+    if (path.startsWith('/combos')) return '/combos';
+    if (path.startsWith('/inventory')) return '/inventory';
+    if (path === '/mrp/mps') return '/mrp/mps';
+    if (path.startsWith('/mrp')) return '/mrp';
+    if (path.startsWith('/dashboards/pm')) return '/dashboards/pm';
+    if (path.startsWith('/dashboards/quality')) return '/dashboards/quality';
+    if (path.startsWith('/dashboards/sync')) return '/dashboards/sync';
     return '/dashboard';
   };
 
