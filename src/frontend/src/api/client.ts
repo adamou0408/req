@@ -116,6 +116,24 @@ const MOCK_YIELD_TREND = [
   { period: '2026-04-04', yield_rate: 94.2, total_units: 31000 },
 ];
 
+const MOCK_SYNC_CONFIGS = [
+  { id: 'sc-001', data_source_id: 'ds-001', data_source_name: 'Tiptop ERP (Oracle)', table_name: 'ina_file', sync_mode: 'cdc', cron_expression: null, is_active: true, created_at: '2026-03-15T08:00:00Z', updated_at: '2026-03-28T10:00:00Z' },
+  { id: 'sc-002', data_source_id: 'ds-001', data_source_name: 'Tiptop ERP (Oracle)', table_name: 'oca_file', sync_mode: 'cdc', cron_expression: null, is_active: true, created_at: '2026-03-15T09:00:00Z', updated_at: '2026-03-28T10:00:00Z' },
+  { id: 'sc-003', data_source_id: 'ds-002', data_source_name: 'Test Data (PostgreSQL)', table_name: 'test_results', sync_mode: 'cdc', cron_expression: null, is_active: true, created_at: '2026-03-20T10:00:00Z', updated_at: '2026-03-28T10:00:00Z' },
+  { id: 'sc-004', data_source_id: 'ds-001', data_source_name: 'Tiptop ERP (Oracle)', table_name: 'pmn_file', sync_mode: 'batch', cron_expression: '0 * * * *', is_active: true, created_at: '2026-03-16T08:00:00Z', updated_at: '2026-03-28T10:00:00Z' },
+  { id: 'sc-005', data_source_id: 'ds-001', data_source_name: 'Tiptop ERP (Oracle)', table_name: 'bma_file', sync_mode: 'batch', cron_expression: '0 6 * * *', is_active: true, created_at: '2026-03-16T09:00:00Z', updated_at: '2026-03-28T10:00:00Z' },
+  { id: 'sc-006', data_source_id: 'ds-003', data_source_name: 'Legacy System (PostgreSQL)', table_name: 'legacy_orders', sync_mode: 'batch', cron_expression: '*/30 * * * *', is_active: false, created_at: '2026-01-10T08:00:00Z', updated_at: '2026-02-15T10:00:00Z' },
+];
+
+const MOCK_SYNC_STATUS = [
+  { config_id: 'sc-001', data_source_name: 'Tiptop ERP (Oracle)', table_name: 'ina_file', sync_mode: 'cdc', cron_expression: null, is_active: true, last_sync_at: '2026-04-04T07:52:00Z', lag_seconds: 480, health: 'lagging', error_message: null, error_at: null },
+  { config_id: 'sc-002', data_source_name: 'Tiptop ERP (Oracle)', table_name: 'oca_file', sync_mode: 'cdc', cron_expression: null, is_active: true, last_sync_at: '2026-04-04T07:59:30Z', lag_seconds: 30, health: 'healthy', error_message: null, error_at: null },
+  { config_id: 'sc-003', data_source_name: 'Test Data (PostgreSQL)', table_name: 'test_results', sync_mode: 'cdc', cron_expression: null, is_active: true, last_sync_at: '2026-04-04T07:59:55Z', lag_seconds: 5, health: 'healthy', error_message: null, error_at: null },
+  { config_id: 'sc-004', data_source_name: 'Tiptop ERP (Oracle)', table_name: 'pmn_file', sync_mode: 'batch', cron_expression: '0 * * * *', is_active: true, last_sync_at: '2026-04-04T07:00:00Z', lag_seconds: 3600, health: 'healthy', error_message: null, error_at: null },
+  { config_id: 'sc-005', data_source_name: 'Tiptop ERP (Oracle)', table_name: 'bma_file', sync_mode: 'batch', cron_expression: '0 6 * * *', is_active: true, last_sync_at: '2026-04-04T06:00:00Z', lag_seconds: 7200, health: 'failed', error_message: 'ORA-12541: TNS:no listener — Oracle DB 連線逾時，無法建立連線至 10.0.1.100:1521', error_at: '2026-04-04T06:00:05Z' },
+  { config_id: 'sc-006', data_source_name: 'Legacy System (PostgreSQL)', table_name: 'legacy_orders', sync_mode: 'batch', cron_expression: '*/30 * * * *', is_active: false, last_sync_at: '2026-02-15T10:00:00Z', lag_seconds: null, health: 'inactive', error_message: null, error_at: null },
+];
+
 const MOCK_SYNC_OVERVIEW = {
   total_configs: 8, active: 7, by_mode: { cdc: 3, batch: 5 }, healthy: 6, lagging: 1, failed: 0,
 };
@@ -276,6 +294,36 @@ function createMockInterceptor(instance: AxiosInstance) {
       ]);
       return config;
     }
+    // Sync configs
+    if (url.match(/\/sync\/configs\/[^/]+\/trigger/) && method === 'POST') {
+      config.adapter = () => mockResponse({ message: '已成功觸發同步作業' });
+      return config;
+    }
+    if (url.match(/\/sync\/configs\/[^/]+/) && method === 'PUT') {
+      const id = url.match(/\/sync\/configs\/([^/]+)/)?.[1];
+      const existing = MOCK_SYNC_CONFIGS.find(c => c.id === id);
+      config.adapter = () => mockResponse({ ...existing, ...(config.data ? JSON.parse(config.data as string) : {}), updated_at: new Date().toISOString() });
+      return config;
+    }
+    if (url.match(/\/sync\/configs\/[^/]+/) && method === 'DELETE') {
+      config.adapter = () => mockResponse(null);
+      return config;
+    }
+    if (url.match(/\/sync\/configs\/?$/) && method === 'GET') {
+      config.adapter = () => mockResponse(MOCK_SYNC_CONFIGS);
+      return config;
+    }
+    if (url.match(/\/sync\/configs\/?$/) && method === 'POST') {
+      const body = config.data ? JSON.parse(config.data as string) : {};
+      const newConfig = { id: `sc-${Date.now()}`, ...body, data_source_name: 'New Source', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      config.adapter = () => mockResponse(newConfig);
+      return config;
+    }
+    if (url.match(/\/sync\/status\/?$/) && method === 'GET') {
+      config.adapter = () => mockResponse(MOCK_SYNC_STATUS);
+      return config;
+    }
+
     if (url.match(/\/dashboards\/sync\/overview/)) {
       config.adapter = () => mockResponse(MOCK_SYNC_OVERVIEW);
       return config;

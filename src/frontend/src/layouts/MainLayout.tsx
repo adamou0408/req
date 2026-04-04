@@ -42,6 +42,7 @@ const MainLayout: React.FC = () => {
       children: [
         { key: '/connections', icon: <DatabaseOutlined />, label: 'DB 連線' },
         { key: '/schema', icon: <TableOutlined />, label: 'Schema 探索' },
+        { key: '/sync/config', icon: <SyncOutlined />, label: '同步設定' },
       ],
     },
     {
@@ -94,6 +95,7 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/inventory')) return '/inventory';
     if (path === '/mrp/mps') return '/mrp/mps';
     if (path.startsWith('/mrp')) return '/mrp';
+    if (path.startsWith('/sync/config')) return '/sync/config';
     if (path.startsWith('/dashboards/pm')) return '/dashboards/pm';
     if (path.startsWith('/dashboards/quality')) return '/dashboards/quality';
     if (path.startsWith('/dashboards/sync')) return '/dashboards/sync';

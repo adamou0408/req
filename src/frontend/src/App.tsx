@@ -13,6 +13,7 @@ import MpsPage from './pages/mrp/MpsPage';
 import PMDashboard from './pages/dashboards/PMDashboard';
 import QualityDashboard from './pages/dashboards/QualityDashboard';
 import SyncDashboard from './pages/dashboards/SyncDashboard';
+import SyncConfigList from './pages/sync/SyncConfigList';
 
 const App: React.FC = () => {
   return (
@@ -37,6 +38,7 @@ const App: React.FC = () => {
         <Route path="dashboards/pm" element={<PMDashboard />} />
         <Route path="dashboards/quality" element={<QualityDashboard />} />
         <Route path="dashboards/sync" element={<SyncDashboard />} />
+        <Route path="sync/config" element={<SyncConfigList />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
