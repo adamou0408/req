@@ -15,6 +15,7 @@ from app.sync.mapping import FieldMappingService, safe_eval
 # effective path is doubled (same pattern as test_connections_api.py).
 SYNC_BASE = "/api/sync/api/sync"
 MAPPINGS_BASE = "/api/mappings/api/mappings"
+CONNECTIONS_BASE = "/api/connections/api/connections"
 
 
 # ---------------------------------------------------------------------------
@@ -22,48 +23,24 @@ MAPPINGS_BASE = "/api/mappings/api/mappings"
 # ---------------------------------------------------------------------------
 
 
-async def _create_datasource(db: AsyncSession) -> DataSource:
-    """Insert a minimal DataSource for FK references."""
-    from tests.backend.conftest import MOCK_USER_ID
-
-    ds = DataSource(
-        name="Test DS",
-        db_type="postgresql",
-        host="localhost",
-        port=5432,
-        database_name="testdb",
-        username="user",
-        encrypted_password=encrypt_password("pass"),
-        created_by=uuid.UUID(MOCK_USER_ID),
-    )
-    db.add(ds)
-    await db.flush()
-    await db.refresh(ds)
-    return ds
-
-
-async def _create_sync_config(
-    db: AsyncSession,
-    ds: DataSource,
-    sync_mode: str = "batch",
-    is_active: bool = True,
-) -> SyncConfig:
-    """Insert a SyncConfig for test purposes."""
-    sc = SyncConfig(
-        data_source_id=ds.id,
-        table_name="test_table",
-        sync_mode=SyncMode(sync_mode),
-        cron_expression="*/5 * * * *" if sync_mode == "batch" else None,
-        is_active=is_active,
-    )
-    db.add(sc)
-    await db.flush()
-    await db.refresh(sc)
-    return sc
+async def _create_datasource_via_api(client: AsyncClient) -> dict[str, Any]:
+    """Create a DataSource through the API and return the response dict."""
+    payload = {
+        "name": "Sync Test DS",
+        "db_type": "postgresql",
+        "host": "localhost",
+        "port": 5432,
+        "database_name": "testdb",
+        "username": "user",
+        "password": "pass",
+    }
+    resp = await client.post(f"{CONNECTIONS_BASE}/", json=payload)
+    assert resp.status_code == 201
+    return resp.json()
 
 
 # ---------------------------------------------------------------------------
-# FieldMappingService.apply_mapping tests
+# FieldMappingService.apply_mapping tests (pure unit tests, no DB)
 # ---------------------------------------------------------------------------
 
 
@@ -187,7 +164,7 @@ class TestApplyMapping:
 
 
 # ---------------------------------------------------------------------------
-# safe_eval tests
+# safe_eval tests (pure unit tests, no DB)
 # ---------------------------------------------------------------------------
 
 
@@ -210,56 +187,7 @@ class TestSafeEval:
 
 
 # ---------------------------------------------------------------------------
-# Monitoring tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_get_sync_status_empty(db_session: AsyncSession) -> None:
-    """get_sync_status returns an empty list when no configs exist."""
-    from app.sync.monitoring import get_sync_status
-
-    statuses = await get_sync_status(db_session)
-    assert isinstance(statuses, list)
-    assert len(statuses) == 0
-
-
-@pytest.mark.asyncio
-async def test_get_sync_status_format(db_session: AsyncSession) -> None:
-    """get_sync_status returns correct format for existing configs."""
-    from app.sync.monitoring import get_sync_status
-
-    ds = await _create_datasource(db_session)
-    sc = await _create_sync_config(db_session, ds)
-    await db_session.commit()
-
-    statuses = await get_sync_status(db_session)
-    assert len(statuses) == 1
-    entry = statuses[0]
-    assert entry["id"] == str(sc.id)
-    assert entry["table_name"] == "test_table"
-    assert entry["sync_mode"] == "batch"
-    assert entry["is_active"] is True
-    assert "lag_seconds" in entry
-    assert "last_sync_at" in entry
-    assert "last_sync_status" in entry
-
-
-@pytest.mark.asyncio
-async def test_detect_sync_lag(db_session: AsyncSession) -> None:
-    """detect_sync_lag flags configs that have never synced."""
-    from app.sync.monitoring import detect_sync_lag
-
-    ds = await _create_datasource(db_session)
-    await _create_sync_config(db_session, ds)
-    await db_session.commit()
-
-    lagging = await detect_sync_lag(db_session, threshold_seconds=60)
-    assert len(lagging) == 1
-
-
-# ---------------------------------------------------------------------------
-# Sync API endpoint tests
+# Sync API endpoint tests (use async_client only)
 # ---------------------------------------------------------------------------
 
 
@@ -283,15 +211,14 @@ async def test_sync_configs_list_empty(async_client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_sync_config_crud(async_client: AsyncClient, db_session: AsyncSession) -> None:
-    """Test create and list sync configs through the API."""
-    # First create a data source so we have a valid FK
-    ds = await _create_datasource(db_session)
-    await db_session.commit()
+async def test_sync_config_crud(async_client: AsyncClient) -> None:
+    """Test create, list, and deactivate sync configs through the API."""
+    ds = await _create_datasource_via_api(async_client)
+    ds_id = ds["id"]
 
     # Create sync config
     payload = {
-        "data_source_id": str(ds.id),
+        "data_source_id": ds_id,
         "table_name": "orders",
         "sync_mode": "batch",
         "cron_expression": "0 * * * *",
@@ -316,14 +243,14 @@ async def test_sync_config_crud(async_client: AsyncClient, db_session: AsyncSess
 
 @pytest.mark.asyncio
 async def test_sync_config_not_found(async_client: AsyncClient) -> None:
-    """GET/PUT/DELETE on a nonexistent config returns 404."""
+    """GET history for a nonexistent config returns 404."""
     fake_id = str(uuid.uuid4())
     resp = await async_client.get(f"{SYNC_BASE}/history/{fake_id}")
     assert resp.status_code == 404
 
 
 # ---------------------------------------------------------------------------
-# Mappings API endpoint tests
+# Mappings API endpoint tests (use async_client only)
 # ---------------------------------------------------------------------------
 
 
@@ -365,15 +292,15 @@ async def test_mappings_preview(async_client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
-async def test_mappings_crud(async_client: AsyncClient, db_session: AsyncSession) -> None:
-    """Test create mapping and get history through the API."""
-    ds = await _create_datasource(db_session)
-    await db_session.commit()
+async def test_mappings_crud(async_client: AsyncClient) -> None:
+    """Test create mapping and retrieve it through the API."""
+    ds = await _create_datasource_via_api(async_client)
+    ds_id = ds["id"]
 
     # Create mapping
     payload = {
         "name": "order_mapping",
-        "source_datasource_id": str(ds.id),
+        "source_datasource_id": ds_id,
         "source_table": "orders",
         "mappings": [
             {
@@ -401,8 +328,100 @@ async def test_mappings_crud(async_client: AsyncClient, db_session: AsyncSession
     listing = list_resp.json()
     assert len(listing) >= 1
 
-    # Get single mapping
+    # Get single mapping by ID
     mapping_id = created[0]["id"]
     get_resp = await async_client.get(f"{MAPPINGS_BASE}/{mapping_id}")
     assert get_resp.status_code == 200
     assert get_resp.json()["id"] == mapping_id
+
+
+# ---------------------------------------------------------------------------
+# Monitoring tests using db_session (placed last to avoid SQLite connection
+# issues with the in-memory test database between event loops)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_get_sync_status_empty(db_session: AsyncSession) -> None:
+    """get_sync_status returns an empty list when no configs exist."""
+    from app.sync.monitoring import get_sync_status
+
+    statuses = await get_sync_status(db_session)
+    assert isinstance(statuses, list)
+    assert len(statuses) == 0
+
+
+@pytest.mark.asyncio
+async def test_get_sync_status_format(db_session: AsyncSession) -> None:
+    """get_sync_status returns correct format for existing configs."""
+    from app.sync.monitoring import get_sync_status
+    from tests.backend.conftest import MOCK_USER_ID
+
+    ds = DataSource(
+        name="Test DS",
+        db_type="postgresql",
+        host="localhost",
+        port=5432,
+        database_name="testdb",
+        username="user",
+        encrypted_password=encrypt_password("pass"),
+        created_by=uuid.UUID(MOCK_USER_ID),
+    )
+    db_session.add(ds)
+    await db_session.flush()
+    await db_session.refresh(ds)
+
+    sc = SyncConfig(
+        data_source_id=ds.id,
+        table_name="test_table",
+        sync_mode=SyncMode.batch,
+        cron_expression="*/5 * * * *",
+        is_active=True,
+    )
+    db_session.add(sc)
+    await db_session.flush()
+    await db_session.refresh(sc)
+
+    statuses = await get_sync_status(db_session)
+    assert len(statuses) == 1
+    entry = statuses[0]
+    assert entry["id"] == str(sc.id)
+    assert entry["table_name"] == "test_table"
+    assert entry["sync_mode"] == "batch"
+    assert entry["is_active"] is True
+    assert "lag_seconds" in entry
+    assert "last_sync_at" in entry
+    assert "last_sync_status" in entry
+
+
+@pytest.mark.asyncio
+async def test_detect_sync_lag(db_session: AsyncSession) -> None:
+    """detect_sync_lag flags configs that have never synced."""
+    from app.sync.monitoring import detect_sync_lag
+    from tests.backend.conftest import MOCK_USER_ID
+
+    ds = DataSource(
+        name="Test DS",
+        db_type="postgresql",
+        host="localhost",
+        port=5432,
+        database_name="testdb",
+        username="user",
+        encrypted_password=encrypt_password("pass"),
+        created_by=uuid.UUID(MOCK_USER_ID),
+    )
+    db_session.add(ds)
+    await db_session.flush()
+    await db_session.refresh(ds)
+
+    sc = SyncConfig(
+        data_source_id=ds.id,
+        table_name="test_table",
+        sync_mode=SyncMode.batch,
+        is_active=True,
+    )
+    db_session.add(sc)
+    await db_session.flush()
+
+    lagging = await detect_sync_lag(db_session, threshold_seconds=60)
+    assert len(lagging) == 1
