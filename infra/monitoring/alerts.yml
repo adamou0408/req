@@ -1,0 +1,111 @@
+# ──────────────────────────────────────────────
+# Alert Rules — Feedback Loop Triggers
+# ──────────────────────────────────────────────
+# These alerts, when fired, automatically create
+# intake items via the feedback loop webhook.
+
+groups:
+  - name: closed-loop-alerts
+    rules:
+      # ── Availability ────────────────────────
+      - alert: ServiceDown
+        expr: up{job="app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          feedback_loop: "true"
+        annotations:
+          summary: "Service is down"
+          intake_template: "bug-report"
+          auto_description: |
+            ## 🐛 自動問題回報（來自監控系統）
+
+            **回報人**：監控系統（自動）
+            **緊急程度**：很急
+
+            **發生了什麼事？**
+            服務已停止回應超過 1 分鐘。
+
+            **影響範圍**：所有使用者無法存取系統。
+
+      # ── Error Rate ──────────────────────────
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          feedback_loop: "true"
+        annotations:
+          summary: "Error rate exceeds 5%"
+          intake_template: "bug-report"
+          auto_description: |
+            ## 🐛 自動問題回報（來自監控系統）
+
+            **回報人**：監控系統（自動）
+            **緊急程度**：普通
+
+            **發生了什麼事？**
+            過去 5 分鐘內，系統錯誤率超過 5%。
+            當前錯誤率：{{ $value | humanizePercentage }}
+
+      # ── Latency ─────────────────────────────
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 3
+        for: 10m
+        labels:
+          severity: warning
+          feedback_loop: "true"
+        annotations:
+          summary: "P95 latency exceeds 3 seconds"
+          intake_template: "user-feedback"
+          auto_description: |
+            ## 💬 自動用戶體驗回報（來自監控系統）
+
+            **反饋來源**：效能監控
+            **反饋日期**：{{ $labels.instance }}
+
+            **用戶原話（模擬）**：
+            系統反應很慢，等了超過 3 秒才有回應。
+
+            **背景說明**：
+            P95 延遲已持續超過 10 分鐘高於 3 秒閾值。
+
+      # ── Memory ──────────────────────────────
+      - alert: HighMemoryUsage
+        expr: process_resident_memory_bytes / 1024 / 1024 > 450
+        for: 5m
+        labels:
+          severity: warning
+          feedback_loop: "true"
+        annotations:
+          summary: "Memory usage exceeds 450MB"
+          intake_template: "bug-report"
+          auto_description: |
+            ## 🐛 自動問題回報（來自監控系統）
+
+            **回報人**：監控系統（自動）
+            **緊急程度**：普通
+
+            **發生了什麼事？**
+            應用程式記憶體使用超過 450MB，接近上限。
+            可能存在記憶體洩漏。
+
+      # ── Deployment Failed ───────────────────
+      - alert: DeploymentRollback
+        expr: kube_deployment_status_observed_generation != kube_deployment_metadata_generation
+        for: 5m
+        labels:
+          severity: critical
+          feedback_loop: "true"
+        annotations:
+          summary: "Deployment rollback detected"
+          intake_template: "bug-report"
+          auto_description: |
+            ## 🐛 自動問題回報（來自部署系統）
+
+            **回報人**：部署系統（自動）
+            **緊急程度**：很急
+
+            **發生了什麼事？**
+            最新部署失敗，系統已自動回滾到上一個版本。
+            需要檢查最近的程式碼變更。

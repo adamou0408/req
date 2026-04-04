@@ -1,0 +1,43 @@
+# ──────────────────────────────────────────────
+# Demand-Driven Dev — Local Development
+# ──────────────────────────────────────────────
+# Usage: docker compose up -d
+
+services:
+  app:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      - ENVIRONMENT=dev
+      - APP_PORT=8080
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Local monitoring (simulates production feedback loop) ──
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../monitoring/prometheus-local.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - app
+    restart: unless-stopped
+
+  alertmanager:
+    image: prom/alertmanager:latest
+    ports:
+      - "9093:9093"
+    volumes:
+      - ../monitoring/alerts.yml:/etc/alertmanager/alertmanager.yml:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped

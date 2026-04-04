@@ -1,0 +1,185 @@
+# ──────────────────────────────────────────────
+# Feedback Loop — Monitoring → Intake
+# ──────────────────────────────────────────────
+# Receives webhook events from monitoring systems
+# and creates intake items automatically.
+#
+# This is the "closing" part of the closed loop:
+# Production issues → New requirements → Development → Deploy → ...
+
+name: Feedback Loop — Auto-Intake
+
+on:
+  # Triggered by external webhooks (monitoring alerts)
+  repository_dispatch:
+    types:
+      - monitoring-alert
+      - deployment-rollback
+      - health-check-failure
+      - user-error-report
+
+  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      alert_type:
+        description: "Type of alert"
+        required: true
+        type: choice
+        options:
+          - service-down
+          - high-error-rate
+          - high-latency
+          - deployment-failure
+      severity:
+        description: "Severity level"
+        required: true
+        type: choice
+        options:
+          - critical
+          - warning
+          - info
+      description:
+        description: "Alert description"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  create-intake:
+    name: "📥 Create Auto-Intake"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Parse alert data
+        id: parse
+        run: |
+          DATE=$(date +%Y-%m-%d)
+
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+            ALERT_TYPE="${{ github.event.client_payload.alert_type }}"
+            SEVERITY="${{ github.event.client_payload.severity }}"
+            DESCRIPTION="${{ github.event.client_payload.description }}"
+            SOURCE="${{ github.event.client_payload.source }}"
+          else
+            ALERT_TYPE="${{ github.event.inputs.alert_type }}"
+            SEVERITY="${{ github.event.inputs.severity }}"
+            DESCRIPTION="${{ github.event.inputs.description }}"
+            SOURCE="manual-trigger"
+          fi
+
+          SLUG=$(echo "$ALERT_TYPE" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+
+          # Map severity to urgency (繁中)
+          case "$SEVERITY" in
+            critical) URGENCY="很急" ;;
+            warning)  URGENCY="普通" ;;
+            *)        URGENCY="不急" ;;
+          esac
+
+          # Map alert type to template
+          case "$ALERT_TYPE" in
+            high-latency|high-error-rate) TEMPLATE="user-feedback" ;;
+            *)                            TEMPLATE="bug-report" ;;
+          esac
+
+          echo "date=$DATE" >> "$GITHUB_OUTPUT"
+          echo "slug=$SLUG" >> "$GITHUB_OUTPUT"
+          echo "urgency=$URGENCY" >> "$GITHUB_OUTPUT"
+          echo "alert_type=$ALERT_TYPE" >> "$GITHUB_OUTPUT"
+          echo "severity=$SEVERITY" >> "$GITHUB_OUTPUT"
+          echo "source=$SOURCE" >> "$GITHUB_OUTPUT"
+          echo "template=$TEMPLATE" >> "$GITHUB_OUTPUT"
+
+          # Store description in file to handle multiline
+          echo "$DESCRIPTION" > /tmp/alert_description.txt
+
+      - name: Check deduplication
+        id: dedup
+        run: |
+          DATE=${{ steps.parse.outputs.date }}
+          SLUG=${{ steps.parse.outputs.slug }}
+
+          # Check if similar intake was created in last 30 minutes
+          RECENT=$(find intake/raw/ -name "*auto-${SLUG}*" -mmin -30 2>/dev/null | head -1)
+
+          if [ -n "$RECENT" ]; then
+            echo "⚠️ Duplicate alert detected — $RECENT was created within 30 minutes"
+            echo "is_duplicate=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_duplicate=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create intake file
+        if: steps.dedup.outputs.is_duplicate == 'false'
+        run: |
+          DATE=${{ steps.parse.outputs.date }}
+          SLUG=${{ steps.parse.outputs.slug }}
+          URGENCY="${{ steps.parse.outputs.urgency }}"
+          ALERT_TYPE="${{ steps.parse.outputs.alert_type }}"
+          SOURCE="${{ steps.parse.outputs.source }}"
+          DESCRIPTION=$(cat /tmp/alert_description.txt)
+          TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+
+          INTAKE_FILE="intake/raw/${DATE}-auto-${SLUG}.md"
+
+          cat > "$INTAKE_FILE" << EOF
+          # 🔄 自動回報（來自閉環監控）
+
+          **回報人**：監控系統（自動產生）
+          **回報日期**：${TIMESTAMP}
+          **緊急程度**：${URGENCY}
+          **來源**：${SOURCE}
+          **告警類型**：${ALERT_TYPE}
+
+          ---
+
+          ## 發生了什麼事？
+
+          ${DESCRIPTION}
+
+          ## 自動分類資訊
+
+          - **告警來源**：${SOURCE}
+          - **嚴重程度**：${{ steps.parse.outputs.severity }}
+          - **Workflow Run**：${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          ---
+
+          > ⚡ 此需求由閉環監控系統自動產生。請執行 \`/translate\` 將其轉為結構化規格。
+          EOF
+
+          echo "📥 Intake created: $INTAKE_FILE"
+
+      - name: Commit and push
+        if: steps.dedup.outputs.is_duplicate == 'false'
+        run: |
+          git config user.name "feedback-loop[bot]"
+          git config user.email "feedback-loop@noreply.github.com"
+
+          SLUG=${{ steps.parse.outputs.slug }}
+          git add intake/raw/
+
+          git commit -m "feedback: auto-intake from ${{ steps.parse.outputs.source }} — ${SLUG}"
+          git push
+
+      - name: Summary
+        run: |
+          if [ "${{ steps.dedup.outputs.is_duplicate }}" = "true" ]; then
+            echo "### ⏭️ Skipped — Duplicate Alert" >> $GITHUB_STEP_SUMMARY
+            echo "A similar intake was created within the last 30 minutes." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ Feedback Loop — Intake Created" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "| Field | Value |" >> $GITHUB_STEP_SUMMARY
+            echo "|-------|-------|" >> $GITHUB_STEP_SUMMARY
+            echo "| Alert | ${{ steps.parse.outputs.alert_type }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Severity | ${{ steps.parse.outputs.severity }} |" >> $GITHUB_STEP_SUMMARY
+            echo "| Source | ${{ steps.parse.outputs.source }} |" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Next step: Run \`/translate\` on the new intake file." >> $GITHUB_STEP_SUMMARY
+          fi

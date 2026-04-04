@@ -1,0 +1,76 @@
+# ──────────────────────────────────────────────
+# Feedback Loop Configuration
+# ──────────────────────────────────────────────
+# Defines how monitoring alerts flow back into
+# the demand-driven development cycle.
+#
+# Flow: Alert → Webhook → Create Intake → AI Translate → Spec
+# ──────────────────────────────────────────────
+
+feedback_loop:
+  enabled: true
+
+  # ── Source: What triggers the feedback loop ──
+  sources:
+    - name: cloudwatch_alarms
+      type: aws_sns
+      description: "AWS CloudWatch alarms via SNS"
+      filter:
+        tags:
+          FeedbackLoop: "true"
+
+    - name: prometheus_alerts
+      type: alertmanager_webhook
+      description: "Prometheus alerts via Alertmanager"
+      filter:
+        labels:
+          feedback_loop: "true"
+
+    - name: health_check_failures
+      type: ecs_deployment
+      description: "ECS deployment circuit breaker events"
+      auto_rollback: true
+
+  # ── Transform: How alerts become intake items ──
+  transform:
+    # Map alert severity to intake urgency
+    severity_mapping:
+      critical: "很急"
+      warning: "普通"
+      info: "不急"
+
+    # Map alert labels to intake templates
+    template_mapping:
+      default: "bug-report"
+      performance: "user-feedback"
+      feature_request: "quick-idea"
+
+    # Metadata added to every auto-generated intake
+    auto_metadata:
+      source: "monitoring-feedback-loop"
+      auto_generated: true
+      requires_triage: true
+
+  # ── Destination: Where intake items are created ──
+  destination:
+    path: "intake/raw/"
+    filename_pattern: "{date}-auto-{alert_name}.md"
+    git_auto_commit: true
+    commit_message_pattern: "feedback: auto-intake from {source} — {alert_name}"
+
+  # ── Deduplication ──
+  dedup:
+    enabled: true
+    window_minutes: 30
+    key_fields: ["alert_name", "severity"]
+    # Don't create duplicate intake for the same alert within 30 minutes
+
+  # ── Escalation ──
+  escalation:
+    # If the same alert fires 3+ times within 24h, escalate
+    repeat_threshold: 3
+    repeat_window_hours: 24
+    escalation_action: "mark_as_critical"
+    notify:
+      - channel: "github_issue"
+        label: "feedback-loop-escalation"

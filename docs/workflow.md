@@ -19,8 +19,15 @@ graph TD
     J --> K[🤖 AI 實作程式碼 src/]
     K --> L[🧪 自動化測試 tests/]
     L -->|失敗| K
-    L -->|通過| M[✅ 完成]
-    M -.->|需求變更| A
+    L -->|通過| M[🚀 部署 deploy]
+    M --> N{🚪 Spec Gate + 健康檢查}
+    N -->|失敗| O[⏪ 自動 Rollback]
+    O --> P[🔄 自動建立 intake]
+    P --> A
+    N -->|通過| Q[📡 持續監控]
+    Q -->|異常告警| P
+    Q -->|正常| R[✅ 持續運行]
+    R -.->|需求變更| A
 ```
 
 ## 各階段詳細說明
@@ -66,7 +73,27 @@ graph TD
 - **輸出**：`src/` 程式碼 + `tests/` 測試
 - **命令**：`/implement`
 
-### 8. 迭代（Iterate）
+### 8. 部署（Deploy）
+- **負責人**：AI（自動）+ 人類（prod 審核）
+- **輸入**：通過測試的程式碼
+- **輸出**：部署到目標環境
+- **命令**：`/deploy`
+- **閉環機制**：
+  - CI 檢查 spec 是否已 approved（Spec Gate）
+  - 部署後執行健康檢查
+  - 失敗自動 rollback + 建立 intake
+
+### 9. 監控與回饋（Monitor & Feedback）
+- **負責人**：自動化系統
+- **輸入**：部署後的系統指標
+- **輸出**：告警 → 自動建立 `intake/raw/` 問題回報
+- **命令**：`/feedback`
+- **閉環機制**：
+  - 監控告警自動轉為 intake 項目
+  - 30 分鐘內重複告警自動去重
+  - 24 小時內 3 次以上相同告警自動升級
+
+### 10. 迭代（Iterate）
 - **負責人**：任何人（發起）+ AI（分析）+ 人類（審核）
 - **輸入**：變更描述
 - **輸出**：影響分析 + 更新的 specs
@@ -82,7 +109,37 @@ stateDiagram-v2
     in_review --> draft: 人類退回
     approved --> in_progress: AI 開始實作
     in_progress --> done: 測試全部通過
+    done --> deployed: 部署成功
+    deployed --> monitoring: 持續監控
+    monitoring --> draft: 監控告警（閉環回饋）
     done --> draft: 需求變更
     approved --> draft: 需求變更
     in_progress --> draft: 需求變更
 ```
+
+## 閉環部署流程
+
+```mermaid
+graph TD
+    A[程式碼推送] --> B{CI 檢查}
+    B -->|Spec 未 approved| X[❌ 阻擋部署]
+    B -->|測試失敗| X
+    B -->|全部通過| C[部署到 staging]
+    C --> D[健康檢查]
+    D -->|失敗| E[自動 rollback]
+    E --> F[自動建立 intake 問題回報]
+    D -->|通過| G[👤 人類審核]
+    G -->|通過| H[部署到 prod]
+    H --> I[持續監控]
+    I -->|異常告警| F
+    F --> J[回到需求驅動流程]
+    I -->|正常| K[✅ 持續運行]
+```
+
+## 部署環境
+
+| 環境 | 自動部署 | 需人工審核 | 回饋迴路 |
+|------|---------|-----------|---------|
+| dev | 每次 push | 否 | 可選 |
+| staging | PR 合併 | 否 | 啟用 |
+| prod | 手動觸發 | **是** | **必須啟用** |

@@ -65,6 +65,23 @@ done → draft (requirement change via /iterate)
 - When generating technical artifacts: be precise, structured, and comprehensive.
 - Always confirm understanding before proceeding with translation.
 
+### 8. Deployment & Feedback Loop
+
+- **MUST** verify spec status is `approved` or later before allowing deployment.
+- **MUST** run all tests and health checks before promoting to any environment.
+- **MUST** automatically rollback on health check failure — never leave a broken deployment running.
+- **MUST** create a new intake item in `intake/raw/` when deployment fails or monitoring alerts fire. This is the closed-loop mechanism.
+- **MUST** deduplicate monitoring alerts within a 30-minute window to avoid intake flooding.
+- **MUST NOT** deploy to production without explicit human approval.
+- **MUST NOT** auto-resolve production incidents. Always route through the full demand-driven cycle (intake → translate → review → implement).
+- **MUST** escalate if the same monitoring alert fires 3+ times within 24 hours.
+
+### 9. Infrastructure Changes
+
+- Infrastructure changes (Terraform, Docker, CI/CD) **MUST** follow the same spec-driven process as application code.
+- **MUST NOT** modify infrastructure without a corresponding approved spec or explicit human instruction.
+- All infrastructure is defined as code in `infra/` — no manual console changes.
+
 ## File Naming Conventions
 
 | Type | Pattern | Example |
@@ -76,3 +93,4 @@ done → draft (requirement change via /iterate)
 | Conflict | `conflicts/CONFLICT-{NNN}.md` | `conflicts/CONFLICT-001.md` |
 | Review | `reviews/REVIEW-{feature-slug}-{date}.md` | `reviews/REVIEW-user-search-2026-04-04.md` |
 | Persona | `personas/{role-slug}.md` | `personas/admin.md` |
+| Auto-intake | `intake/raw/YYYY-MM-DD-auto-{alert}.md` | `intake/raw/2026-04-04-auto-high-error-rate.md` |

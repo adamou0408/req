@@ -53,14 +53,27 @@ These are the **inviolable principles** of this project. All AI agents, all proc
   4. AI re-implements as needed
 - There is no penalty or friction for changing requirements.
 
+## Principle 6: Closed-Loop Feedback
+
+> Production issues automatically become new requirements.
+
+- The system forms a complete loop: intake → develop → deploy → monitor → feedback → intake.
+- When monitoring detects an issue in production (errors, latency, downtime):
+  1. The system automatically creates a new intake item
+  2. The issue goes through the standard demand-driven cycle
+  3. No production issue is lost or ignored
+- Failed deployments trigger automatic rollback AND create intake items.
+- The feedback loop ensures continuous improvement without manual incident reporting.
+
 ---
 
 ## Architectural Guardrails
 
 ### Process Integrity
-- The workflow stages (intake → translate → detect-conflicts → review → plan → implement → test) must be followed in order.
+- The workflow stages (intake → translate → detect-conflicts → review → plan → implement → test → deploy → monitor → feedback) must be followed in order.
 - No stage may be skipped.
 - Each stage's output is the next stage's input.
+- The feedback stage loops back to intake, completing the closed loop.
 
 ### Data Integrity
 - Raw inputs in `intake/raw/` are **immutable** once committed. They serve as the historical record.
@@ -71,3 +84,16 @@ These are the **inviolable principles** of this project. All AI agents, all proc
 - Every implementation must have corresponding automated tests.
 - Tests must map to acceptance criteria in the spec.
 - Test failures block deployment and trigger auto-fix cycles.
+
+### Deployment Integrity
+- Infrastructure is defined as code in `infra/` — no manual changes.
+- CI pipeline enforces spec gates: code cannot merge without approved specs.
+- Deployment to production requires explicit human approval (GitHub Environment protection).
+- Failed deployments auto-rollback and create feedback intake items.
+- All environments (dev, staging, prod) are defined declaratively in `infra/terraform/environments/`.
+
+### Feedback Loop Integrity
+- Monitoring alerts with `feedback_loop: true` automatically generate intake items.
+- Duplicate alerts within 30 minutes are deduplicated to prevent intake flooding.
+- Escalation triggers if the same alert fires 3+ times in 24 hours.
+- Auto-generated intake items are clearly marked as `source: monitoring-feedback-loop`.
