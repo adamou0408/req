@@ -45,6 +45,7 @@ async def init_db() -> None:
     import app.core.models  # noqa: F401
     import app.mrp.models  # noqa: F401
     import app.dashboards.quality_dashboard  # noqa: F401
+    import app.etl.models  # noqa: F401
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

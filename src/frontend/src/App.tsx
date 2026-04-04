@@ -14,6 +14,11 @@ import PMDashboard from './pages/dashboards/PMDashboard';
 import QualityDashboard from './pages/dashboards/QualityDashboard';
 import SyncDashboard from './pages/dashboards/SyncDashboard';
 import SyncConfigList from './pages/sync/SyncConfigList';
+import PipelineList from './pages/etl/PipelineList';
+import ReportList from './pages/bi/ReportList';
+import ReportBuilder from './pages/bi/ReportBuilder';
+import DashboardList from './pages/bi/DashboardList';
+import DashboardBuilder from './pages/bi/DashboardBuilder';
 
 const App: React.FC = () => {
   return (
@@ -39,6 +44,13 @@ const App: React.FC = () => {
         <Route path="dashboards/quality" element={<QualityDashboard />} />
         <Route path="dashboards/sync" element={<SyncDashboard />} />
         <Route path="sync/config" element={<SyncConfigList />} />
+        <Route path="etl/pipelines" element={<PipelineList />} />
+        <Route path="bi/reports" element={<ReportList />} />
+        <Route path="bi/reports/new" element={<ReportBuilder />} />
+        <Route path="bi/reports/:id" element={<ReportBuilder />} />
+        <Route path="bi/dashboards" element={<DashboardList />} />
+        <Route path="bi/dashboards/new" element={<DashboardBuilder />} />
+        <Route path="bi/dashboards/:id" element={<DashboardBuilder />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

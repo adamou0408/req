@@ -15,6 +15,9 @@ import {
   FundProjectionScreenOutlined,
   ExperimentOutlined,
   SyncOutlined,
+  BarChartOutlined,
+  LineChartOutlined,
+  BuildOutlined,
 } from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -73,6 +76,16 @@ const MainLayout: React.FC = () => {
         { key: '/dashboards/sync', icon: <SyncOutlined />, label: '同步監控' },
       ],
     },
+    {
+      key: 'analytics',
+      icon: <BarChartOutlined />,
+      label: '資料分析',
+      children: [
+        { key: '/etl/pipelines', icon: <BuildOutlined />, label: 'ETL Pipeline' },
+        { key: '/bi/reports', icon: <LineChartOutlined />, label: 'BI 報表' },
+        { key: '/bi/dashboards', icon: <BarChartOutlined />, label: '自訂 Dashboard' },
+      ],
+    },
   ];
 
   const userMenuItems = [
@@ -99,6 +112,9 @@ const MainLayout: React.FC = () => {
     if (path.startsWith('/dashboards/pm')) return '/dashboards/pm';
     if (path.startsWith('/dashboards/quality')) return '/dashboards/quality';
     if (path.startsWith('/dashboards/sync')) return '/dashboards/sync';
+    if (path.startsWith('/etl/pipelines')) return '/etl/pipelines';
+    if (path.startsWith('/bi/reports')) return '/bi/reports';
+    if (path.startsWith('/bi/dashboards')) return '/bi/dashboards';
     return '/dashboard';
   };
 

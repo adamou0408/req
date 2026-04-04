@@ -333,6 +333,107 @@ function createMockInterceptor(instance: AxiosInstance) {
       return config;
     }
 
+    // ETL Pipelines
+    if (url.match(/\/etl\/pipelines\/[^/]+\/run/) && method === 'POST') {
+      config.adapter = () => mockResponse({ status: 'success', rows: 1250, duration_ms: 3420 });
+      return config;
+    }
+    if (url.match(/\/etl\/pipelines\/[^/]+\/history/)) {
+      config.adapter = () => mockResponse([]);
+      return config;
+    }
+    if (url.match(/\/etl\/pipelines\/?$/) && method === 'GET') {
+      config.adapter = () => mockResponse([
+        { id: 'pipe-001', name: '庫存資料同步', source_datasource_id: 'ds-001', source_table: 'ina_file', target_table: 'inventory_records', transform_config: { select_columns: ['ima_part_no', 'ima_on_hand', 'ima_safety_stk'] }, cron_expression: '0 */2 * * *', is_active: true, last_run_at: '2026-04-04T06:00:00Z', last_run_status: 'success', last_run_duration_ms: 3420, last_run_rows: 125000, created_by: 'demo-001', created_at: '2026-03-20T10:00:00Z', updated_at: '2026-04-04T06:00:00Z' },
+        { id: 'pipe-002', name: 'BOM 結構匯入', source_datasource_id: 'ds-001', source_table: 'bma_file', target_table: 'bom_records', transform_config: { select_columns: ['bma_parent', 'bma_child', 'bma_qty'] }, cron_expression: '0 6 * * *', is_active: true, last_run_at: '2026-04-04T06:00:00Z', last_run_status: 'success', last_run_duration_ms: 8920, last_run_rows: 450000, created_by: 'demo-001', created_at: '2026-03-22T08:00:00Z', updated_at: '2026-04-04T06:00:00Z' },
+        { id: 'pipe-003', name: '測試數據匯入', source_datasource_id: 'ds-002', source_table: 'test_results', target_table: 'test_records', transform_config: { select_columns: ['batch_id', 'yield_rate', 'total_units'] }, cron_expression: '30 * * * *', is_active: true, last_run_at: '2026-04-04T07:30:00Z', last_run_status: 'running', last_run_duration_ms: null, last_run_rows: null, created_by: 'demo-001', created_at: '2026-03-25T14:00:00Z', updated_at: '2026-04-04T07:30:00Z' },
+      ]);
+      return config;
+    }
+    if (url.match(/\/etl\/pipelines\/?$/) && method === 'POST') {
+      const body = config.data ? JSON.parse(config.data as string) : {};
+      config.adapter = () => mockResponse({ id: `pipe-${Date.now()}`, ...body, is_active: true, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      return config;
+    }
+
+    // ETL Reports
+    if (url.match(/\/etl\/reports\/tables/)) {
+      config.adapter = () => mockResponse(['inventory_records', 'mrp_results', 'demand_records', 'test_results', 'product_combos']);
+      return config;
+    }
+    if (url.match(/\/etl\/reports\/[^/]+\/execute/) && method === 'POST') {
+      config.adapter = () => mockResponse({
+        columns: ['product_model', 'quantity'],
+        data: [
+          { product_model: 'PS5021+YMTC 1TB', quantity: 15200 },
+          { product_model: 'PS5021+Kioxia 512G', quantity: 8700 },
+          { product_model: 'PS5026+SK 1TB', quantity: 4200 },
+          { product_model: 'PS5026+YMTC 1TB', quantity: 2100 },
+        ],
+        row_count: 4,
+        sql_preview: 'SELECT "product_model", SUM("quantity") AS "quantity" FROM "inventory_records" GROUP BY "product_model" LIMIT 1000',
+      });
+      return config;
+    }
+    if (url.match(/\/etl\/reports\/[^/]+\/share/) && method === 'POST') {
+      config.adapter = () => mockResponse({ status: 'shared' });
+      return config;
+    }
+    if (url.match(/\/etl\/reports\/[^/]+\/approve-share/) && method === 'POST') {
+      config.adapter = () => mockResponse({ status: 'approved' });
+      return config;
+    }
+    if (url.match(/\/etl\/reports\/?$/) && method === 'GET') {
+      config.adapter = () => mockResponse([
+        { id: 'rpt-001', name: '庫存分佈圖', source_table: 'inventory_records', chart_type: 'bar', config: { x_axis: 'warehouse', y_axis: 'quantity', aggregation: 'SUM' }, is_shared: true, share_approved: true, created_by: 'demo-001', created_at: '2026-03-28T10:00:00Z', updated_at: '2026-04-03T15:00:00Z' },
+        { id: 'rpt-002', name: '良率趨勢', source_table: 'test_results', chart_type: 'line', config: { x_axis: 'test_date', y_axis: 'yield_rate', aggregation: 'AVG' }, is_shared: false, share_approved: false, created_by: 'demo-001', created_at: '2026-03-30T09:00:00Z', updated_at: '2026-04-02T11:00:00Z' },
+        { id: 'rpt-003', name: '產品組合佔比', source_table: 'product_combos', chart_type: 'pie', config: { x_axis: 'controller_model', y_axis: 'target_ratio', aggregation: 'SUM' }, is_shared: true, share_approved: false, created_by: 'demo-001', created_at: '2026-04-01T08:00:00Z', updated_at: '2026-04-01T08:00:00Z' },
+        { id: 'rpt-004', name: 'MRP 需求明細', source_table: 'mrp_results', chart_type: 'table', config: { x_axis: 'part_no', y_axis: 'net_requirement' }, is_shared: false, share_approved: false, created_by: 'demo-001', created_at: '2026-04-02T14:00:00Z', updated_at: '2026-04-02T14:00:00Z' },
+      ]);
+      return config;
+    }
+    if (url.match(/\/etl\/reports\/?$/) && method === 'POST') {
+      const body = config.data ? JSON.parse(config.data as string) : {};
+      config.adapter = () => mockResponse({ id: `rpt-${Date.now()}`, ...body, is_shared: false, share_approved: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      return config;
+    }
+
+    // ETL Dashboards
+    if (url.match(/\/etl\/dashboards\/[^/]+\/export\/pdf/)) {
+      config.adapter = () => mockResponse('<html><body><h1>Dashboard PDF Export</h1></body></html>');
+      return config;
+    }
+    if (url.match(/\/etl\/dashboards\/[^/]+\/schedule-email/) && method === 'POST') {
+      config.adapter = () => mockResponse({ status: 'scheduled' });
+      return config;
+    }
+    if (url.match(/\/etl\/dashboards\/[^/]+\/share/) && method === 'POST') {
+      config.adapter = () => mockResponse({ status: 'shared' });
+      return config;
+    }
+    if (url.match(/\/etl\/dashboards\/[^/]+/) && method === 'GET') {
+      config.adapter = () => mockResponse({
+        id: 'dash-001', name: '生產總覽儀表板', description: '即時生產與庫存狀態', layout: [
+          { report_id: 'rpt-001', x: 0, y: 0, w: 6, h: 4 },
+          { report_id: 'rpt-002', x: 6, y: 0, w: 6, h: 4 },
+        ], refresh_interval_seconds: 300, is_shared: true, share_approved: true,
+        reports_data: [],
+      });
+      return config;
+    }
+    if (url.match(/\/etl\/dashboards\/?$/) && method === 'GET') {
+      config.adapter = () => mockResponse([
+        { id: 'dash-001', name: '生產總覽儀表板', description: '即時生產與庫存狀態', layout: [{ report_id: 'rpt-001', x: 0, y: 0, w: 6, h: 4 }, { report_id: 'rpt-002', x: 6, y: 0, w: 6, h: 4 }], refresh_interval_seconds: 300, is_shared: true, share_approved: true, created_by: 'demo-001', created_at: '2026-04-01T10:00:00Z', updated_at: '2026-04-04T06:00:00Z' },
+        { id: 'dash-002', name: '品質監控面板', description: '良率與測試結果追蹤', layout: [{ report_id: 'rpt-002', x: 0, y: 0, w: 12, h: 5 }, { report_id: 'rpt-003', x: 0, y: 5, w: 6, h: 4 }], refresh_interval_seconds: 60, is_shared: false, share_approved: false, created_by: 'demo-001', created_at: '2026-04-02T14:00:00Z', updated_at: '2026-04-03T09:00:00Z' },
+      ]);
+      return config;
+    }
+    if (url.match(/\/etl\/dashboards\/?$/) && method === 'POST') {
+      const body = config.data ? JSON.parse(config.data as string) : {};
+      config.adapter = () => mockResponse({ id: `dash-${Date.now()}`, ...body, is_shared: false, share_approved: false, created_at: new Date().toISOString(), updated_at: new Date().toISOString() });
+      return config;
+    }
+
     // Default fallback for unhandled routes
     config.adapter = () => mockResponse([]);
     return config;

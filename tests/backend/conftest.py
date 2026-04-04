@@ -16,15 +16,26 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.database import Base, get_db
 from app.core.security import get_current_user
+
+# Import all models so Base.metadata knows about every table
+import app.core.models  # noqa: F401
+import app.mrp.models  # noqa: F401
+import app.etl.models  # noqa: F401
+import app.dashboards.quality_dashboard  # noqa: F401
+
 from app.main import app
 
 # ---------------------------------------------------------------------------
 # Test database - in-memory SQLite via aiosqlite
 # ---------------------------------------------------------------------------
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+TEST_DATABASE_URL = "sqlite+aiosqlite:///test.db"
 
-test_engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+test_engine = create_async_engine(
+    TEST_DATABASE_URL,
+    echo=False,
+    connect_args={"check_same_thread": False},
+)
 test_session_factory = async_sessionmaker(
     bind=test_engine,
     class_=AsyncSession,
@@ -82,20 +93,26 @@ app.dependency_overrides[get_current_user] = _override_get_current_user
 # ---------------------------------------------------------------------------
 
 
+# Fix BigInteger for SQLite once at import time
+for _table in Base.metadata.tables.values():
+    for _col in _table.columns:
+        if isinstance(_col.type, BigInteger):
+            _col.type = Integer()
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _setup_database() -> AsyncIterator[None]:
-    """Create all tables before each test and drop them afterwards."""
-    # Replace BigInteger with Integer for SQLite compatibility
-    for table in Base.metadata.tables.values():
-        for column in table.columns:
-            if isinstance(column.type, BigInteger):
-                column.type = Integer()
-
+    """Create all tables before each test, clean up after."""
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
+    # Delete all data (keep tables for next test)
     async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        for table in reversed(Base.metadata.sorted_tables):
+            try:
+                await conn.execute(table.delete())
+            except Exception:
+                pass
 
 
 @pytest_asyncio.fixture
