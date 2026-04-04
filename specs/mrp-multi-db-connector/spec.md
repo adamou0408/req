@@ -1,6 +1,6 @@
 # 跨部門資料整合平台（MRP Multi-DB Connector）
 
-## 狀態：`approved`
+## 狀態：`in-progress`
 
 ## 來源追溯
 - 原始需求：[intake/raw/2026-04-04-mrp-multi-db-connector.md](../../intake/raw/2026-04-04-mrp-multi-db-connector.md)
