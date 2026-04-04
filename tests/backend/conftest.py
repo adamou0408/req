@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import BigInteger, Integer, event
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -29,6 +30,14 @@ test_session_factory = async_sessionmaker(
     class_=AsyncSession,
     expire_on_commit=False,
 )
+
+
+# SQLite does not support BigInteger autoincrement the same way as PostgreSQL.
+# Swap BigInteger -> Integer at DDL time so that autoincrement works.
+@event.listens_for(Base.metadata, "column_reflect")
+def _fix_bigint(inspector, table, column_info):
+    if isinstance(column_info.get("type"), BigInteger):
+        column_info["type"] = Integer()
 
 
 async def _override_get_db() -> AsyncIterator[AsyncSession]:
@@ -76,6 +85,12 @@ app.dependency_overrides[get_current_user] = _override_get_current_user
 @pytest_asyncio.fixture(autouse=True)
 async def _setup_database() -> AsyncIterator[None]:
     """Create all tables before each test and drop them afterwards."""
+    # Replace BigInteger with Integer for SQLite compatibility
+    for table in Base.metadata.tables.values():
+        for column in table.columns:
+            if isinstance(column.type, BigInteger):
+                column.type = Integer()
+
     async with test_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield

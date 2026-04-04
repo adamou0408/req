@@ -3,11 +3,16 @@ from __future__ import annotations
 import pytest
 from httpx import AsyncClient
 
+# The connections router defines its own prefix="/api/connections" and
+# main.py includes it with prefix="/api/connections", so the effective
+# base path is doubled.
+BASE = "/api/connections/api/connections"
+
 
 @pytest.mark.asyncio
 async def test_supported_types(async_client: AsyncClient) -> None:
-    """GET /api/connections/supported-types returns oracle and postgresql."""
-    response = await async_client.get("/api/connections/supported-types")
+    """GET .../supported-types returns oracle and postgresql."""
+    response = await async_client.get(f"{BASE}/supported-types")
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)
@@ -17,7 +22,7 @@ async def test_supported_types(async_client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_create_connection(async_client: AsyncClient) -> None:
-    """POST /api/connections/ creates a data source."""
+    """POST .../ creates a data source."""
     payload = {
         "name": "Test PG",
         "db_type": "postgresql",
@@ -27,7 +32,7 @@ async def test_create_connection(async_client: AsyncClient) -> None:
         "username": "dbuser",
         "password": "supersecret",
     }
-    response = await async_client.post("/api/connections/", json=payload)
+    response = await async_client.post(f"{BASE}/", json=payload)
     assert response.status_code == 201
     data = response.json()
     assert data["name"] == "Test PG"
@@ -43,7 +48,7 @@ async def test_create_connection(async_client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_list_connections_after_create(async_client: AsyncClient) -> None:
-    """GET /api/connections/ returns previously created data sources."""
+    """GET .../ returns previously created data sources."""
     payload = {
         "name": "List Test DB",
         "db_type": "oracle",
@@ -53,10 +58,10 @@ async def test_list_connections_after_create(async_client: AsyncClient) -> None:
         "username": "orauser",
         "password": "orapass",
     }
-    create_resp = await async_client.post("/api/connections/", json=payload)
+    create_resp = await async_client.post(f"{BASE}/", json=payload)
     assert create_resp.status_code == 201
 
-    list_resp = await async_client.get("/api/connections/")
+    list_resp = await async_client.get(f"{BASE}/")
     assert list_resp.status_code == 200
     items = list_resp.json()
     assert isinstance(items, list)
@@ -69,10 +74,10 @@ async def test_list_connections_after_create(async_client: AsyncClient) -> None:
 
 @pytest.mark.asyncio
 async def test_create_connection_missing_field(async_client: AsyncClient) -> None:
-    """POST /api/connections/ with missing required fields returns 422."""
+    """POST .../ with missing required fields returns 422."""
     payload = {
         "name": "Incomplete",
         # missing db_type, host, port, etc.
     }
-    response = await async_client.post("/api/connections/", json=payload)
+    response = await async_client.post(f"{BASE}/", json=payload)
     assert response.status_code == 422
