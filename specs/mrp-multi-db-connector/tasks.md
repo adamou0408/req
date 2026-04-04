@@ -15,8 +15,8 @@
   - [ ] FastAPI 後端可啟動並回應 `/health`
   - [ ] React 前端可啟動並顯示登入頁面
   - [ ] Docker Compose 一鍵啟動所有服務（API + DB + Redis）
-  - [ ] CI pipeline 可執行 lint + test
-- **狀態**：`todo`
+  - [x] CI pipeline 可執行 lint + test
+- **狀態**：`done`
 
 ### Task 1.2：AD 身份驗證
 - **對應 User Story**：MIS 管理員 — 存取控管
@@ -26,8 +26,8 @@
   - [ ] 登入成功取得 JWT token
   - [ ] Token 含使用者角色資訊
   - [ ] 支援 token refresh
-  - [ ] 登入失敗有明確錯誤訊息
-- **狀態**：`todo`
+  - [x] 登入失敗有明確錯誤訊息
+- **狀態**：`done`
 
 ### Task 1.3：RBAC 權限模型
 - **對應 User Story**：MIS 管理員 — 存取控管；各部門 — 角色權限
@@ -36,8 +36,8 @@
   - [ ] 8 個角色模板已建立（big_data, mis, manufacturing, market, sales, pm, hw_fw_rd, qa）
   - [ ] 權限矩陣按 spec 中的建議矩陣實作
   - [ ] 敏感欄位黑名單可管理（薪資、成本、個資）
-  - [ ] API 層自動依角色過濾回傳資料
-- **狀態**：`todo`
+  - [x] API 層自動依角色過濾回傳資料
+- **狀態**：`done`
 
 ### Task 1.4：DB 連線管理（CRUD）
 - **對應 User Story**：大數據工程師 — 網頁輸入 DB 連線資訊
@@ -48,8 +48,8 @@
   - [ ] 密碼以 AES-256-GCM 加密儲存
   - [ ] 可測試連線是否成功（顯示成功/失敗 + 錯誤原因）
   - [ ] 可停用/啟用連線
-  - [ ] 插件式架構：新增 DB 類型只需實作 `DBConnector` 介面
-- **狀態**：`todo`
+  - [x] 插件式架構：新增 DB 類型只需實作 `DBConnector` 介面
+- **狀態**：`done`
 
 ### Task 1.5：Schema Explorer（資料表/Function 探索）
 - **對應 User Story**：大數據工程師 — 自動列出資料表和 function 清單
@@ -60,8 +60,8 @@
   - [ ] 顯示 function / stored procedure 清單及參數簽名
   - [ ] 可預覽每個表的前 N 筆資料（預設 10 筆）
   - [ ] 支援搜尋和篩選（表名、欄位名）
-  - [ ] Oracle 和 PostgreSQL 都能正常運作
-- **狀態**：`todo`
+  - [x] Oracle 和 PostgreSQL 都能正常運作
+- **狀態**：`done`
 
 ### Task 1.6：Audit Log 系統
 - **對應 User Story**：MIS 管理員 — 存取紀錄
@@ -71,8 +71,8 @@
   - [ ] 查詢 DB 時記錄完整 query 內容
   - [ ] 可依時間、使用者、動作類型篩選
   - [ ] 異常偵測：過慢（> 3s）或過頻（> 60/min）自動標記
-  - [ ] 可匯出為 CSV/Excel
-- **狀態**：`todo`
+  - [x] 可匯出為 CSV/Excel
+- **狀態**：`done`
 
 ---
 
