@@ -76,7 +76,7 @@ const DashboardBuilder: React.FC = () => {
         name: dashboardName,
         description: description || undefined,
         layout,
-        refresh_interval_seconds: autoRefresh ? refreshInterval : undefined,
+        refresh_interval_seconds: autoRefresh && refreshInterval ? refreshInterval : undefined,
       };
       if (id) {
         return updateDashboard(id, payload);
