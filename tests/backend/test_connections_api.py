@@ -10,9 +10,9 @@ async def test_supported_types(async_client: AsyncClient) -> None:
     response = await async_client.get("/api/connections/supported-types")
     assert response.status_code == 200
     data = response.json()
-    assert "types" in data
-    assert "oracle" in data["types"]
-    assert "postgresql" in data["types"]
+    assert isinstance(data, list)
+    assert "oracle" in data
+    assert "postgresql" in data
 
 
 @pytest.mark.asyncio
@@ -36,8 +36,8 @@ async def test_create_connection(async_client: AsyncClient) -> None:
     assert data["port"] == 5432
     assert data["username"] == "dbuser"
     assert data["is_active"] is True
-    # The response model should NOT include encrypted_password or plain password
-    assert "password" not in data
+    # The response must mask the password and never expose the encrypted bytes
+    assert data.get("password") == "********"
     assert "encrypted_password" not in data
 
 
@@ -63,7 +63,7 @@ async def test_list_connections_after_create(async_client: AsyncClient) -> None:
     assert len(items) >= 1
     # Verify no password leakage in list response
     for item in items:
-        assert "password" not in item
+        assert item.get("password") == "********"
         assert "encrypted_password" not in item
 
 
