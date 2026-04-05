@@ -14,8 +14,8 @@ NC='\033[0m'
 errors=0
 warnings=0
 
-log_error() { echo -e "${RED}[ERROR]${NC} $1"; ((errors++)); }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; ((warnings++)); }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; errors=$((errors + 1)); }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; warnings=$((warnings + 1)); }
 log_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
 
 if [ $# -eq 0 ]; then
@@ -81,6 +81,46 @@ if grep -q '開放問題\|Open Questions' "$SPEC_FILE"; then
     open_questions=$(grep -c '\- \[ \]' "$SPEC_FILE" 2>/dev/null || echo "0")
     if [ "$open_questions" -gt 0 ]; then
         log_warn "$open_questions open items (checkboxes) remain"
+    fi
+fi
+
+# ── Review Checklist Consistency ──────────────
+FEATURE_SLUG=$(basename "$SPEC_DIR")
+SPEC_STATUS=$(grep -oP '`(draft|in-review|approved|in-progress|done)`' "$SPEC_FILE" | head -1 | tr -d '`')
+
+# Find corresponding review file
+REVIEW_FILE=$(find reviews/ -name "REVIEW-${FEATURE_SLUG}-*" -type f 2>/dev/null | head -1)
+
+if [ -n "$REVIEW_FILE" ]; then
+    log_ok "Review file found: $REVIEW_FILE"
+
+    # Check review result
+    REVIEW_RESULT=$(grep -oP '結果.*`\K(approved|rejected)' "$REVIEW_FILE" 2>/dev/null || echo "")
+
+    if [ "$SPEC_STATUS" = "approved" ] || [ "$SPEC_STATUS" = "in-progress" ] || [ "$SPEC_STATUS" = "done" ]; then
+        if [ "$REVIEW_RESULT" != "approved" ]; then
+            log_error "Spec is '$SPEC_STATUS' but review result is not 'approved'"
+        else
+            log_ok "Review result matches spec status"
+        fi
+
+        # Check for unchecked items in an approved review
+        UNCHECKED=$(grep -c '\- \[ \]' "$REVIEW_FILE" 2>/dev/null; true)
+        UNCHECKED=${UNCHECKED:-0}
+        if [ "$UNCHECKED" -gt 0 ] 2>/dev/null; then
+            log_error "Review is approved but has $UNCHECKED unchecked items — checklist is inconsistent"
+        else
+            log_ok "All review checklist items are checked"
+        fi
+    fi
+
+    # Check reviewer is filled in
+    if grep -q '審核者.*待填' "$REVIEW_FILE" 2>/dev/null; then
+        log_warn "Reviewer name is still '待填' (not filled in)"
+    fi
+else
+    if [ "$SPEC_STATUS" = "approved" ] || [ "$SPEC_STATUS" = "in-progress" ] || [ "$SPEC_STATUS" = "done" ]; then
+        log_warn "Spec is '$SPEC_STATUS' but no review file found in reviews/"
     fi
 fi
 

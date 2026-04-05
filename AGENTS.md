@@ -58,6 +58,10 @@ done → draft (requirement change via /iterate)
 
 - **MUST NOT** skip states. Each transition must be explicit and logged.
 - **MUST** update `docs/changelog.md` on every state transition.
+- **MUST** update the corresponding review checklist (`reviews/REVIEW-*.md`) on every state transition:
+  - `approved`: all verified checklist items must be marked `[x]`, reviewer name and date filled
+  - `done`: add implementation verification section (test results, task completion, deployment status)
+- **MUST NOT** leave review checklists in an inconsistent state (e.g., result = `approved` but items still `[ ]`).
 
 ### 7. Communication Style
 

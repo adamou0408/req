@@ -21,14 +21,23 @@ Generate a human-readable review checklist for a spec pending approval.
 3. Save the review checklist to `reviews/REVIEW-{feature-slug}-{date}.md` using the template from `reviews/_template.md`.
 4. Present the checklist to the human reviewer in a clear, readable format.
 5. Upon human approval:
+   - **MUST** update ALL checklist items to `[x]` that have been verified
+   - **MUST** leave items as `[ ]` if they were NOT verified and add a note explaining why
+   - **MUST** fill in the reviewer name and date
    - Update `spec.md` status from `in-review` to `approved`
    - Log the approval in `docs/changelog.md`
 6. Upon rejection:
-   - Note the feedback
+   - Note the feedback on the specific checklist items that failed
    - Reset `spec.md` status to `draft`
    - Summarize what needs to change
+7. Post-implementation verification:
+   - When spec status transitions to `done`, **MUST** re-verify the review checklist
+   - Add an "Implementation Verification" section with actual test results, task completion status, and deployment status
+   - Update any checklist items whose status changed during implementation
 
 ## Constraints
 - The review checklist must be understandable by non-technical stakeholders.
 - Do not auto-approve. Always wait for explicit human confirmation.
 - Specs with unresolved conflicts (`detected` or `under-discussion`) cannot be approved.
+- **NEVER** leave a review in an inconsistent state: if the result is `approved`, all verified items must be `[x]`.
+- **NEVER** transition spec to `done` without updating the review checklist to reflect final status.
