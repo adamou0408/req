@@ -39,9 +39,16 @@ Provide an initial assessment:
 - Related existing specs (if any)
 - Suggested priority
 
-### 5. Route to Next Step
-- For **critical** issues: immediately notify and recommend `/translate` → fast-track review
-- For **warning** issues: create intake and recommend standard `/translate` flow
+### 5. Post-Mortem (for critical and staging/prod failures)
+- For **critical** issues or deployment failures:
+  - Create a post-mortem record in `docs/postmortems/YYYY-MM-DD-{slug}.md` using the template
+  - Pre-fill: event date, severity, timeline, related spec/intake links
+  - The 5 Whys analysis and lessons learned sections are left for human completion
+- Post-mortems are informational — they don't block the pipeline but are mandatory for production incidents
+
+### 6. Route to Next Step
+- For **critical** issues: immediately notify + create post-mortem + recommend `/research` → `/translate` → fast-track review
+- For **warning** issues: create intake and recommend standard `/research` → `/translate` flow
 - For **info** issues: create intake, batch for next review cycle
 
 ## Constraints
@@ -55,7 +62,7 @@ Provide an initial assessment:
 This command completes the feedback loop:
 
 ```
-Deploy → Monitor → Alert → /feedback → intake/ → /translate → spec → /review → /implement → Deploy → ...
+Deploy → Monitor → Alert → /feedback → post-mortem + intake/ → /research → /translate → spec → /review → /implement → Deploy → ...
 ```
 
 Every production issue is treated as a new requirement, ensuring continuous improvement.

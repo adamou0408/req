@@ -1,0 +1,55 @@
+name: "🐛 問題回報"
+description: "回報系統問題或錯誤"
+title: "[問題] "
+labels: ["intake", "bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 謝謝你回報問題！請盡量描述發生了什麼事。
+  - type: input
+    id: who
+    attributes:
+      label: "回報人"
+      placeholder: "你的名字或部門"
+    validations:
+      required: true
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: "緊急程度"
+      options:
+        - 不急，但要記錄
+        - 普通
+        - 很急，影響工作
+        - 非常緊急，系統無法使用
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: "發生了什麼事？"
+      placeholder: "描述你遇到的問題"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: "你本來預期會怎樣？"
+      placeholder: "正常情況下應該是什麼結果"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "怎麼重現？"
+      placeholder: "1. 先做...\n2. 然後...\n3. 就會看到..."
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: "截圖或畫面"
+      description: "可以直接拖曳圖片到這裡"
+    validations:
+      required: false
