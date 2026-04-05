@@ -20,8 +20,10 @@ Handle requirement changes by analyzing impact, updating specs, and managing the
    - New conflicts that may arise from the change
    - Estimated scope of rework
 4. For each affected spec:
+   - Increment the spec version in the version history table (e.g., v1.0 → v1.1 for minor, v2.0 for major)
    - Update the `spec.md` with change markers (clearly showing what changed and why)
    - Reset the spec status to `draft` or `in-review` as appropriate
+   - Update dependency references if affected specs have downstream dependents
    - Add a changelog entry in `docs/changelog.md`
 5. If new conflicts are detected, create conflict records in `conflicts/`.
 6. Present the impact analysis to the user and **wait for human approval** before proceeding to re-implementation.

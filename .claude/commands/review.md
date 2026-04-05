@@ -17,7 +17,11 @@ Generate a human-readable review checklist for a spec pending approval.
    - [ ] No open questions remain unanswered
    - [ ] No overlap with existing approved features
    - [ ] Non-functional requirements are addressed
-   - [ ] Traceability to original intake is intact
+   - [ ] Security requirements are assessed (資料分類, 認證, 授權, 加密, 審計, 個資)
+   - [ ] Spec dependencies (前置需求) are valid and approved
+   - [ ] Success metrics are defined and measurable
+   - [ ] Spec owner and reviewer are assigned
+   - [ ] Traceability to original intake is intact (intake → research → spec)
 3. Save the review checklist to `reviews/REVIEW-{feature-slug}-{date}.md` using the template from `reviews/_template.md`.
 4. Present the checklist to the human reviewer in a clear, readable format.
 5. Upon human approval:

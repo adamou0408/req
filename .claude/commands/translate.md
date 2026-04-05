@@ -19,9 +19,14 @@ Translate raw, unstructured requirements from `intake/` into structured specs wi
 4. Create a new feature directory in `specs/{feature-slug}/`.
 5. Generate `spec.md` using the template from `specs/_template/spec.md`:
    - Set status to `draft`
-   - Link back to the source intake file
+   - Set version to `v1.0`
+   - Link back to the source intake file and `research.md`
+   - Assign spec ownership (Spec 擁有者 = intake submitter, or ask if unclear)
+   - Identify dependencies on existing specs (前置需求)
    - Include all User Stories and acceptance criteria
    - Include non-functional requirements if applicable
+   - Include security requirements assessment
+   - Include initial success metrics (suggest measurable goals)
    - List any open questions
 6. Automatically execute `/detect-conflicts` on the new spec.
 7. Report a summary to the user including:

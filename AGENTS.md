@@ -71,6 +71,14 @@ done → draft (requirement change via /iterate)
 - When generating technical artifacts: be precise, structured, and comprehensive.
 - Always confirm understanding before proceeding with translation.
 
+### 7a. Spec Ownership & Review SLA
+
+- Every spec **MUST** have a designated owner (Spec 擁有者) assigned during `/translate`.
+- Reviews **MUST** be completed within 2 business days of spec submission.
+- If the review deadline passes without action, **MUST** escalate to the technical lead.
+- When `/plan` is executed, **MUST** verify that all specs listed in "前置需求" (dependencies) have status `approved` or later.
+- If a dependency spec is not yet approved, **MUST** warn the user and wait for confirmation before proceeding.
+
 ### 8. Security & Compliance
 
 - **MUST** include a security assessment section in every `spec.md`, even if minimal.
