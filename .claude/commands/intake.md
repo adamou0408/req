@@ -15,7 +15,7 @@ Capture raw requirement input from any user and initiate the AI translation pipe
    - **Why?** (what problem does this solve, or what value does it bring)
 2. Save the response to `intake/raw/YYYY-MM-DD-{slug}.md` where `{slug}` is a short kebab-case summary of the request.
 3. Use the quick-idea template from `intake/templates/quick-idea.md` as the base format.
-4. Automatically trigger the `/translate` workflow on the newly created file.
+4. Automatically trigger the `/research` workflow on the newly created file (deduplication and feasibility check before translation).
 5. Confirm to the user: requirement received and processing has started.
 
 ## Constraints
@@ -26,4 +26,4 @@ Capture raw requirement input from any user and initiate the AI translation pipe
 ## Output
 - File created: `intake/raw/YYYY-MM-DD-{slug}.md`
 - Status message to user confirming receipt
-- Automatic handoff to `/translate`
+- Automatic handoff to `/research` (which proceeds to `/translate` if no duplicates found)
