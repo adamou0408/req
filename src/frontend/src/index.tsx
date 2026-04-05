@@ -31,7 +31,7 @@ root.render(
       }}
     >
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
+        <BrowserRouter basename="/req">
           <AuthProvider>
             <App />
           </AuthProvider>
