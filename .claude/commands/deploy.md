@@ -11,8 +11,12 @@ Deploy the application through the closed-loop pipeline, with spec gates, health
 
 ## Usage
 ```
-/deploy [environment]
+/deploy [project] [environment] [--target=aws|coolify]
 ```
+
+- `project`: Project name from `infra/coolify/projects.yml` (e.g., `mrp`, `erp`). Defaults to current repo's project.
+- `environment`: `dev`, `staging`, or `prod`
+- `--target`: Deployment target. `coolify` for on-premise, `aws` for cloud. Defaults to `coolify`.
 
 Where `environment` is one of: `dev`, `staging`, `prod`
 

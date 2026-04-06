@@ -1,0 +1,100 @@
+# Multi-Project Deployment Registry
+# 多專案部署註冊表
+#
+# 此檔案集中管理所有專案在 Coolify 中的部署設定。
+# CI/CD 流程會讀取此檔案來決定部署目標。
+#
+# 新增專案步驟：
+# 1. 在 Coolify Dashboard 建立 Project > Environment > Application
+# 2. 取得 Application UUID（在 Coolify UI 的 app 設定頁面）
+# 3. 在此檔案新增專案區塊
+# 4. 在 GitHub Secrets 中新增對應的 COOLIFY_API_TOKEN（如果不共用）
+
+# ──────────────────────────────────────
+# 全域設定
+# ──────────────────────────────────────
+coolify:
+  url: "${COOLIFY_URL}"  # 從 GitHub Secrets 讀取
+  api_token: "${COOLIFY_API_TOKEN}"
+
+# ──────────────────────────────────────
+# 專案列表
+# ──────────────────────────────────────
+projects:
+
+  mrp:
+    name: "MRP 系統"
+    repo: "adamou0408/mrp"
+    staging:
+      app_uuid: "${COOLIFY_MRP_STAGING_UUID}"
+      domain: "mrp-staging.yourcompany.com"
+      branch: "main"
+      health_check: "/health"
+      health_check_retries: 10
+      health_check_interval: 15  # seconds
+    production:
+      app_uuid: "${COOLIFY_MRP_PROD_UUID}"
+      domain: "mrp.yourcompany.com"
+      branch: "main"
+      health_check: "/health"
+      health_check_retries: 15
+      health_check_interval: 20
+      requires_approval: true
+      deploy_strategy: "canary"  # canary | rolling | blue-green
+
+  erp:
+    name: "ERP 系統"
+    repo: "adamou0408/erp"
+    staging:
+      app_uuid: "${COOLIFY_ERP_STAGING_UUID}"
+      domain: "erp-staging.yourcompany.com"
+      branch: "main"
+      health_check: "/api/health"
+      health_check_retries: 10
+      health_check_interval: 15
+    production:
+      app_uuid: "${COOLIFY_ERP_PROD_UUID}"
+      domain: "erp.yourcompany.com"
+      branch: "main"
+      health_check: "/api/health"
+      health_check_retries: 15
+      health_check_interval: 20
+      requires_approval: true
+      deploy_strategy: "rolling"
+
+  # ── 新增專案範例 ──────────────────────
+  # new-project:
+  #   name: "新專案名稱"
+  #   repo: "adamou0408/new-project"
+  #   staging:
+  #     app_uuid: "${COOLIFY_NEWPROJECT_STAGING_UUID}"
+  #     domain: "new-staging.yourcompany.com"
+  #     branch: "main"
+  #     health_check: "/health"
+  #     health_check_retries: 10
+  #     health_check_interval: 15
+  #   production:
+  #     app_uuid: "${COOLIFY_NEWPROJECT_PROD_UUID}"
+  #     domain: "new.yourcompany.com"
+  #     branch: "main"
+  #     health_check: "/health"
+  #     health_check_retries: 15
+  #     health_check_interval: 20
+  #     requires_approval: true
+  #     deploy_strategy: "canary"
+
+# ──────────────────────────────────────
+# 共用服務（部署在 Coolify 上）
+# ──────────────────────────────────────
+shared_services:
+  monitoring:
+    prometheus_uuid: "${COOLIFY_PROMETHEUS_UUID}"
+    grafana_uuid: "${COOLIFY_GRAFANA_UUID}"
+    alertmanager_uuid: "${COOLIFY_ALERTMANAGER_UUID}"
+
+# ──────────────────────────────────────
+# GitHub Secrets 清單（需在每個 repo 設定）
+# ──────────────────────────────────────
+# COOLIFY_URL                    - Coolify 實例 URL
+# COOLIFY_API_TOKEN              - Coolify API Token
+# COOLIFY_{PROJECT}_{ENV}_UUID   - 每個 app 的 UUID

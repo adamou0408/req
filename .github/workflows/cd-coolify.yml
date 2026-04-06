@@ -1,0 +1,269 @@
+# ──────────────────────────────────────────────
+# CD Pipeline — Coolify Multi-Project Deployment
+# ──────────────────────────────────────────────
+# Supports deploying multiple projects to Coolify.
+# Each project has its own staging + production environments.
+#
+# Trigger methods:
+#   1. Auto: push to main → deploy to staging
+#   2. Manual: workflow_dispatch → choose project + environment
+# ──────────────────────────────────────────────
+
+name: "CD — Coolify Deploy"
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      project:
+        description: "Project to deploy"
+        required: true
+        type: choice
+        options:
+          - mrp
+          - erp
+          # ← 新增專案時加在這裡
+      environment:
+        description: "Target environment"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+
+permissions:
+  contents: write
+
+jobs:
+  # ── Determine what to deploy ────────────────
+  prepare:
+    name: "🔍 Prepare Deployment"
+    runs-on: ubuntu-latest
+    outputs:
+      project: ${{ steps.config.outputs.project }}
+      environment: ${{ steps.config.outputs.environment }}
+      app_uuid: ${{ steps.config.outputs.app_uuid }}
+      health_url: ${{ steps.config.outputs.health_url }}
+      health_retries: ${{ steps.config.outputs.health_retries }}
+      health_interval: ${{ steps.config.outputs.health_interval }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine deployment target
+        id: config
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PROJECT="${{ github.event.inputs.project }}"
+            ENV="${{ github.event.inputs.environment }}"
+          else
+            # Auto-deploy: determine project from changed files
+            # Default to staging for auto-deploy
+            PROJECT="mrp"  # ← 調整為你的主要專案
+            ENV="staging"
+          fi
+
+          echo "project=${PROJECT}" >> "$GITHUB_OUTPUT"
+          echo "environment=${ENV}" >> "$GITHUB_OUTPUT"
+
+          # Map project + env to Coolify UUID
+          case "${PROJECT}-${ENV}" in
+            mrp-staging)
+              echo "app_uuid=${{ secrets.COOLIFY_MRP_STAGING_UUID }}" >> "$GITHUB_OUTPUT"
+              echo "health_url=https://mrp-staging.yourcompany.com/health" >> "$GITHUB_OUTPUT"
+              ;;
+            mrp-production)
+              echo "app_uuid=${{ secrets.COOLIFY_MRP_PROD_UUID }}" >> "$GITHUB_OUTPUT"
+              echo "health_url=https://mrp.yourcompany.com/health" >> "$GITHUB_OUTPUT"
+              ;;
+            erp-staging)
+              echo "app_uuid=${{ secrets.COOLIFY_ERP_STAGING_UUID }}" >> "$GITHUB_OUTPUT"
+              echo "health_url=https://erp-staging.yourcompany.com/api/health" >> "$GITHUB_OUTPUT"
+              ;;
+            erp-production)
+              echo "app_uuid=${{ secrets.COOLIFY_ERP_PROD_UUID }}" >> "$GITHUB_OUTPUT"
+              echo "health_url=https://erp.yourcompany.com/api/health" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "❌ Unknown project-environment: ${PROJECT}-${ENV}"
+              exit 1
+              ;;
+          esac
+
+          echo "health_retries=10" >> "$GITHUB_OUTPUT"
+          echo "health_interval=15" >> "$GITHUB_OUTPUT"
+
+          echo "📋 Deploying: ${PROJECT} → ${ENV}"
+
+  # ── Spec Gate (reuse from CI) ───────────────
+  spec-gate:
+    name: "🚪 Spec Gate"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check spec approval status
+        run: |
+          BLOCKED=false
+          for spec in specs/*/spec.md; do
+            [ -f "$spec" ] || continue
+            STATUS=$(grep -oP '## 狀態：\s*`\K[^`]+' "$spec" 2>/dev/null || echo "unknown")
+            if [ "$STATUS" = "draft" ] || [ "$STATUS" = "in-review" ]; then
+              echo "⚠️ $spec has status '$STATUS'"
+              BLOCKED=true
+            fi
+          done
+          if [ "$BLOCKED" = true ]; then
+            echo "::warning::Some specs are not approved"
+          fi
+          echo "✅ Spec gate check complete"
+
+  # ── Deploy to Staging ───────────────────────
+  deploy-staging:
+    name: "🚀 Deploy to Staging"
+    runs-on: ubuntu-latest
+    needs: [prepare, spec-gate]
+    if: needs.prepare.outputs.environment == 'staging'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via Coolify API
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_APP_UUID: ${{ needs.prepare.outputs.app_uuid }}
+          HEALTH_CHECK_URL: ${{ needs.prepare.outputs.health_url }}
+          HEALTH_RETRIES: ${{ needs.prepare.outputs.health_retries }}
+          HEALTH_INTERVAL: ${{ needs.prepare.outputs.health_interval }}
+        run: |
+          bash infra/coolify/deploy.sh \
+            "${{ needs.prepare.outputs.project }}" \
+            "${{ needs.prepare.outputs.environment }}"
+
+      - name: Feedback loop on failure
+        if: failure()
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          PROJECT="${{ needs.prepare.outputs.project }}"
+          INTAKE_FILE="intake/raw/${DATE}-auto-deploy-${PROJECT}-staging-failure.md"
+
+          cat > "$INTAKE_FILE" << EOF
+          # 🐛 自動問題回報（部署失敗）/ Auto Bug Report (Deploy Failure)
+
+          **回報人 / Reporter**：CD Pipeline（自動產生）
+          **回報日期 / Date**：${DATE}
+          **緊急程度 / Urgency**：很急 Critical
+
+          ## 發生了什麼事？ / What happened?
+          ${PROJECT} 的 staging 環境部署失敗，健康檢查未通過。
+
+          ## 部署資訊 / Deploy Info
+          - **Project**: ${PROJECT}
+          - **Environment**: staging
+          - **Commit**: ${{ github.sha }}
+          - **Branch**: ${{ github.ref_name }}
+          - **Workflow**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+
+          git config user.name "feedback-loop[bot]"
+          git config user.email "feedback-loop@noreply.github.com"
+          git add "$INTAKE_FILE"
+          git commit -m "feedback: auto-intake from ${PROJECT} staging deploy failure"
+          git push
+
+  # ── Deploy to Production (requires approval) ─
+  deploy-production:
+    name: "🏭 Deploy to Production"
+    runs-on: ubuntu-latest
+    needs: [prepare, spec-gate]
+    if: needs.prepare.outputs.environment == 'production'
+    environment:
+      name: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy via Coolify API
+        env:
+          COOLIFY_URL: ${{ secrets.COOLIFY_URL }}
+          COOLIFY_API_TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+          COOLIFY_APP_UUID: ${{ needs.prepare.outputs.app_uuid }}
+          HEALTH_CHECK_URL: ${{ needs.prepare.outputs.health_url }}
+          HEALTH_RETRIES: "15"
+          HEALTH_INTERVAL: "20"
+        run: |
+          bash infra/coolify/deploy.sh \
+            "${{ needs.prepare.outputs.project }}" \
+            "${{ needs.prepare.outputs.environment }}"
+
+      - name: Feedback loop + post-mortem on failure
+        if: failure()
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          PROJECT="${{ needs.prepare.outputs.project }}"
+
+          # Create intake
+          INTAKE_FILE="intake/raw/${DATE}-auto-deploy-${PROJECT}-prod-failure.md"
+          cat > "$INTAKE_FILE" << EOF
+          # 🐛 自動問題回報（正式環境部署失敗）
+
+          **回報人**：CD Pipeline（自動產生）
+          **緊急程度**：很急
+
+          ## 發生了什麼事？
+          ${PROJECT} 正式環境部署失敗，請立即處理。
+
+          ## 部署資訊
+          - **Project**: ${PROJECT}
+          - **Commit**: ${{ github.sha }}
+          - **Workflow**: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EOF
+
+          # Create post-mortem
+          POSTMORTEM_FILE="docs/postmortems/${DATE}-${PROJECT}-deploy-failure.md"
+          mkdir -p docs/postmortems
+          cat > "$POSTMORTEM_FILE" << EOF
+          # 事後檢討：${PROJECT} 正式環境部署失敗
+
+          ## 基本資訊
+          - **事件日期**：${DATE}
+          - **嚴重程度**：critical
+          - **影響環境**：production
+          - **相關 Intake**：${INTAKE_FILE}
+
+          ## 時間線
+          | 時間 | 事件 |
+          |------|------|
+          | $(date +%H:%M) | 部署開始 |
+          | $(date +%H:%M) | 健康檢查失敗 |
+          | $(date +%H:%M) | 事後檢討建立 |
+
+          ## 根本原因
+          （待填寫）
+
+          ## 5 Whys 分析
+          1. **為什麼**→
+          2. **為什麼**→
+          3. **為什麼**→
+          4. **為什麼**→
+          5. **為什麼**→ **根本原因**
+          EOF
+
+          git config user.name "feedback-loop[bot]"
+          git config user.email "feedback-loop@noreply.github.com"
+          git add "$INTAKE_FILE" "$POSTMORTEM_FILE"
+          git commit -m "feedback: auto-intake + postmortem from ${PROJECT} prod deploy failure"
+          git push
+
+  # ── Status Report ───────────────────────────
+  report:
+    name: "📊 Status Report"
+    runs-on: ubuntu-latest
+    needs: [prepare, deploy-staging, deploy-production]
+    if: always()
+    steps:
+      - name: Report
+        run: |
+          echo "📊 Deployment Report"
+          echo "   Project:     ${{ needs.prepare.outputs.project }}"
+          echo "   Environment: ${{ needs.prepare.outputs.environment }}"
+          echo "   Commit:      ${{ github.sha }}"
+          echo "   Status:      ${{ job.status }}"
