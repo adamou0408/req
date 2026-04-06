@@ -1,64 +1,101 @@
-# Coolify 地端部署指南（多專案）
+# Coolify 地端部署指南
 
-## 架構概覽
+## 這是什麼？
+
+此目錄提供**需求驅動開發框架**在 Coolify（自架 PaaS）上部署的範本與工具。
+
+這**不是**特定專案的部署設定——而是一套**可被任何採用此框架的專案複用**的部署基礎設施。
+
+## 框架 vs 專案的關係
 
 ```
-Coolify Dashboard
-├── Project A (mrp) ─── staging / production
-├── Project B (erp) ─── staging / production
-└── 共用服務 ────────── Prometheus + Grafana + Alertmanager
+此框架（req repo）                    採用框架的專案（例如 your-app repo）
+├── infra/coolify/                    ├── .claude/commands/ ← 從框架複製
+│   ├── projects.yml (範本)           ├── infra/coolify/
+│   ├── deploy.sh (通用腳本)          │   ├── projects.local.yml ← 填入自己的設定
+│   └── README.md                     │   └── deploy.sh ← 從框架複製
+├── .github/workflows/                ├── .github/workflows/
+│   └── cd-coolify.yml (範本)         │   └── cd-coolify.yml ← 從框架複製
+└── CONSTITUTION.md                   ├── specs/
+                                      ├── intake/
+                                      └── src/
 ```
 
-## 新增專案 Checklist
+## 導入步驟（將框架套用到你的專案）
 
-### 在 Coolify 上
-1. [ ] 建立 Project（例如 `MRP 系統`）
-2. [ ] 在 Project 下建立 Environment: `staging`
-3. [ ] 在 staging 中建立 Application（連結 GitHub repo）
-4. [ ] 記錄 staging Application UUID
-5. [ ] 建立 Environment: `production`
-6. [ ] 在 production 中建立 Application
-7. [ ] 記錄 production Application UUID
-8. [ ] 設定 Health check 路徑（如 `/health`）
-9. [ ] 設定域名（如 `mrp-staging.yourcompany.com`）
-10. [ ] 設定環境變數（DB 連線等）
+### Step 1：安裝 Coolify
+```bash
+curl -fsSL https://cdn.coollabs.io/coolify/install.sh | bash
+```
 
-### 在 GitHub 上
-11. [ ] 新增 Repository Secret: `COOLIFY_<PROJECT>_STAGING_UUID`
-12. [ ] 新增 Repository Secret: `COOLIFY_<PROJECT>_PROD_UUID`
-13. [ ] 在 `cd-coolify.yml` 的 project 選項中加入新專案名稱
-14. [ ] 在 `cd-coolify.yml` 的 `case` 區塊中加入新專案的 UUID 和域名
+### Step 2：在 Coolify Dashboard 建立你的 App
+1. 建立 Project
+2. 建立 Environment: `staging` 和 `production`
+3. 在每個 Environment 中建立 Application（連結你的 GitHub repo）
+4. 設定域名、Health check 路徑、環境變數
+5. 記下每個 Application 的 **UUID**
 
-### 在此 Repo 上
-15. [ ] 在 `infra/coolify/projects.yml` 中新增專案區塊
-16. [ ] 更新 `docs/metrics.md` 追蹤新專案的部署指標
+### Step 3：設定 GitHub Secrets
 
-## GitHub Secrets 清單
+在你的專案 repo 中設定以下 Secrets：
 
-| Secret 名稱 | 說明 | 每個專案都需要？ |
-|-------------|------|-----------------|
-| `COOLIFY_URL` | Coolify 實例 URL | 共用 |
-| `COOLIFY_API_TOKEN` | API 認證 Token | 共用 |
-| `COOLIFY_<PROJECT>_STAGING_UUID` | Staging app UUID | 是 |
-| `COOLIFY_<PROJECT>_PROD_UUID` | Production app UUID | 是 |
+| Secret | 說明 |
+|--------|------|
+| `COOLIFY_URL` | Coolify 實例 URL（如 `https://coolify.yourcompany.com`） |
+| `COOLIFY_API_TOKEN` | Coolify API Token |
+| `COOLIFY_STAGING_UUID` | Staging app 的 UUID |
+| `COOLIFY_PROD_UUID` | Production app 的 UUID |
+| `STAGING_HEALTH_URL` | Staging 健康檢查 URL（如 `https://staging.yourcompany.com/health`） |
+| `PROD_HEALTH_URL` | Production 健康檢查 URL（如 `https://app.yourcompany.com/health`） |
+
+### Step 4：複製框架檔案到你的專案
+```bash
+# 從框架 repo 複製 Coolify 部署檔案
+cp -r req/infra/coolify/ your-project/infra/coolify/
+cp req/.github/workflows/cd-coolify.yml your-project/.github/workflows/
+cp req/infra/coolify/deploy.sh your-project/infra/coolify/
+```
+
+### Step 5：部署
+```bash
+# 推到 main 自動部署 staging
+git push origin main
+
+# 手動部署到 production
+gh workflow run "CD — Coolify Deploy" -f environment=production
+```
+
+## 多個專案共用一個 Coolify 實例
+
+多個採用此框架的專案可以共用同一個 Coolify 實例：
+
+```
+Coolify 實例
+├── Project A（repo-a 的 staging + production）
+├── Project B（repo-b 的 staging + production）
+└── 共用監控（Prometheus + Grafana）
+```
+
+每個 repo 各自有：
+- 自己的 `cd-coolify.yml`
+- 自己的 GitHub Secrets（指向各自的 Coolify app UUID）
+- 共用的 `COOLIFY_URL` 和 `COOLIFY_API_TOKEN`
 
 ## 手動部署
 
 ```bash
-# 部署 MRP 到 staging
-gh workflow run "CD — Coolify Deploy" \
-  -f project=mrp \
-  -f environment=staging
+# 透過 GitHub CLI
+gh workflow run "CD — Coolify Deploy" -f environment=staging
+gh workflow run "CD — Coolify Deploy" -f environment=production
 
-# 部署 ERP 到 production
-gh workflow run "CD — Coolify Deploy" \
-  -f project=erp \
-  -f environment=production
+# 透過 Claude Code（在採用框架的專案中）
+/deploy staging --target=coolify
+/deploy prod --target=coolify
 ```
 
 ## 回饋迴路
 
 部署失敗時自動：
-1. 在 `intake/raw/` 建立問題回報（含專案名稱）
+1. 建立 `intake/raw/` 問題回報
 2. Production 失敗額外建立 `docs/postmortems/` 事後檢討
-3. 觸發 `/research` → `/translate` → ... 完整流程
+3. 觸發 `/research` → `/translate` → ... 完整需求驅動流程
