@@ -1,0 +1,24 @@
+# Coolify Local Config (範例)
+# 此檔案由 /setup 自動產生，不需要手動編輯。
+# 複製為 config.local.yml 使用（已加入 .gitignore）。
+#
+# 正常流程：執行 /setup → AI 自動產生 config.local.yml
+# 此範例檔僅供參考。
+
+coolify:
+  url: "https://coolify.yourserver.com"
+  # API Token 不存在此檔案中，從環境變數 COOLIFY_API_TOKEN 讀取
+
+resources:
+  project_uuid: ""
+  server_uuid: ""
+  staging:
+    app_uuid: ""
+    db_uuid: ""
+    redis_uuid: ""
+    domain: ""
+  production:
+    app_uuid: ""
+    db_uuid: ""
+    redis_uuid: ""
+    domain: ""

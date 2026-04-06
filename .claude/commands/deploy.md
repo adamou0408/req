@@ -11,18 +11,14 @@ Deploy the application through the closed-loop pipeline, with spec gates, health
 
 ## Usage
 ```
-/deploy [environment] [--target=aws|coolify]
+/deploy [environment] [--strategy=rolling|canary|blue-green]
 ```
 
 - `environment`: `dev`, `staging`, or `prod`
-- `--target`: Deployment infrastructure. Defaults to `coolify`.
-  - `coolify`: On-premise via Coolify PaaS (recommended for self-hosted)
-  - `aws`: Cloud via Terraform + ECS (for AWS users)
+- `--strategy`: Override default deployment strategy
 
-When using `coolify` target, the workflow reads deployment config from
-GitHub Secrets set by the adopting project (see `infra/coolify/README.md`).
-
-Where `environment` is one of: `dev`, `staging`, `prod`
+AI 透過 Coolify API 直接控制部署。設定來自 `infra/coolify/config.local.yml`（由 `/setup` 產生）。
+如果尚未初始化，AI 會引導執行 `/setup`。
 
 ## Behavior
 
