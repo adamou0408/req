@@ -1,0 +1,54 @@
+name: "💡 我有一個想法（提交需求）"
+description: "用你自己的話說出你想要什麼，AI 會幫你整理"
+title: "[需求] "
+labels: ["intake", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## 歡迎！你不需要懂任何技術，只需要回答以下問題。
+
+        AI 會自動把你的想法整理成結構化的規格。怎麼說都可以！
+  - type: input
+    id: who
+    attributes:
+      label: "你是誰？"
+      description: "你的名字、角色或部門"
+      placeholder: "例如：業務部小王"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: "你想要什麼？"
+      description: "用你自己的話說就好，不需要技術用語"
+      placeholder: "例如：我想要在系統裡搜尋同事，用名字或部門都能找到"
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: "為什麼？"
+      description: "這個功能解決什麼問題？帶來什麼價值？"
+      placeholder: "例如：每次要找人都要問來問去，很浪費時間"
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: "其他補充（選填）"
+      description: "截圖、參考連結、或任何額外說明"
+      placeholder: "可以貼截圖、附連結，或留空"
+    validations:
+      required: false
+  - type: dropdown
+    id: urgency
+    attributes:
+      label: "急迫程度"
+      options:
+        - 不急，有空再做
+        - 普通
+        - 蠻急的
+        - 非常緊急
+    validations:
+      required: true

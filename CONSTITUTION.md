@@ -67,10 +67,22 @@ These are the **inviolable principles** of this project. All AI agents, all proc
 
 ---
 
+## Principle 7: Security by Default
+
+> 安全性不是功能，而是基礎。
+
+- Every spec must include a security requirements assessment, even if the conclusion is "no special security needs."
+- Generated code must pass security scanning before deployment.
+- Secrets (API keys, credentials, tokens) must never enter version control.
+- Dependencies must be regularly scanned for known vulnerabilities.
+- Security-sensitive changes (authentication, authorization, encryption, data access) require explicit review during `/review`.
+
+---
+
 ## Architectural Guardrails
 
 ### Process Integrity
-- The workflow stages (intake → translate → detect-conflicts → review → plan → implement → test → deploy → monitor → feedback) must be followed in order.
+- The workflow stages (intake → research → translate → detect-conflicts → resolve-conflicts → review → plan → implement → code-review → deploy → monitor → feedback) must be followed in order.
 - No stage may be skipped.
 - Each stage's output is the next stage's input.
 - The feedback stage loops back to intake, completing the closed loop.

@@ -39,10 +39,12 @@ This document defines the behavioral rules and constraints for all AI agents ope
 
 The following actions **REQUIRE** human approval and cannot be bypassed:
 
-- Resolving requirement conflicts
+- Resolving requirement conflicts (via `/resolve-conflict`)
 - Approving specs (transitioning from `in-review` to `approved`)
 - Overriding failed tests after 3 auto-fix attempts
 - Deleting or archiving existing specs
+- Deciding how to handle duplicate requirements found during `/research`
+- Approving code for production deployment (via code review)
 
 ### 6. State Management
 
@@ -69,7 +71,28 @@ done → draft (requirement change via /iterate)
 - When generating technical artifacts: be precise, structured, and comprehensive.
 - Always confirm understanding before proceeding with translation.
 
-### 8. Deployment & Feedback Loop
+### 7a. Spec Ownership & Review SLA
+
+- Every spec **MUST** have a designated owner (Spec 擁有者) assigned during `/translate`.
+- Reviews **MUST** be completed within 2 business days of spec submission.
+- If the review deadline passes without action, **MUST** escalate to the technical lead.
+- When `/plan` is executed, **MUST** verify that all specs listed in "前置需求" (dependencies) have status `approved` or later.
+- If a dependency spec is not yet approved, **MUST** warn the user and wait for confirmation before proceeding.
+
+### 8. Security & Compliance
+
+- **MUST** include a security assessment section in every `spec.md`, even if minimal.
+- **MUST NOT** generate code that stores secrets in source code, logs, or configuration files.
+- **MUST** flag security-sensitive operations during `/research` and `/plan`:
+  - Authentication and authorization changes
+  - Encryption and data protection
+  - External API integrations with credentials
+  - User data handling (PII, payment info)
+- **MUST** ensure generated code follows OWASP Top 10 prevention guidelines.
+- **MUST** validate that CI includes dependency scanning and secret detection before deployment.
+- **MUST** escalate to human review if generated code handles sensitive data paths.
+
+### 9. Deployment & Feedback Loop
 
 - **MUST** verify spec status is `approved` or later before allowing deployment.
 - **MUST** run all tests and health checks before promoting to any environment.
@@ -80,7 +103,34 @@ done → draft (requirement change via /iterate)
 - **MUST NOT** auto-resolve production incidents. Always route through the full demand-driven cycle (intake → translate → review → implement).
 - **MUST** escalate if the same monitoring alert fires 3+ times within 24 hours.
 
-### 9. Infrastructure Changes
+### 10. Context Management
+
+- When executing any command, **MUST** evaluate input file sizes before processing.
+- If `spec.md` exceeds 3000 words, **MUST** produce a summary version for downstream stages.
+- `/plan` **MUST** extract only User Stories and acceptance criteria from the spec, not the entire document.
+- `/implement` **MUST** load only the current task's relevant spec fragment, not the entire spec + plan + tasks.
+- **MUST NOT** load the full content of all related files simultaneously — prioritize relevant sections.
+- Each stage output **MUST** include a "downstream summary" section:
+  ```
+  ## 下游摘要
+  - 核心需求：（3 句話概述）
+  - 關鍵約束：（最重要的 3 個）
+  - 風險項目：（最高風險的 2 個）
+  ```
+
+### 11. Code Review
+
+- AI-generated code **MUST** go through a review process before merging to `main`.
+- `/implement` **SHOULD** create a pull request for generated code rather than committing directly to the main branch.
+- Code review checks:
+  - Security: no hardcoded secrets, no injection vulnerabilities
+  - Traceability: code references the task/spec that produced it
+  - Quality: follows existing code patterns and conventions
+  - Test coverage: all acceptance criteria have corresponding tests
+- For **hotfix** scenarios (critical production issues), code review can be deferred but **MUST** be completed within 24 hours.
+- **MUST** log all code review outcomes in the implementation report.
+
+### 12. Infrastructure Changes
 
 - Infrastructure changes (Terraform, Docker, CI/CD) **MUST** follow the same spec-driven process as application code.
 - **MUST NOT** modify infrastructure without a corresponding approved spec or explicit human instruction.
@@ -96,5 +146,6 @@ done → draft (requirement change via /iterate)
 | Tasks | `specs/{feature-slug}/tasks.md` | `specs/user-search/tasks.md` |
 | Conflict | `conflicts/CONFLICT-{NNN}.md` | `conflicts/CONFLICT-001.md` |
 | Review | `reviews/REVIEW-{feature-slug}-{date}.md` | `reviews/REVIEW-user-search-2026-04-04.md` |
+| Research | `specs/{feature-slug}/research.md` | `specs/user-search/research.md` |
 | Persona | `personas/{role-slug}.md` | `personas/admin.md` |
 | Auto-intake | `intake/raw/YYYY-MM-DD-auto-{alert}.md` | `intake/raw/2026-04-04-auto-high-error-rate.md` |
