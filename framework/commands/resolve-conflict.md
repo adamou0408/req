@@ -35,7 +35,22 @@ For each resolution option, show:
 - AI provides a recommended option with justification
 - **But explicitly states this is a suggestion, not a decision**
 
-### 3. Capture Human Decision
+### 3. Capture Human Decision (Interactive UX)
+
+**MUST** present the decision through a fast-to-judge UI rather than a wall of text:
+
+1. **TL;DR block first** (≤ 5 lines, fixed format) so the human can decide in 3 seconds without scrolling:
+   ```
+   ⚖️  CONFLICT-{NNN}: <one-line title>
+   衝突角色: <persona A> ↔ <persona B>
+   核心爭點: <one sentence>
+   AI 推薦: 方案 <X> — <one-line reason>
+   風險摘要: <one-line worst case>
+   ```
+2. **Then call the `AskUserQuestion` tool** with one question whose options are the resolution alternatives (max 4, plus an "Other / custom" option). Each option's `label` ≤ 12 chars, `description` ≤ 1 line summarising trade-off. This renders as a popup-style picker in Claude Code instead of free-text.
+3. After the human picks an option, call `AskUserQuestion` **a second time** to capture the one-sentence reasoning (`multiSelect: false`, free-form via "Other"). Do **not** accept "just because".
+4. If the human picks "Other / custom", prompt for the custom option text via the same tool before asking for reasoning.
+
 - Wait for the human to select a resolution option
 - Require the human to provide:
   - Which option they chose (or a custom option)

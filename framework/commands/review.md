@@ -23,7 +23,27 @@ Generate a human-readable review checklist for a spec pending approval.
    - [ ] Spec owner and reviewer are assigned
    - [ ] Traceability to original intake is intact (intake → research → spec)
 3. Save the review checklist to `${REQ_DATA_ROOT}/reviews/REVIEW-{feature-slug}-{date}.md` using the template from `${REQ_FRAMEWORK_ROOT}/framework/templates/review.md`.
-4. Present the checklist to the human reviewer in a clear, readable format.
+4. Present the checklist to the human reviewer using the **Interactive Review UX** below — not just a flat markdown dump.
+
+   #### Interactive Review UX
+   a. **TL;DR block first** (≤ 6 lines, fixed format) so the reviewer can judge in 5 seconds:
+      ```
+      ✅ REVIEW: <spec title>
+      範圍: <one sentence — what this spec delivers>
+      User Stories: <N 個> | 衝突: <已解決 X / 全部 Y> | 安全性: <OK / 待補>
+      風險點: <最高風險的一句話,沒有就寫「無」>
+      AI 信心: <High / Medium / Low> — <one-line reason>
+      待人類確認的關鍵項: <列出 1–3 個 checklist 中最值得人眼判斷的項目>
+      ```
+   b. **Then call the `AskUserQuestion` tool** with the decision question. Options:
+      - `Approve` — 全部通過,送進 /plan
+      - `Approve w/ notes` — 通過但需記錄補充意見
+      - `Request changes` — 退回 draft,需修正
+      - `Reject` — 整個 spec 不採用
+      This renders as a popup picker in Claude Code instead of asking the reviewer to type free text.
+   c. If the reviewer picks `Approve w/ notes` or `Request changes`, call `AskUserQuestion` **again** to collect which specific checklist item(s) failed (multiSelect across the checklist items). Avoid free-text whenever the answer can be a fixed choice.
+   d. Only after the structured answer is captured, render the full markdown checklist for the record (saved to `reviews/`).
+
 5. Upon human approval:
    - **MUST** update ALL checklist items to `[x]` that have been verified
    - **MUST** leave items as `[ ]` if they were NOT verified and add a note explaining why
