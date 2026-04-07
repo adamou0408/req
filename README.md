@@ -84,19 +84,17 @@ graph TD
 
 ---
 
-## 專案結構簡介
+## 本 repo 結構
+
+這個 repo 是**框架本體**,不是需求專案。實際只有三個目錄:
 
 | 資料夾 | 用途 |
 |--------|------|
-| `intake/` | 📥 放你的原始需求（任何人都可以放） |
-| `personas/` | 👥 使用者角色定義 |
-| `specs/` | 📋 AI 整理好的結構化規格 |
-| `conflicts/` | ⚠️ 需求衝突紀錄 |
-| `reviews/` | ✅ 審核紀錄 |
-| `src/` | 💻 AI 生成的程式碼 |
-| `tests/` | 🧪 自動化測試 |
-| `infra/` | 🏗️ 基礎設施定義（自動部署用） |
-| `docs/` | 📖 專案文件 |
+| `framework/` | 框架核心:`commands/`(11 個 `req-*` 指令)、`scripts/`(安裝/同步)、`templates/`(spec/intake/persona 範本)、`config/` |
+| `examples/` | 參考範例(personas 等),不會被安裝到下游專案 |
+| `docs/` | 框架自身文件,含 [installation.md](docs/installation.md)、[metrics.md](docs/metrics.md)、[speckit-comparison.md](docs/speckit-comparison.md) |
+
+> 安裝後在你自己的需求專案裡才會出現的 `intake/`、`specs/`、`personas/`、`conflicts/`、`reviews/`、`src/`、`tests/` 等業務目錄,說明見 [docs/installation.md](docs/installation.md)。
 
 ---
 
@@ -107,11 +105,17 @@ graph TD
 ### 場景 A:全新需求專案(Init 模式)
 
 ```bash
+git clone https://github.com/adamou0408/req /tmp/req-framework
 mkdir my-req-project && cd my-req-project
-git init
-git submodule add https://github.com/adamou0408/req .req-framework
-bash .req-framework/framework/scripts/req-init.sh --mode=submodule
-git add -A && git commit -m "chore: bootstrap req project"
+bash /tmp/req-framework/framework/scripts/req-init.sh           # 預設 --mode=copy
+git init && git add -A && git commit -m "chore: bootstrap req project"
+```
+
+`req-init.sh` 預設會把 framework 複製成 `./.req-framework/`,並自動建立 `intake/`、`specs/`、`.req.config.yml` 與 `.claude/commands/req-*.md`。若想改用 git submodule 連動上游,改執行:
+
+```bash
+cd my-req-project && git init
+bash /tmp/req-framework/framework/scripts/req-init.sh --mode=submodule --remote=https://github.com/adamou0408/req
 ```
 
 完成後在 Claude Code 中執行 `/req-intake`,AI 會引導你提出第一個需求。
@@ -139,4 +143,3 @@ git commit -m "chore: bump req framework"
 
 完整安裝、升級、客製、解除安裝說明見 [docs/installation.md](docs/installation.md)。
 
-> **目錄結構**:`framework/` 是框架核心(submodule 使用者只看這裡),`examples/` 是參考範例(不會被安裝到下游),`docs/` 是框架自身文件。
