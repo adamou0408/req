@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  smoke-test:
+    name: Framework smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify VERSION matches tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          FILE="$(cat VERSION)"
+          if [ "$TAG" != "$FILE" ]; then
+            echo "::error::Tag v$TAG does not match VERSION file ($FILE)"
+            exit 1
+          fi
+
+      - name: Init mode smoke test
+        run: |
+          mkdir /tmp/req-init-test && cd /tmp/req-init-test
+          bash "$GITHUB_WORKSPACE/framework/scripts/req-init.sh" --mode=copy
+          test -f .req.config.yml
+          test -d intake/raw
+          test -d specs
+          test -f .claude/commands/req-intake.md
+          # Ensure variables were resolved
+          if grep -q '\${REQ_DATA_ROOT}' .claude/commands/req-intake.md; then
+            echo "::error::Unresolved \${REQ_DATA_ROOT} in generated command"
+            exit 1
+          fi
+
+      - name: Submodule mode smoke test
+        run: |
+          mkdir /tmp/host-repo && cd /tmp/host-repo
+          git init -q
+          git config user.email ci@example.com
+          git config user.name ci
+          mkdir -p src tests && touch src/.gitkeep tests/.gitkeep
+          git add -A && git commit -q -m init
+          # Use file:// remote pointing at the checked-out workspace
+          git -c protocol.file.allow=always submodule add "$GITHUB_WORKSPACE" .req-framework
+          bash .req-framework/framework/scripts/req-add-submodule.sh --non-interactive
+          test -f .req.config.yml
+          test -d .req/intake/raw
+          test -f .claude/commands/req-intake.md
+          grep -q '\.req/intake' .claude/commands/req-intake.md
+          # host src/ tests/ untouched
+          test -f src/.gitkeep && test -f tests/.gitkeep
+
+  release:
+    name: Create GitHub release
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract changelog section
+        id: changelog
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          # Extract the section between "## [VERSION]" and the next "## ["
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[" v "\\]" {flag=1; next}
+            flag && /^## \[/ {exit}
+            flag {print}
+          ' CHANGELOG.md > /tmp/release-notes.md || true
+          if [ ! -s /tmp/release-notes.md ]; then
+            echo "No changelog section for $VERSION; using placeholder."
+            echo "Release $TAG" > /tmp/release-notes.md
+          fi
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF#refs/tags/}" \
+            --title "${GITHUB_REF#refs/tags/}" \
+            --notes-file /tmp/release-notes.md
