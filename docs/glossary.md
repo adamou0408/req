@@ -32,14 +32,18 @@
 
 ## 檔案和資料夾
 
+> **路徑說明**：以下是邏輯名稱。實際位置由 `.req.config.yml` 決定:
+> - **Init 模式**(全新需求專案):都在專案根目錄,例如 `intake/`、`specs/`
+> - **Submodule 模式**(掛在既有 repo):業務資料都在 `.req/` 下,例如 `.req/intake/`、`.req/specs/`;而 `src/`、`tests/` 則是你原本 repo 的 `src/`、`tests/`
+
 | 資料夾名稱 | 白話意思 |
 |-----------|---------|
-| `intake/` | 收需求的地方 |
+| `intake/` | 收需求的地方(data_root) |
 | `intake/raw/` | 你寫的原始內容放這裡 |
 | `personas/` | 使用者角色的介紹 |
 | `specs/` | AI 整理好的需求規格 |
 | `conflicts/` | 需求衝突的紀錄 |
 | `reviews/` | 審核紀錄 |
-| `src/` | 程式碼（AI 寫的） |
-| `tests/` | 測試（AI 寫的，用來確認程式沒問題） |
+| `src/` | 程式碼(AI 寫的,code_root) |
+| `tests/` | 測試(AI 寫的,code_root) |
 | `docs/` | 專案文件 |

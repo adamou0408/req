@@ -1,4 +1,8 @@
-# 需求變更紀錄
+# 需求變更紀錄(專案範本)
+
+> **這是什麼**:這是**下游專案的 changelog 範本**,用來追蹤 spec 狀態變更與需求迭代。`req-init.sh` / `req-add-submodule.sh` 會在新專案的 `${REQ_DATA_ROOT}/docs/changelog.md` 建立類似檔案。
+>
+> **如果你想找 framework 本身的 release notes**,請看 repo 根目錄的 [`../CHANGELOG.md`](../CHANGELOG.md)。
 
 所有需求的狀態變更和內容更新都會記錄在這裡。
 

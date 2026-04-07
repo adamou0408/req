@@ -2,6 +2,8 @@
 
 These are the **inviolable principles** of this project. All AI agents, all processes, and all contributors must adhere to them without exception.
 
+> **Path notation**: Paths like `intake/`, `specs/`, `src/`, `infra/` are logical names. Their actual on-disk location is resolved via `.req.config.yml` (`data_root` for business data; `code_root` for generated code; `framework_root` for framework files). See [AGENTS.md](AGENTS.md) for details.
+
 ---
 
 ## Principle 1: Zero Barrier for Requirement Providers
@@ -19,7 +21,7 @@ These are the **inviolable principles** of this project. All AI agents, all proc
 - No code is written without a corresponding approved spec.
 - If code and spec diverge, the spec is authoritative.
 - Changes to behavior must originate as spec changes, not code changes.
-- Specs live in `specs/` and follow the defined template structure.
+- Specs live in `${REQ_DATA_ROOT}/specs/` and follow the defined template structure.
 
 ## Principle 3: Humans Guard the Decision Gates
 
@@ -36,10 +38,10 @@ These are the **inviolable principles** of this project. All AI agents, all proc
 
 > Every line of code must trace back to a requirement.
 
-- The chain of traceability: `intake/raw/ → specs/ → plan → tasks → src/ + tests/`
+- The chain of traceability: `${REQ_DATA_ROOT}/intake/raw/ → ${REQ_DATA_ROOT}/specs/ → plan → tasks → ${REQ_CODE_ROOT}/src/ + ${REQ_CODE_ROOT}/tests/`
 - No orphan code: if a piece of code cannot be linked to a spec, it must be justified or removed.
 - No orphan specs: if a spec has no originating intake, it must be justified or removed.
-- All changes are logged in `docs/changelog.md`.
+- All changes are logged in `${REQ_DATA_ROOT}/docs/changelog.md`.
 
 ## Principle 5: Continuous Iteration
 
@@ -88,8 +90,8 @@ These are the **inviolable principles** of this project. All AI agents, all proc
 - The feedback stage loops back to intake, completing the closed loop.
 
 ### Data Integrity
-- Raw inputs in `intake/raw/` are **immutable** once committed. They serve as the historical record.
-- Specs may be updated, but all changes must be tracked via git history and `docs/changelog.md`.
+- Raw inputs in `${REQ_DATA_ROOT}/intake/raw/` are **immutable** once committed. They serve as the historical record.
+- Specs may be updated, but all changes must be tracked via git history and `${REQ_DATA_ROOT}/docs/changelog.md`.
 - Conflict records are append-only until resolved.
 
 ### Quality Assurance
@@ -98,11 +100,11 @@ These are the **inviolable principles** of this project. All AI agents, all proc
 - Test failures block deployment and trigger auto-fix cycles.
 
 ### Deployment Integrity
-- Infrastructure is defined as code in `infra/` — no manual changes.
+- Infrastructure is defined as code in `${REQ_CODE_ROOT}/infra/` — no manual changes.
 - CI pipeline enforces spec gates: code cannot merge without approved specs.
 - Deployment to production requires explicit human approval (GitHub Environment protection).
 - Failed deployments auto-rollback and create feedback intake items.
-- All environments (dev, staging, prod) are defined declaratively in `infra/terraform/environments/`.
+- All environments (dev, staging, prod) are defined declaratively in `${REQ_CODE_ROOT}/infra/terraform/environments/` (or whatever IaC layout the host project uses).
 
 ### Feedback Loop Integrity
 - Monitoring alerts with `feedback_loop: true` automatically generate intake items.

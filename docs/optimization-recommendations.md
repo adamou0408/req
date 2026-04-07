@@ -1,5 +1,7 @@
 # 框架優化建議：與市場主流 SDD 工具的差距分析
 
+> **📜 歷史文件**:這份文件是 **v1 時期的設計建議**,多數 P0/P1 項目已在 v2 中實作完成。檔案路徑可能指向舊結構(例如 `.claude/commands/` 而非 `framework/commands/`);請以當前 repo 結構為準。保留此檔是為了追溯設計決策。
+
 基於與 GitHub Spec Kit（85K+ stars）、AWS Kiro（GA 2025/11）、Tessl、Cursor Rules 等主流工具的比較，以及對本框架的深度審查，整理以下優化建議。
 
 ---

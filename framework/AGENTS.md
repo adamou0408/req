@@ -2,6 +2,13 @@
 
 This document defines the behavioral rules and constraints for all AI agents operating within this demand-driven development framework.
 
+> **Notation**:
+> - Command names are shown without the `/req-` prefix for readability (e.g., `/intake`, `/translate`). When installed into a host repo, the actual slash commands are `/req-intake`, `/req-translate`, etc. (prefixed by `req-sync-commands.sh` to avoid collision with the host's existing commands).
+> - Paths like `intake/raw/`, `specs/`, `personas/`, `src/`, `tests/` refer to the logical layout. The actual on-disk location is resolved via `.req.config.yml`:
+>   - `data_root` → where `intake/`, `specs/`, `personas/`, `conflicts/`, `reviews/`, `docs/` live
+>   - `code_root` → where generated `src/` and `tests/` live
+>   - `framework_root` → where the framework submodule lives (for reading templates and `CONSTITUTION.md`)
+
 ## Core Directives
 
 ### 1. Requirement Translation

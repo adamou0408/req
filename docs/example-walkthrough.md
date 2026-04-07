@@ -8,7 +8,7 @@
 
 ### 階段 1：Intake（需求收集）
 
-業務部的小王在 Claude Code 中執行 `/intake`：
+業務部的小王在 Claude Code 中執行 `/req-intake`：
 
 > **我是誰**：業務部小王
 > **我想要什麼**：能在系統裡搜尋同事，用名字、部門或技能都能找到
@@ -20,7 +20,7 @@
 
 ### 階段 2：Research（調研去重）
 
-AI 自動執行 `/research`：
+AI 自動執行 `/req-research`：
 
 ```markdown
 # 調研報告：員工搜尋
@@ -30,7 +30,7 @@ AI 自動執行 `/research`：
 |-----------|--------|----------|------|
 | specs/employee-directory/ | 25% | 都涉及員工資料 | 獨立 spec，但需設為依賴 |
 
-結論：[x] 無重複，可繼續進入 /translate
+結論：[x] 無重複，可繼續進入 /req-translate
 
 ## 可行性評估
 - [x] 資料庫 schema 變更（需要新增搜尋索引）
@@ -39,13 +39,13 @@ AI 自動執行 `/research`：
 ```
 
 自動產出：`specs/employee-search/research.md`
-結論：無重複，自動進入 `/translate`
+結論：無重複，自動進入 `/req-translate`
 
 ---
 
 ### 階段 3：Translate（AI 轉譯）
 
-AI 自動執行 `/translate`，產出 `specs/employee-search/spec.md`：
+AI 自動執行 `/req-translate`，產出 `specs/employee-search/spec.md`：
 
 ```markdown
 # 員工搜尋功能
@@ -55,7 +55,7 @@ AI 自動執行 `/translate`，產出 `specs/employee-search/spec.md`：
 ## 版本歷史
 | 版本 | 日期 | 變更摘要 | 觸發者 |
 |------|------|----------|--------|
-| v1.0 | 2026-04-05 | 初始版本 | /translate |
+| v1.0 | 2026-04-05 | 初始版本 | /req-translate |
 
 ## 負責人
 - Spec 擁有者：小王（業務部）
@@ -99,7 +99,7 @@ AI 自動執行 `/translate`，產出 `specs/employee-search/spec.md`：
 
 ### 階段 4：Detect Conflicts（衝突偵測）
 
-AI 自動執行 `/detect-conflicts`，發現一個衝突：
+AI 自動執行 `/req-detect-conflicts`，發現一個衝突：
 
 ```markdown
 # 衝突編號：CONFLICT-001
@@ -120,7 +120,7 @@ AI 自動執行 `/detect-conflicts`，發現一個衝突：
 
 ### 階段 5：Resolve Conflict（衝突解決）
 
-人類執行 `/resolve-conflict conflicts/CONFLICT-001.md`：
+人類執行 `/req-resolve-conflict conflicts/CONFLICT-001.md`：
 
 AI 呈現影響矩陣：
 | 方案 | 受益角色 | 受損角色 | 開發成本 | 風險 |
@@ -138,7 +138,7 @@ AI 呈現影響矩陣：
 
 ### 階段 6：Review（人類審核）
 
-人類執行 `/review specs/employee-search/`：
+人類執行 `/req-review specs/employee-search/`：
 
 ```markdown
 # 審核紀錄：員工搜尋
@@ -160,7 +160,7 @@ AI 呈現影響矩陣：
 
 ### 階段 7：Plan（技術方案）
 
-AI 執行 `/plan specs/employee-search/`：
+AI 執行 `/req-plan specs/employee-search/`：
 
 ```markdown
 # 技術方案：員工搜尋
@@ -191,7 +191,7 @@ AI 執行 `/plan specs/employee-search/`：
 
 ### 階段 8：Implement（AI 實作）
 
-AI 執行 `/implement specs/employee-search/`：
+AI 執行 `/req-implement specs/employee-search/`：
 
 ```
 ✅ 任務 1：建立搜尋 API [P-group-A] — done
@@ -231,7 +231,7 @@ CI 自動執行安全掃描：
 
 ### 階段 10：Deploy（部署）
 
-人類執行 `/deploy prod`：
+人類執行 `/req-deploy prod`：
 
 ```
 🚀 部署策略：Canary
@@ -259,17 +259,17 @@ CI 自動執行安全掃描：
 - 影響：搜尋 API
 ```
 
-系統自動執行 `/feedback`：
+系統自動執行 `/req-feedback`：
 - 建立 `intake/raw/2026-04-08-auto-high-latency.md`
 - 類型：warning（普通）
 - 關聯 spec：`specs/employee-search/`
-- 建議：標準 `/research` → `/translate` 流程
+- 建議：標準 `/req-research` → `/req-translate` 流程
 
 ---
 
 ### 階段 12：Iterate（迭代）
 
-基於監控回饋，團隊執行 `/iterate`：
+基於監控回饋，團隊執行 `/req-iterate`：
 
 ```
 影響分析：
@@ -297,7 +297,7 @@ Spec 版本更新為 v1.1，狀態重設為 `draft`，重新走 review → plan 
 📝 自動建立事後檢討：docs/postmortems/2026-04-05-deploy-failure.md
 ```
 
-此 intake 自動進入 `/research` → `/translate` → ... 的完整流程，直到問題被修復並重新部署。
+此 intake 自動進入 `/req-research` → `/req-translate` → ... 的完整流程，直到問題被修復並重新部署。
 
 ---
 

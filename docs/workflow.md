@@ -1,5 +1,11 @@
 # 完整工作流程
 
+> **路徑說明**:下圖節點上的 `intake/`、`specs/`、`src/` 等是**邏輯名稱**。實際儲存位置由 `.req.config.yml` 決定:
+> - **Init 模式**:都在專案根目錄
+> - **Submodule 模式**:業務資料在 `.req/` 下(例如 `.req/intake/`),AI 生成的 `src/`、`tests/` 則落在 host repo 原本的位置
+>
+> 所有 slash command 實際名稱都有 `/req-` 前綴(例如 `/req-intake`、`/req-plan`)。
+
 ## 流程總覽
 
 ```mermaid
