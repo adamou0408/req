@@ -100,12 +100,41 @@ graph TD
 
 ## 快速開始
 
-準備好了嗎？你的第一步就是提出你的需求！
+這個 repo 既是**框架本體**,也是**可初始化的需求專案範本**。依照你的場景挑一種安裝方式:
 
-在 Claude Code 中執行：
+### 場景 A:全新需求專案(Init 模式)
 
+```bash
+mkdir my-req-project && cd my-req-project
+git init
+git submodule add https://github.com/adamou0408/req .req-framework
+bash .req-framework/framework/scripts/req-init.sh --mode=submodule
+git add -A && git commit -m "chore: bootstrap req project"
 ```
-/intake
+
+完成後在 Claude Code 中執行 `/req-intake`,AI 會引導你提出第一個需求。
+
+### 場景 B:導入既有 repo(Submodule 模式,零侵入)
+
+```bash
+cd /path/to/your-existing-repo
+git submodule add https://github.com/adamou0408/req .req-framework
+bash .req-framework/framework/scripts/req-add-submodule.sh
+git add .req.config.yml .req .claude/commands/req-*.md
+git commit -m "chore: install req framework"
 ```
 
-AI 會引導你完成整個流程。不用緊張，怎麼說都可以，AI 會幫你整理好的。
+只新增 `.req-framework/`(submodule)、`.req/`(業務資料)、11 個 `req-*.md` 指令,**完全不動**你的 `src/`、`tests/`、`README.md`、CI。
+
+### 升級到新版
+
+```bash
+git submodule update --remote .req-framework
+bash .req-framework/framework/scripts/req-sync-commands.sh
+git add .req-framework .claude/commands/req-*.md .req.config.yml
+git commit -m "chore: bump req framework"
+```
+
+完整安裝、升級、客製、解除安裝說明見 [docs/installation.md](docs/installation.md)。
+
+> **目錄結構**:`framework/` 是框架核心(submodule 使用者只看這裡),`examples/` 是參考範例(不會被安裝到下游),`docs/` 是框架自身文件。
