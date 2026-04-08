@@ -3,6 +3,58 @@
 All notable changes to the **req** framework are documented in this file.
 The framework follows [Semantic Versioning](https://semver.org/).
 
+## [2.4.0] — 2026-04-08
+
+### Added
+- **Next Step Picker Convention** — new AGENTS.md §7b that standardises every
+  workflow checkpoint with multiple valid next actions. Each picker is preceded
+  by a Chinese **Decision Brief** with drill-down links and is rendered via
+  `AskUserQuestion` with **at most 3 options**, the AI-recommended option placed
+  first and tagged `（建議）`. Always includes a non-destructive escape (e.g.
+  `稍後再決定` / `取消` / `保留結果`). Replaces the v2.x mix of free-text
+  confirmations, silent auto-chains, and "what would you like to do next?"
+  prompts. Defines four explicit anti-patterns that new commands **MUST NOT**
+  reintroduce.
+- **Decision Brief + picker added to commands that previously had no structured
+  handoff**: `/req-research`, `/req-translate`, `/req-detect-conflicts`,
+  `/req-implement`, `/req-iterate`, `/req-audit`. Each picker is autonomy-aware:
+  HARD checkpoints always render the picker; SOFT checkpoints under
+  `balanced` / `auto` auto-take the recommended option but **MUST** still print
+  the Brief for the audit trail.
+- **`/req-audit` slash command** (carried over from the unreleased audit/fixup
+  branch) — read-only drift sweep that compares every `done`/`in-progress` spec
+  against the current state of code, tests, and changelog, producing a
+  severity-ranked drift report under `${REQ_DATA_ROOT}/audits/`. Sources:
+  spec↔code drift, autonomous-run residue (`TODO(auto)` markers),
+  changelog-review of `[autonomy: ...]` entries, test retrospective. Bare form
+  may be scheduled (cron, CI); `--iterate` form must be human-initiated.
+- **`/req-iterate --fixup` mode** — additive to the forward-iteration flow.
+  Targets a single `done`/`in-progress` spec, applies a patch-level version
+  bump, generates a **micro-plan capped at 5 tasks**, walks the diff-only
+  fixup variant of `/req-review` → `/req-plan` → `/req-implement`. All five
+  HARD checkpoints still apply; fixup only shrinks the size of each approval,
+  never bypasses one. Includes explicit refusal rules (no acceptance criteria
+  changes, no `infra/` touches, no production-promoted code, no cross-spec
+  drift, no architectural regret). Every fixup run writes a `FIXUP-*.md`
+  audit-trail file.
+
+### Changed
+- **`/req-review` picker collapsed** from 4 historical outcomes (Approve /
+  Approve w/ notes / Request changes / Reject) into 3 picker options + the
+  automatic "Other" entry. Notes are now collected via a follow-up picker after
+  Approve, keeping the primary picker compliant with the §7b 3-option cap.
+- **Existing pickers retrofitted** to the §7b convention: `/req-intake`,
+  `/req-feedback`, `/req-deploy`, `/req-resolve-conflict`, `/req-onboard`,
+  `/req-autonomy`. Each now places the AI-recommended option first with
+  `（建議）` suffix and rotates the recommendation based on context (e.g. high
+  ambiguity in `/req-intake` swaps to `補充細節（建議）`; high-risk deploy in
+  `/req-deploy` swaps to `延後（建議）`).
+- **AGENTS.md §5/§5b updated** so that automated decisions made under
+  `balanced` / `auto` leave breadcrumbs (`[autonomy: ...]` changelog tags,
+  `TODO(auto)` markers) explicitly intended to be surfaced later by `/req-audit`
+  and repaired by `/req-iterate --fixup`. The safety-net pairing is now
+  documented as a hard requirement, not a recommendation.
+
 ## [2.3.0] — 2026-04-08
 
 ### Added
