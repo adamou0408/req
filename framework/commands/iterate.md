@@ -28,10 +28,56 @@ Handle requirement changes by analyzing impact, updating specs, and managing the
    - Update dependency references if affected specs have downstream dependents
    - Add a changelog entry in `${REQ_DATA_ROOT}/docs/changelog.md`
 5. If new conflicts are detected, create conflict records in `${REQ_DATA_ROOT}/conflicts/`.
-6. Present the impact analysis and branch on `REQ_AUTONOMY_LEVEL` (exported by `_lib.sh`, defaults to `strict`):
-   - **strict** — wait for explicit human approval before proceeding to re-implementation (current behavior).
-   - **balanced / auto** — if the impact is **low** (≤1 spec affected, minor version bump, no new conflicts detected, no source files in `${REQ_CODE_ROOT}/src/` marked as affected), auto-proceed without waiting and annotate the `docs/changelog.md` entry with `[autonomy: balanced]` or `[autonomy: auto]`. For any impact above low (≥2 specs, major bump, new conflicts, or affected source files), fall back to strict behavior — wait for human approval regardless of level. This is a SOFT checkpoint that graduates back to HARD when impact exceeds the threshold.
-7. After approval (or auto-proceed), the normal flow resumes: `/review` → `/plan` → `/implement`.
+6. **Print a Decision Brief** in Chinese (per [AGENTS.md](../AGENTS.md) §7.0 Language Convention) summarising the impact analysis with drill-down links. Format defined in the "Decision Brief" section below.
+7. Branch on `REQ_AUTONOMY_LEVEL` (exported by `_lib.sh`, defaults to `strict`) following the [Next Step Picker Convention](../AGENTS.md#7b-next-step-picker-convention):
+   - **strict** — print the Brief, then call `AskUserQuestion` with the picker defined below. Wait for explicit human selection before proceeding.
+   - **balanced / auto** — if the impact is **low** (≤1 spec affected, minor version bump, no new conflicts detected, no source files in `${REQ_CODE_ROOT}/src/` marked as affected), print the Brief and auto-take the AI-recommended option *without* calling `AskUserQuestion`. Annotate the `docs/changelog.md` entry with `[autonomy: balanced]` or `[autonomy: auto]`. For any impact above low (≥2 specs, major bump, new conflicts, or affected source files), fall back to strict behavior — call the picker regardless of level. This is a SOFT checkpoint that graduates back to HARD when impact exceeds the threshold.
+8. After the picker selection (or auto-proceed), the normal flow resumes: `/review` → `/plan` → `/implement`.
+
+## Decision Brief
+
+```markdown
+### 📋 決策摘要：需求變更影響分析 — <change summary>
+
+**目標**：判斷此變更是否進入 re-implementation cycle，或先回頭討論 scope。
+
+**關鍵事實**（每項附原檔連結）：
+- 觸發來源：<intake 檔案連結 或 變更描述一句話>
+- 受影響的 specs：<列出 N 個 spec 名稱與目前狀態> → 詳見 [specs/](${REQ_DATA_ROOT}/specs/)
+- 受影響的程式檔：<列出 M 個檔案；若 0 寫「無」>
+- 版本變動：<minor (v1.0 → v1.1) / major (v1.x → v2.0) / patch (fixup)>
+- 新衝突：<偵測到 K 個新衝突；若 0 寫「無」>
+- 預估範圍：<low / medium / high；low 在 balanced/auto 下會自動前進>
+- 自動化判定：<在 balanced/auto 下會 auto-proceed / 仍需 picker>
+
+**需特別關注**：
+- ⚠️ <若有新衝突，列出最高嚴重度的一條>
+- ⚠️ <若涉及 ≥2 specs 或 major bump，提醒會 fallback 到 strict picker>
+- ⚠️ <若是 fixup 模式，列出 5 task 上限與不可改 acceptance criteria 的限制>
+
+**建議**：<AI 推薦的下一步與一句話理由，例如「建議直接進入 re-implementation — 影響範圍 low、無新衝突」>
+
+👉 建議先點開受影響的 specs 確認 change marker 後再做決定。
+```
+
+Then call `AskUserQuestion` with **at most three options**, AI-recommended option first with `（建議）` suffix:
+
+- `進入 re-implementation（建議）` — 觸發 `/req-review` → `/req-plan` → `/req-implement` 的標準後續流程
+- `先擴大影響分析` — 重跑 impact analysis 並把使用者指定的 spec 列入掃描範圍（避免漏判）
+- `保留變更紀錄不前進` — 受影響 specs 已標記版本與 change marker，但暫不重跑後續流程
+
+When `--fixup` is in effect, the picker options change to:
+
+- `執行 micro-plan（建議）` — 進入 fixup 的 review/plan/implement 子流程，task 上限 5
+- `先讀 audit 報告` — 不前進，重新打開 AUDIT-*.md 讓人工再核對
+- `升級成 forward iteration` — 拒絕 fixup（因為超出 fixup 適用範圍），改用一般 `/req-iterate` 流程
+
+## Constraints (Decision Brief related — see also bottom-of-file constraints)
+
+- **MUST** print the Decision Brief in Chinese before either calling the picker or auto-proceeding under balanced/auto (per AGENTS.md §7b).
+- **MUST NOT** auto-proceed on anything above the low-impact threshold defined in step 7 — picker required.
+- **MUST NOT** use free-text confirmation in place of the picker (per AGENTS.md §7b anti-patterns).
+- **MUST NOT** call the picker on automated webhook invocations of forward iteration (e.g. iterate triggered indirectly by `/feedback`); print the Brief into the changelog entry instead and require manual `/req-iterate` for re-implementation.
 
 ## Fixup Mode (`--fixup`)
 

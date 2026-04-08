@@ -43,10 +43,12 @@ Before triggering `/research`, the agent **MUST** print the following block in C
 👉 建議先點開上列連結確認細節後再做決定。
 ```
 
-Then call `AskUserQuestion` with options:
-- `確認送出` — 進入 /research，開始去重與可行性檢查
+Then call `AskUserQuestion` per the [Next Step Picker Convention](../AGENTS.md#7b-next-step-picker-convention) (max 3 options, AI-recommended option first with `（建議）` suffix):
+- `確認送出（建議）` — 進入 /research，開始去重與可行性檢查
 - `補充細節` — 回到問答，補充缺漏資訊
 - `取消` — 暫不送出，原始檔保留但不進入後續流程
+
+If the Decision Brief flagged ambiguity in `需特別關注`, swap the recommended option to `補充細節（建議）` and remove `（建議）` from `確認送出`. There is exactly one `（建議）` per picker.
 
 ## Constraints
 - Accept ANY format of input. Never reject input for being too vague or unstructured.

@@ -65,11 +65,13 @@ For each resolution option, show:
    👉 建議先點開上列連結確認雙方角色定義與既有 stories 後再做決定。AI 不會替你選。
    ```
 
-2. **Then call the `AskUserQuestion` tool** with one question whose options are the resolution alternatives (max 4, plus an automatic "Other" option for custom answers). Each option's `label` ≤ 12 chars, `description` ≤ 1 line summarising the trade-off. This renders as a popup-style picker in Claude Code instead of free-text.
+2. **Then call the `AskUserQuestion` tool** per the [Next Step Picker Convention](../AGENTS.md#7b-next-step-picker-convention) — **max 3 options**, plus the automatic "Other" the tool adds. The 3 picker options are the top 3 resolution alternatives from the impact matrix; if there are more than 3 alternatives, the lower-ranked ones collapse into "Other" rather than overloading the picker. Each option's `label` ≤ 12 chars, `description` ≤ 1 line summarising the trade-off.
 
-3. After the human picks an option, call `AskUserQuestion` **a second time** to capture the one-sentence reasoning. Do **not** accept "just because".
+   The AI-recommended option **MUST** be the **first** option, with its `label` ending in `（建議）`. Exactly one `（建議）` per picker. Even though AI must not decide for the human (HARD checkpoint), AI is allowed and required to recommend — the human still has to explicitly pick.
 
-4. If the human picks "Other", prompt for the custom option text via the same tool before asking for reasoning.
+3. After the human picks an option, call `AskUserQuestion` **a second time** to capture the one-sentence reasoning. Do **not** accept "just because". The reasoning picker is also a structured choice: the options are pre-populated with the top trade-offs from the impact matrix (e.g. `對齊 CONSTITUTION 原則` / `成本效益最高` / `角色 X 風險最低`) plus "Other" for free text.
+
+4. If the human picks "Other" in step 2, prompt for the custom option text via the same tool before asking for reasoning.
 
 - Wait for the human to select a resolution option
 - Require the human to provide:

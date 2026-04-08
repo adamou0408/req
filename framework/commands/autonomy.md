@@ -63,7 +63,7 @@ The five L1-L3 hard checkpoints (conflict resolution, spec/plan approval, produc
 
 ### 3. No argument + interactive fallback
 
-- If the harness supports `AskUserQuestion` and the user seems to be exploring (not scripting), offer a picker with three options (Strict / Balanced / Auto), each with a `preview` containing the relevant column of the matrix. On selection, fall through to step 2 as if the user had passed the argument.
+- If the harness supports `AskUserQuestion` and the user seems to be exploring (not scripting), offer a picker per the [Next Step Picker Convention](../AGENTS.md#7b-next-step-picker-convention). Three options, AI-recommended option first with `（建議）` suffix. The default recommendation is `Strict（建議）` (the safest level for unfamiliar projects); if the user has an active `/audit + /iterate --fixup` workflow detected, swap the recommendation to `Balanced（建議）`. Each option's `preview` field contains the relevant column of the checkpoint matrix. On selection, fall through to step 2 as if the user had passed the argument.
 
 ## Constraints
 
