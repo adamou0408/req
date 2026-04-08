@@ -88,6 +88,29 @@ What was **not** touched:
 
 ---
 
+## Autonomy levels
+
+Since v2.2.0 you can dial how many human checkpoints the framework enforces via `/req-autonomy`. Three levels are provided (the supervised model):
+
+| Level | Who decides | When to use |
+|---|---|---|
+| `strict` (default) | 7/7 checkpoints require a human | Team projects, regulated domains, anything touching real customers |
+| `balanced` | 5/7 require a human (duplicate handling and low-impact iterations auto-proceed on AI recommendation) | Small team MVPs, internal tools |
+| `auto` | 5/7 require a human, plus expanded AI discretion on grey-area items (partial overlaps, low-severity conflicts) | Solo projects, prototypes, spike work |
+
+The **five HARD checkpoints** that every level enforces: conflict resolution, spec approval, plan approval (ExitPlanMode), 3-strike test failure intervention, production deploy. See [framework/AGENTS.md §5](../framework/AGENTS.md) for the full matrix.
+
+Switch the level at any time:
+```bash
+/req-autonomy                  # view current level + matrix
+/req-autonomy balanced         # switch to L2
+/req-autonomy auto             # switch to L3 (prints warning)
+```
+
+The level is persisted as `autonomy_level:` in `.req.config.yml` so it's shared via git across your team. Every switch is logged to `docs/changelog.md` for auditability. Existing v2.1.0 configs without the field default to `strict` — no migration needed.
+
+---
+
 ## Upgrade
 
 Whenever upstream releases a new version (e.g. v2.0.0):

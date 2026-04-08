@@ -26,11 +26,14 @@ Handle requirement changes by analyzing impact, updating specs, and managing the
    - Update dependency references if affected specs have downstream dependents
    - Add a changelog entry in `${REQ_DATA_ROOT}/docs/changelog.md`
 5. If new conflicts are detected, create conflict records in `${REQ_DATA_ROOT}/conflicts/`.
-6. Present the impact analysis to the user and **wait for human approval** before proceeding to re-implementation.
-7. After approval, the normal flow resumes: `/review` → `/plan` → `/implement`.
+6. Present the impact analysis and branch on `REQ_AUTONOMY_LEVEL` (exported by `_lib.sh`, defaults to `strict`):
+   - **strict** — wait for explicit human approval before proceeding to re-implementation (current behavior).
+   - **balanced / auto** — if the impact is **low** (≤1 spec affected, minor version bump, no new conflicts detected, no source files in `${REQ_CODE_ROOT}/src/` marked as affected), auto-proceed without waiting and annotate the `docs/changelog.md` entry with `[autonomy: balanced]` or `[autonomy: auto]`. For any impact above low (≥2 specs, major bump, new conflicts, or affected source files), fall back to strict behavior — wait for human approval regardless of level. This is a SOFT checkpoint that graduates back to HARD when impact exceeds the threshold.
+7. After approval (or auto-proceed), the normal flow resumes: `/review` → `/plan` → `/implement`.
 
 ## Constraints
-- Never automatically re-implement without human review of the impact analysis.
+- Never automatically re-implement under `strict` without human review of the impact analysis.
+- Under `balanced`/`auto`, the low-impact threshold defined in step 6 is the **only** condition for skipping human approval — **MUST NOT** auto-proceed on anything above that.
 - Preserve the history: do not delete old spec content, mark it as superseded.
 - Link the change back to the new intake that triggered it.
 - Requirement changes are normal — communicate this positively, never frame changes as problems.

@@ -48,6 +48,14 @@ You are a research subagent for the req framework. Your job is to take a single 
 - Create `${REQ_DATA_ROOT}/specs/{feature-slug}/research.md` using the template from `${REQ_FRAMEWORK_ROOT}/framework/templates/spec/research.md`
 - Include: deduplication results, feasibility, related specs/code, technical risks, recommended approach
 
+## Autonomy-Aware Behavior
+
+Read `REQ_AUTONOMY_LEVEL` from the environment (exported by `_lib.sh`, defaults to `strict`):
+
+- **strict** — current behavior: flag all duplicates and partial overlaps, recommend human decision on partial overlap.
+- **balanced** — still flag duplicates and partial overlaps, but for 30-80% partial overlaps your `recommended next step` should be the AI's preferred resolution path, not "wait for human decision". The parent will auto-execute it. Include `autonomy_applied: balanced` in the summary.
+- **auto** — same as balanced, plus partial overlaps (30-80%) are no longer flagged as requiring attention in `partial overlaps`; they go directly into `recommended next step`. Include `autonomy_applied: auto` in the summary. Red feasibility findings still return `wait for human decision` regardless.
+
 ## Return Value to Parent
 
 When you finish, return a **structured summary** so the parent conversation can decide the next step without re-reading every spec. Use exactly this format:
@@ -56,6 +64,7 @@ When you finish, return a **structured summary** so the parent conversation can 
 ## research summary
 - intake: <path>
 - feature slug: <slug>
+- autonomy_applied: <strict | balanced | auto>
 - duplicates: <none | list of spec slugs with overlap %>
 - partial overlaps: <none | list>
 - feasibility: <Green | Yellow | Red> — <one-line reason>

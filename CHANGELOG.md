@@ -3,6 +3,45 @@
 All notable changes to the **req** framework are documented in this file.
 The framework follows [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] — 2026-04-08
+
+### Added
+- **Autonomy levels** (`strict` / `balanced` / `auto`) — a single project-level
+  setting that controls how many of AGENTS.md §5's human checkpoints are actually
+  enforced. `strict` (default) keeps the v2.1.0 behavior of 7/7 human checkpoints.
+  `balanced` and `auto` hand off two SOFT checkpoints (duplicate intake handling
+  and low-impact iteration approval) to the AI while keeping five HARD
+  checkpoints (conflict resolution, spec approval, plan approval, 3-strike
+  failure, production deploy) mandatory at every level.
+- **New slash command** `/req-autonomy [strict|balanced|auto]` — view or change
+  the current level. No argument prints the current level and a checkpoint
+  matrix. Every change is logged to `docs/changelog.md` for auditability. Under
+  `auto` the command prints a warning advising solo/prototype use only.
+- **New config field** `autonomy_level:` in `.req.config.yml`. Loaded by
+  `_lib.sh`'s `req_load_config` as `REQ_AUTONOMY_LEVEL`, defaulting to `strict`
+  if absent — **fully backward compatible with v2.1.0** configs, no migration
+  needed.
+- `framework/commands/autonomy.md` — new command definition shipped and synced
+  alongside the other 11 commands.
+
+### Changed
+- `framework/AGENTS.md §5` split into HARD (5) and SOFT (2) checkpoints; added
+  new §5a explaining how each autonomy level branches.
+- `framework/commands/research.md` duplicate/overlap handling branches on
+  `REQ_AUTONOMY_LEVEL` (strict waits for human, balanced/auto auto-executes
+  AI recommendation with audit annotation).
+- `framework/commands/detect-conflicts.md` adds an `auto`-only constraint:
+  low-severity conflicts may be skipped but **MUST** be reported as a count +
+  list in the subagent summary (never silently dropped).
+- `framework/commands/iterate.md` adds a low-impact auto-proceed path for
+  balanced/auto (≤1 spec, minor bump, no new conflicts, no affected source);
+  anything above that threshold still waits for human approval.
+- `framework/agents/req-research.md` and `framework/agents/req-conflict-detector.md`
+  return summaries now include an `autonomy_applied:` field and a
+  `skipped-low-severity-conflicts:` field respectively.
+- `req-init.sh` and `req-add-submodule.sh` write `autonomy_level: strict` into
+  newly-generated `.req.config.yml` files.
+
 ## [2.1.0] — 2026-04-08
 
 ### Added

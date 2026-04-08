@@ -79,6 +79,7 @@ graph TD
 | 部署 | `/req-deploy` | AI + **人類** | 跑 health check,正式環境需要人確認 |
 | 監控/回報 | `/req-feedback` | AI | 持續監控,發現問題自動回報成新 intake |
 | 迭代 | `/req-iterate` | **你** | 想改什麼隨時說,流程會重新跑 |
+| 切換自主程度 | `/req-autonomy` | **你** | 三級切換 `strict` / `balanced` / `auto`,預設 `strict` 全部要人(詳見 [docs/installation.md](docs/installation.md)) |
 
 ---
 

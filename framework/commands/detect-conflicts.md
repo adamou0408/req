@@ -24,6 +24,7 @@ If `all` is specified, scan every spec in `${REQ_DATA_ROOT}/specs/`.
 
 ## Constraints
 - **MUST** delegate to `req-conflict-detector`; do not perform persona analysis inline in the main conversation
-- **MUST NOT** resolve conflicts autonomously
+- **MUST NOT** resolve conflicts autonomously (HARD checkpoint — applies at every autonomy level)
 - **MUST NOT** auto-trigger `/req-resolve-conflict` — always wait for the human
 - Cross-spec conflicts (between different features) **MUST** be detected when scanning `all`
+- Under `REQ_AUTONOMY_LEVEL=auto`, the subagent **MAY** skip `severity: low` conflicts (not create a CONFLICT-NNN record for them) but **MUST** report the skipped count and slugs under `skipped-low-severity-conflicts` in its return summary. Never silently drop.

@@ -46,13 +46,28 @@ This document defines the behavioral rules and constraints for all AI agents ope
 
 The following actions **REQUIRE** human approval and cannot be bypassed:
 
+The following five checkpoints are **HARD** — they cannot be bypassed by any autonomy level:
+
 - Resolving requirement conflicts (via `/resolve-conflict`)
 - Approving specs (transitioning from `in-review` to `approved`)
 - Approving technical plans (transitioning from `approved` to `in-progress` via `/plan` → `ExitPlanMode` popup; `/implement` is blocked until this happens)
 - Overriding failed tests after 3 auto-fix attempts
-- Deleting or archiving existing specs
-- Deciding how to handle duplicate requirements found during `/research`
 - Approving code for production deployment (via code review)
+
+The following two checkpoints are **SOFT** — their behavior depends on `REQ_AUTONOMY_LEVEL`:
+
+- Deciding how to handle duplicate requirements found during `/research`
+- Approving impact analysis during `/iterate` (and deleting/archiving specs)
+
+### 5a. Autonomy Level
+
+All commands **MUST** read `REQ_AUTONOMY_LEVEL` (exported by `_lib.sh`'s `req_load_config`, defaulting to `strict` if absent from `.req.config.yml` for backward compatibility) and branch accordingly:
+
+- **strict** (default) — enforce both HARD and SOFT checkpoints. Current v2.1.0 behavior.
+- **balanced** — enforce HARD checkpoints; take the AI-recommended path on SOFT checkpoints. **MUST** annotate the automated action in the subagent summary / spec / changelog so it is auditable.
+- **auto** — same as balanced, plus: `/research` partial overlaps proceed silently, `/detect-conflicts` may skip `severity: low` conflicts (but **MUST** report skipped count in the summary — never silently drop).
+
+No autonomy level **MAY** bypass a HARD checkpoint. Use `/autonomy` to view or change the current level.
 
 ### 6. State Management
 

@@ -42,12 +42,21 @@ req_load_config() {
     REQ_CODE_ROOT="$(awk -F': *' '/^code_root:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$cfg")"
     REQ_FRAMEWORK_ROOT="$(awk -F': *' '/^framework_root:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$cfg")"
     REQ_LAST_SYNCED_VERSION="$(awk -F': *' '/^last_synced_version:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$cfg")"
+    REQ_AUTONOMY_LEVEL="$(awk -F': *' '/^autonomy_level:/ {gsub(/["\047]/, "", $2); print $2; exit}' "$cfg")"
 
     : "${REQ_DATA_ROOT:?data_root missing in $cfg}"
     : "${REQ_CODE_ROOT:?code_root missing in $cfg}"
     : "${REQ_FRAMEWORK_ROOT:?framework_root missing in $cfg}"
 
-    export REQ_HOST_ROOT REQ_DATA_ROOT REQ_CODE_ROOT REQ_FRAMEWORK_ROOT REQ_LAST_SYNCED_VERSION
+    # Default to strict for backward compatibility with v2.1.0 configs
+    : "${REQ_AUTONOMY_LEVEL:=strict}"
+    case "$REQ_AUTONOMY_LEVEL" in
+        strict|balanced|auto) ;;
+        *) echo "WARNING: unknown autonomy_level '$REQ_AUTONOMY_LEVEL' in $cfg, falling back to strict" >&2
+           REQ_AUTONOMY_LEVEL="strict" ;;
+    esac
+
+    export REQ_HOST_ROOT REQ_DATA_ROOT REQ_CODE_ROOT REQ_FRAMEWORK_ROOT REQ_LAST_SYNCED_VERSION REQ_AUTONOMY_LEVEL
 }
 
 req_substitute_vars() {

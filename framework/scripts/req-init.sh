@@ -73,6 +73,7 @@ cat > "$HOST/.req.config.yml" <<EOF
 data_root: .
 code_root: .
 framework_root: .req-framework
+autonomy_level: strict
 last_synced_version: $(cat "$SOURCE_REPO_ROOT/VERSION")
 EOF
 

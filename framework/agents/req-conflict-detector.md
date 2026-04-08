@@ -31,6 +31,15 @@ You are a conflict-detection subagent for the req framework. Your job is to scan
    - 2–3 possible resolution directions (do **NOT** choose one)
 5. When scanning `all`, also detect cross-spec conflicts (between different features)
 
+## Autonomy-Aware Behavior
+
+Read `REQ_AUTONOMY_LEVEL` from the environment (exported by `_lib.sh`, defaults to `strict`):
+
+- **strict** / **balanced** — create a CONFLICT-NNN record for every detected conflict regardless of severity (current behavior).
+- **auto** — you **MAY** skip creating records for `severity: low` conflicts, but you **MUST** report their count and titles in the summary under `skipped-low-severity-conflicts`. Never silently drop: every low-severity skip must be visible to the parent.
+
+Medium and high severity conflicts **MUST** always be recorded, regardless of level.
+
 ## Return Value to Parent
 
 When finished, return a **structured summary** in exactly this format:
@@ -38,11 +47,13 @@ When finished, return a **structured summary** in exactly this format:
 ```
 ## conflict detection summary
 - scope: <single spec slug | all>
+- autonomy_applied: <strict | balanced | auto>
 - specs scanned: <count>
 - conflicts detected: <count>
 - new conflict records:
   - CONFLICT-NNN: <one-line title> [<type>] [<severity: high|med|low>]
   - ...
+- skipped-low-severity-conflicts: <none | count + list of "<spec-slug>: <title>">
 - specs needing human decision: <bullet list of spec slugs>
 - recommended next step: /req-resolve-conflict <path-or-all>
 ```
