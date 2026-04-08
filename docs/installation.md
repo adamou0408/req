@@ -76,7 +76,7 @@ git commit -m "chore: install req framework"
 What was added:
 - `.req.config.yml`
 - `.req/` (business data: intake, specs, personas, conflicts, reviews, docs)
-- `.claude/commands/req-*.md` (11 auto-generated slash commands, prefixed `req-`)
+- `.claude/commands/req-*.md` (12 auto-generated slash commands, prefixed `req-`)
 - `.claude/agents/req-*.md` (auto-generated subagents — `req-research`, `req-conflict-detector`)
 - `.claude/settings.json` (permissions whitelist, **only if you didn't already have one** — see note below)
 
@@ -122,6 +122,8 @@ Since v2.2.0 you can dial how many human checkpoints the framework enforces via 
 | `auto` | 5/7 require a human, plus expanded AI discretion on grey-area items (partial overlaps, low-severity conflicts) | Solo projects, prototypes, spike work |
 
 The **five HARD checkpoints** that every level enforces: conflict resolution, spec approval, plan approval (ExitPlanMode), 3-strike test failure intervention, production deploy. See [framework/AGENTS.md §5](../framework/AGENTS.md) for the full matrix.
+
+> **Safety net for `balanced` / `auto`** — higher autonomy levels are only safe when paired with `/req-audit` (read-only drift detection over `done` specs) and `/req-iterate --fixup` (shrink-wrapped retroactive repair: diff-only spec review + ≤5-task micro-plan). Run `/req-audit` periodically; run `/req-audit --iterate` to stream drift rows through fixup. The five HARD checkpoints still apply — fixup only shrinks each approval unit, never bypasses one. There is intentionally no L4 / "Yolo" level. See [framework/commands/audit.md](../framework/commands/audit.md) and the Fixup Mode section in [framework/commands/iterate.md](../framework/commands/iterate.md).
 
 Switch the level at any time:
 ```bash

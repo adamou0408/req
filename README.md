@@ -79,7 +79,9 @@ graph TD
 | 部署 | `/req-deploy` | AI + **人類** | 跑 health check,正式環境需要人確認 |
 | 監控/回報 | `/req-feedback` | AI | 持續監控,發現問題自動回報成新 intake |
 | 迭代 | `/req-iterate` | **你** | 想改什麼隨時說,流程會重新跑 |
-| 切換自主程度 | `/req-autonomy` | **你** | 三級切換 `strict` / `balanced` / `auto`,預設 `strict` 全部要人(詳見 [docs/installation.md](docs/installation.md)) |
+| 修補(fixup) | `/req-iterate --fixup` | **你** + AI | L2/L3 的事後補救網:對單一 `done` spec 做 patch-level 修補,只能填補既有 acceptance criteria 的漂移,micro-plan 上限 5 task |
+| 漂移偵測 | `/req-audit` | AI | Read-only 掃描所有 `done` spec 的 spec↔code 漂移、`TODO(auto)` 殘留、`[autonomy: auto]` changelog 條目;`--iterate` 模式會把每條 drift 串到 `/req-iterate --fixup` |
+| 切換自主程度 | `/req-autonomy` | **你** | 三級切換 `strict` / `balanced` / `auto`,預設 `strict` 全部要人。L2/L3 必須搭配 `/req-audit` + `/req-iterate --fixup` 當補救網(詳見 [docs/installation.md](docs/installation.md)) |
 | Onboarding(選配) | `/req-onboard` | AI | 在既有 repo 安裝後跑一次,掃描 host code 產出 personas + feature inventory + project context,給後續 `/req-*` 當 baseline。三個深度 `shallow` / `medium` / `deep`,預設 `medium`。 |
 
 ---
@@ -90,7 +92,7 @@ graph TD
 
 | 資料夾 | 用途 |
 |--------|------|
-| `framework/` | 框架核心:`commands/`(11 個 `req-*` slash 指令)、`agents/`(`req-research`、`req-conflict-detector` 兩個 subagent)、`scripts/`(安裝/同步)、`templates/`(spec/intake/persona 範本 + `settings.json` permissions 模板)、`config/` |
+| `framework/` | 框架核心:`commands/`(12 個 `req-*` slash 指令)、`agents/`(`req-research`、`req-conflict-detector` 兩個 subagent)、`scripts/`(安裝/同步)、`templates/`(spec/intake/persona 範本 + `settings.json` permissions 模板)、`config/` |
 | `examples/` | 參考範例(personas 等),不會被安裝到下游專案 |
 | `docs/` | 框架自身文件,含 [installation.md](docs/installation.md)、[metrics.md](docs/metrics.md)、[speckit-comparison.md](docs/speckit-comparison.md) |
 
@@ -130,7 +132,7 @@ git add .req.config.yml .req .claude/commands/req-*.md .claude/agents/req-*.md .
 git commit -m "chore: install req framework"
 ```
 
-只新增 `.req-framework/`(submodule)、`.req/`(業務資料)、11 個 `req-*.md` slash 指令、2 個 `req-*.md` subagent,以及 `.claude/settings.json`(若你已有則跳過),**完全不動**你的 `src/`、`tests/`、`README.md`、CI。
+只新增 `.req-framework/`(submodule)、`.req/`(業務資料)、12 個 `req-*.md` slash 指令、2 個 `req-*.md` subagent,以及 `.claude/settings.json`(若你已有則跳過),**完全不動**你的 `src/`、`tests/`、`README.md`、CI。
 
 ### 升級到新版
 

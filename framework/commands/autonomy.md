@@ -32,6 +32,12 @@ View or change how many human checkpoints the framework enforces. The req framew
 
 The five L1-L3 hard checkpoints (conflict resolution, spec/plan approval, production deploy, 3-strike failure) **MUST NEVER** be bypassed by any autonomy level.
 
+### Safety net for L2/L3
+
+`balanced` and `auto` are only safe when paired with the `/req-audit` + `/req-iterate --fixup` workflow. Automated decisions made under these levels leave breadcrumbs (`[autonomy: ...]` changelog tags, `TODO(auto)` markers). Run `/req-audit` periodically (it is read-only and may be scheduled) to surface drift; then run `/req-audit --iterate` — or `/req-iterate --fixup <spec-slug>` — to repair each row under a *shrink-wrapped* approval (diff-only spec review + ≤5-task micro-plan). The five hard checkpoints still apply, but each post-hoc review unit is much smaller, which is what makes L3 actually usable. See `commands/audit.md` and the Fixup Mode section in `commands/iterate.md` for details.
+
+> Note: there is intentionally no L4 / "Yolo" level. The leverage at higher autonomy comes from **shrinking the approval unit** (via fixup) rather than from removing approvals.
+
 ## Behavior
 
 ### 1. No argument — display current state

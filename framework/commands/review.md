@@ -23,25 +23,43 @@ Generate a human-readable review checklist for a spec pending approval.
    - [ ] Spec owner and reviewer are assigned
    - [ ] Traceability to original intake is intact (intake → research → spec)
 3. Save the review checklist to `${REQ_DATA_ROOT}/reviews/REVIEW-{feature-slug}-{date}.md` using the template from `${REQ_FRAMEWORK_ROOT}/framework/templates/review.md`.
-4. Present the checklist to the human reviewer using the **Interactive Review UX** below — not just a flat markdown dump.
+4. Present the spec to the human reviewer using the **Decision Brief UX** below — not just a flat markdown dump. The Brief gives the reviewer enough context to drill down before making a judgment, replacing the older compressed TL;DR pattern.
 
-   #### Interactive Review UX
-   a. **TL;DR block first** (≤ 6 lines, fixed format) so the reviewer can judge in 5 seconds:
+   #### Decision Brief UX
+   a. **Print a Decision Brief in Chinese** (per [AGENTS.md](../AGENTS.md) section 7.0 Language Convention). The Brief does **NOT** compress the spec into 6 lines — it summarises each key fact and links to the source so the reviewer can drill down before deciding:
+
+      ```markdown
+      ### 📋 決策摘要：規格審核 — <spec title>
+
+      **目標**：判斷此 spec 是否可從 `in-review` 進入 `approved`，或需退回修正。
+
+      **關鍵事實**（每項附原檔連結）：
+      - 規格範圍：<一句話描述本 spec 交付什麼> → 詳見 [spec.md#需求摘要](../specs/<feature-slug>/spec.md#需求摘要)
+      - User Stories：<N 個故事，涵蓋 M 個 personas> → 詳見 [spec.md#使用者故事](../specs/<feature-slug>/spec.md#使用者故事)
+      - 衝突狀態：<已解決 X / 全部 Y；若 Y=0 則寫「無偵測到衝突」> → 詳見 [conflicts/](../conflicts/)
+      - 安全性評估：<OK / 待補；簡述資料分類與認證需求> → 詳見 [spec.md#安全性需求](../specs/<feature-slug>/spec.md#安全性需求)
+      - 追溯來源：<原始 intake 檔案名> → 詳見 [intake/raw/<file>.md](../intake/raw/<file>.md)
+      - 前置依賴：<列出前置 specs 與其狀態> → 詳見 [spec.md#依賴關係](../specs/<feature-slug>/spec.md#依賴關係)
+
+      **需特別關注**：
+      - ⚠️ <第一個 AI 信心度低或有歧義的項目，附對應段落連結>
+      - ⚠️ <第二個需要人眼判斷的事項，附連結；若無則寫「無」>
+
+      **建議**：<AI 推薦的選項與一句話理由，例如「建議 Approve — 所有 checklist 項目通過且無高風險點」>
+
+      👉 建議先點開上列連結確認細節後再做決定。
       ```
-      ✅ REVIEW: <spec title>
-      範圍: <one sentence — what this spec delivers>
-      User Stories: <N 個> | 衝突: <已解決 X / 全部 Y> | 安全性: <OK / 待補>
-      風險點: <最高風險的一句話,沒有就寫「無」>
-      AI 信心: <High / Medium / Low> — <one-line reason>
-      待人類確認的關鍵項: <列出 1–3 個 checklist 中最值得人眼判斷的項目>
-      ```
+
    b. **Then call the `AskUserQuestion` tool** with the decision question. Options:
-      - `Approve` — 全部通過,送進 /plan
+      - `Approve` — 全部通過，送進 /plan
       - `Approve w/ notes` — 通過但需記錄補充意見
-      - `Request changes` — 退回 draft,需修正
+      - `Request changes` — 退回 draft，需修正
       - `Reject` — 整個 spec 不採用
+
       This renders as a popup picker in Claude Code instead of asking the reviewer to type free text.
+
    c. If the reviewer picks `Approve w/ notes` or `Request changes`, call `AskUserQuestion` **again** to collect which specific checklist item(s) failed (multiSelect across the checklist items). Avoid free-text whenever the answer can be a fixed choice.
+
    d. Only after the structured answer is captured, render the full markdown checklist for the record (saved to `reviews/`).
 
 5. Upon human approval:

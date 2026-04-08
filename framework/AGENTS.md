@@ -80,6 +80,8 @@ All commands **MUST** read `REQ_AUTONOMY_LEVEL` (exported by `_lib.sh`'s `req_lo
 
 No autonomy level **MAY** bypass a HARD checkpoint. Use `/autonomy` to view or change the current level.
 
+Higher autonomy levels (`balanced`/`auto`) **MUST** be paired with the safety net provided by `/audit` and `/iterate --fixup`. Automated decisions made under these levels leave breadcrumbs (`[autonomy: ...]` changelog tags, `TODO(auto)` markers) so `/audit` can later detect drift and `/iterate --fixup` can repair it under shrink-wrapped approvals. Fixup **MUST NOT** bypass any HARD checkpoint — it only reduces the *size* of each approval (diff-only review, ≤5-task micro-plan), never the count.
+
 ### 6. State Management
 
 Valid spec states and transitions:
@@ -90,7 +92,11 @@ draft → in-review → approved → in-progress → done
 approved → draft (requirement change via /iterate)
 in-progress → draft (requirement change via /iterate)
 done → draft (requirement change via /iterate)
+done → draft [reason: fixup] (retroactive repair via /iterate --fixup)
+in-progress → draft [reason: fixup] (retroactive repair via /iterate --fixup)
 ```
+
+The `[reason: fixup]` tag distinguishes retroactive repairs (closing drift against already-approved criteria) from forward requirement changes. Both transitions go through the same review/plan/implement cycle, but fixup is constrained: it cannot modify acceptance criteria, cannot exceed a 5-task micro-plan, and cannot touch production-promoted code (see `commands/iterate.md` for the full refusal rules).
 
 - **MUST NOT** skip states. Each transition must be explicit and logged.
 - **MUST** update `docs/changelog.md` on every state transition.
@@ -104,6 +110,26 @@ done → draft (requirement change via /iterate)
 - When communicating with non-technical users: use plain language, avoid jargon, be patient and encouraging.
 - When generating technical artifacts: be precise, structured, and comprehensive.
 - Always confirm understanding before proceeding with translation.
+
+#### 7.0 Language Convention
+
+The framework deliberately mixes English and Chinese based on **who reads what**. All AI agents and contributors **MUST** follow this convention when authoring or editing files. New files added to the framework must conform on day one.
+
+| Layer | Language | Rationale |
+|-------|---------|-----------|
+| `framework/CONSTITUTION.md`, `framework/AGENTS.md` | English | Highest-level normative documents; aligned with AI agent instruction conventions. |
+| `framework/commands/*.md` | English structural sections (Description / Behavior / Constraints / Output), Chinese allowed for embedded template field names and quoted user-facing text | Commands are agent instructions, but they reference Chinese template fields. |
+| `framework/templates/spec/*.md` (spec, plan, tasks, research, contracts, deployment-checklist) | Chinese as primary | These are documents end users read and edit; Chinese gives the smoothest comprehension for the project's primary audience. |
+| `framework/templates/intake/*.md` | Bilingual (Chinese / English side by side) | Requirement submitters may be non-technical; lowest possible barrier. |
+| `framework/templates/review.md`, `framework/templates/persona/*.md` | Chinese as primary | Same rationale as spec templates. |
+| **AI-to-user conversational output** (anything an agent prints during a command run that a human will read) | Chinese | Matches the project's primary collaboration language. |
+
+Cross-cutting rules:
+
+- Never mix Chinese and English **within a single section heading** unless using the explicit bilingual format `## Chinese Heading (English Heading)` — used only in `deployment-checklist.md` and intake templates.
+- Inline technical terms (`schema`, `health check`, `liveness probe`, `webhook`) may stay in English even inside a Chinese paragraph, but **MUST** appear in the Glossary in `CONSTITUTION.md` with their Chinese counterpart so usage stays consistent.
+- When introducing a new term, check the Glossary first. If it does not exist, add it to the Glossary in the same change.
+- Quote marks: use Markdown standard (` ``` ` for code, `**bold**` for emphasis). **Do not** use Chinese full-width quotes 「」 in headings or list items — they break visual scanning. Inside Chinese prose paragraphs, full-width quotes are acceptable when quoting actual user words.
 
 ### 7a. Spec Ownership & Review SLA
 
@@ -191,3 +217,5 @@ tests are written under `code_root` (typically `.`, the host's real `src/` and `
 | Auto-intake | `${REQ_DATA_ROOT}/intake/raw/YYYY-MM-DD-auto-{alert}.md` | `intake/raw/2026-04-04-auto-high-error-rate.md` |
 | Generated source | `${REQ_CODE_ROOT}/src/...` | `src/services/search.py` |
 | Generated tests | `${REQ_CODE_ROOT}/tests/...` | `tests/test_search.py` |
+| Audit report | `${REQ_DATA_ROOT}/audits/AUDIT-{YYYY-MM-DD-HHMM}.md` | `audits/AUDIT-2026-04-08-1430.md` |
+| Fixup record | `${REQ_DATA_ROOT}/audits/FIXUP-{slug}-{YYYY-MM-DD-HHMM}.md` | `audits/FIXUP-user-search-2026-04-08-1530.md` |

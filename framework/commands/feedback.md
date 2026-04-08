@@ -51,12 +51,45 @@ Provide an initial assessment:
 - For **warning** issues: create intake and recommend standard `/research` → `/translate` flow
 - For **info** issues: create intake, batch for next review cycle
 
+### 7. Decision Brief
+
+If `/feedback` was triggered manually (not by the monitoring webhook), **MUST** print a Decision Brief in Chinese (per [AGENTS.md](../AGENTS.md) section 7.0 Language Convention) before chaining into `/research`. For automated webhook invocations, print the Brief into the auto-generated intake item as a header so reviewers see it when triaging — but do **NOT** call `AskUserQuestion` (the loop must stay automatic).
+
+```markdown
+### 📋 決策摘要：監控回饋處理 — <alert summary>
+
+**目標**：判斷此監控事件如何進入需求循環。
+
+**關鍵事實**（每項附原檔連結）：
+- 事件分類：<type / severity> → 詳見 [新建 intake 檔案](${REQ_DATA_ROOT}/intake/raw/YYYY-MM-DD-auto-{slug}.md)
+- 影響範圍：<受影響使用者數量或範圍>
+- 30 分鐘內重複次數：<N 次；若 ≥3 已升級>
+- 相關既有 specs：<列出 0~3 個既有 spec 連結，若無則寫「未發現關聯」>
+- 監控來源：<dashboard URL / alert ID> → <連結>
+- 建議路由：<critical / warning / info 對應的下游動作>
+
+**需特別關注**：
+- ⚠️ <若為 critical：提醒已建立 post-mortem 並需要快速通道審核>
+- ⚠️ <若 24 小時內第 3 次以上：提醒已觸發升級通報>
+
+**建議**：<AI 推薦的處理路徑與一句話理由>
+
+👉 建議先點開上列連結確認細節後再做決定。
+```
+
+For manual invocations, then call `AskUserQuestion`:
+- `進入需求循環` — 自動轉交 `/research`
+- `先檢視原始監控資料` — 暫不轉交，由人工先看 dashboard
+- `去重併入既有 intake` — 若 AI 已建議重複項目，將本次資訊併入
+
 ## Constraints
 - **MUST** preserve all monitoring data in the intake item
 - **MUST** deduplicate within 30-minute windows to avoid alert storms
 - **MUST** link back to the monitoring source (dashboard URL, alert ID, etc.)
 - **MUST NOT** auto-resolve production issues — always route through the full cycle
 - **MUST** escalate if the same alert fires 3+ times within 24 hours
+- **MUST** print the Decision Brief in Chinese for manual invocations and embed it in the intake item header for automated invocations
+- **MUST NOT** call `AskUserQuestion` for automated webhook invocations — the closed loop must stay automatic; the Brief is for record only
 
 ## Closed-Loop Integration
 This command completes the feedback loop:
