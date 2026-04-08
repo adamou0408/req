@@ -5,7 +5,7 @@ Execute the technical plan by generating code and tests automatically.
 
 ## Prerequisites
 - `plan.md` and `tasks.md` must exist in the spec directory.
-- The corresponding `spec.md` status must be `approved`.
+- The corresponding `spec.md` status **must be `in-progress`** — meaning the human has already accepted the plan via the ExitPlanMode popup at the end of `/req-plan`. If status is still `approved`, **refuse** and remind the user to run `/req-plan` and accept the plan first.
 - If `contracts.md` exists, API contracts must be implemented first.
 
 ## Usage
@@ -14,9 +14,10 @@ Execute the technical plan by generating code and tests automatically.
 ```
 
 ## Behavior
-1. Verify prerequisites. Abort with a clear message if not met.
-2. Update `spec.md` status to `in-progress`.
-3. Update `spec.md` version history (increment version, note implementation start).
+1. Verify prerequisites. Abort with a clear message if not met. Specifically check:
+   - `plan.md` and `tasks.md` exist
+   - `spec.md` status is exactly `in-progress` (not `approved`, not `done`). If status is `approved`, abort with: "Plan has not been accepted. Run /req-plan and accept the plan via the approval popup before implementing."
+2. Update `spec.md` version history (increment version, note implementation start).
 4. Process tasks from `tasks.md`:
    - Respect dependency order: tasks with `[depends: N]` wait for task N to complete.
    - Execute parallelizable tasks (same `[P-group-X]`) concurrently when possible.

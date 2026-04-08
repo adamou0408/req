@@ -1,7 +1,7 @@
 # /detect-conflicts - Requirement Conflict Detection
 
 ## Description
-Scan specs for cross-persona conflicts and flag them for human resolution.
+Scan specs for cross-persona conflicts and flag them for human resolution. This command is a **thin wrapper** that delegates to the `req-conflict-detector` subagent so the main conversation context is not polluted by per-spec analysis text.
 
 ## Usage
 ```
@@ -11,26 +11,19 @@ Scan specs for cross-persona conflicts and flag them for human resolution.
 If `all` is specified, scan every spec in `${REQ_DATA_ROOT}/specs/`.
 
 ## Behavior
-1. Analyze the User Stories across different personas in the specified spec(s).
-2. Detect the following conflict types:
-   - **Functional conflict**: Persona A wants X, Persona B wants not-X
-   - **Priority conflict**: Multiple personas need the same limited resource
-   - **Permission conflict**: One persona wants open access, another wants restrictions
-   - **UX conflict**: Simplification vs. feature richness
-3. For each detected conflict:
-   - Create a conflict record in `${REQ_DATA_ROOT}/conflicts/CONFLICT-{NNN}.md` using the template from `${REQ_FRAMEWORK_ROOT}/framework/templates/conflict.md`
-   - Set conflict status to `detected`
-   - Add a conflict marker (⚠️) in the corresponding `spec.md` under the "Conflict Markers" section
-4. Provide AI analysis for each conflict:
-   - Background context
-   - Why these needs are in tension
-   - 2-3 possible resolution directions (without making the decision)
-5. Report summary to the user:
-   - Number of conflicts found
-   - Severity assessment
-   - Recommendation to proceed to human review
+
+1. **Delegate to subagent**: invoke the `req-conflict-detector` subagent via the Agent tool. Pass the spec path or the literal `all`.
+2. The subagent will:
+   - Analyze User Stories across personas
+   - Detect functional / priority / permission / UX conflicts
+   - Write conflict records to `${REQ_DATA_ROOT}/conflicts/CONFLICT-{NNN}.md`
+   - Add ⚠️ markers to the affected `spec.md` files
+   - Return a structured summary (under 40 lines, one line per conflict)
+3. **Surface the subagent's summary** to the user as-is.
+4. If `conflicts detected > 0`, recommend the next step shown by the subagent (`/req-resolve-conflict <path-or-all>`). Do NOT auto-trigger it — conflict resolution is a human checkpoint per AGENTS.md §5.
 
 ## Constraints
-- **MUST NOT** resolve conflicts autonomously. Only detect, analyze, and suggest.
-- **MUST** flag every conflict found, even minor ones. Let humans decide what to dismiss.
-- Cross-spec conflicts (between different features) should also be detected when scanning `all`.
+- **MUST** delegate to `req-conflict-detector`; do not perform persona analysis inline in the main conversation
+- **MUST NOT** resolve conflicts autonomously
+- **MUST NOT** auto-trigger `/req-resolve-conflict` — always wait for the human
+- Cross-spec conflicts (between different features) **MUST** be detected when scanning `all`

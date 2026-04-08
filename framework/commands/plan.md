@@ -37,7 +37,9 @@ Generate a technical implementation plan from an approved spec, informed by the 
    - Each task must include a **test strategy** (unit / integration / e2e)
    - Each task should be independently testable
 7. If the spec involves API changes, generate `contracts.md` in the spec directory.
-8. Present the plan summary to the user for awareness (no approval gate here — the spec was already approved).
+8. Present the plan summary to the user.
+9. **Trigger Plan Mode approval**: after `plan.md` and `tasks.md` are written, **MUST** call the `ExitPlanMode` tool. This surfaces the native Claude Code approval popup so the human can accept or reject the technical plan. Do **NOT** proceed to `/req-implement` in the same turn — wait for the human to accept the plan via the popup.
+10. Once the human accepts the plan via ExitPlanMode, update `spec.md` status from `approved` to `in-progress` and log the transition in `${REQ_DATA_ROOT}/docs/changelog.md`. Only after this transition is `/req-implement` allowed to run.
 
 ## Constraints
 - Plan must respect all principles in `${REQ_FRAMEWORK_ROOT}/framework/CONSTITUTION.md`.
@@ -45,3 +47,5 @@ Generate a technical implementation plan from an approved spec, informed by the 
 - Tasks should be small enough for a single implementation cycle.
 - Do not introduce technologies or patterns not justified by the requirements.
 - If data model changes are irreversible, flag this explicitly and note it requires extra human approval during `/deploy`.
+- **MUST NOT** auto-trigger `/req-implement` after `/req-plan`. The ExitPlanMode handshake is the gate — `/req-implement` only runs after the spec status transitions to `in-progress`.
+- **MUST NOT** transition the spec to `in-progress` without the human first accepting the plan via ExitPlanMode.

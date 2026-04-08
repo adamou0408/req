@@ -1,7 +1,7 @@
 # /research - Requirement Research & Deduplication
 
 ## Description
-Before translating a raw requirement into a spec, research existing specs for duplicates/overlaps, assess feasibility, and gather technical context. This prevents duplicate specs and wasted effort.
+Before translating a raw requirement into a spec, research existing specs for duplicates/overlaps, assess feasibility, and gather technical context. This command is a **thin wrapper** that delegates the heavy lifting to the `req-research` subagent so the main conversation context stays clean.
 
 ## Usage
 ```
@@ -10,53 +10,21 @@ Before translating a raw requirement into a spec, research existing specs for du
 
 ## Behavior
 
-### 1. Deduplication Check
-- Scan ALL existing specs in `${REQ_DATA_ROOT}/specs/` for similar or overlapping requirements
-- Compare the raw intake content against:
-  - Existing spec titles and summaries
-  - User Stories in existing specs
-  - Acceptance criteria in existing specs
-- If a **duplicate** is found (>80% overlap):
-  - Flag the duplicate and recommend merging into the existing spec via `/iterate`
-  - Do NOT proceed to `/translate`
-- If a **partial overlap** is found (30-80%):
-  - Flag the overlap and present options:
-    - Merge into existing spec (via `/iterate`)
-    - Create as a separate spec with explicit dependency link
-    - Proceed as independent spec (with justification)
-  - Wait for human decision before proceeding
-
-### 2. Feasibility Assessment
-- Identify if the requirement involves:
-  - New technology not currently in the stack
-  - External integrations or third-party dependencies
-  - Data model changes (schema migrations)
-  - Security-sensitive operations (authentication, authorization, encryption)
-- Flag any high-risk items that need extra consideration during `/plan`
-
-### 3. Technical Context Gathering
-- Identify related existing code in `${REQ_CODE_ROOT}/src/` that may be affected
-- Identify related infrastructure in `${REQ_CODE_ROOT}/infra/` that may need changes
-- Note any existing persona definitions in `${REQ_DATA_ROOT}/personas/` that are relevant
-- Check for any unresolved conflicts in `${REQ_DATA_ROOT}/conflicts/` that may interact
-
-### 4. Generate Research Report
-- Create `${REQ_DATA_ROOT}/specs/{feature-slug}/research.md` using the template from `${REQ_FRAMEWORK_ROOT}/framework/templates/spec/research.md`
-- Include:
-  - Deduplication results
-  - Feasibility assessment
-  - Related existing specs (with links)
-  - Related existing code (file paths)
-  - Technical risks identified
-  - Recommended approach
-
-### 5. Handoff
-- If no duplicates and feasibility is acceptable: automatically proceed to `/translate`
-- If issues found: present findings and wait for human decision
+1. **Delegate to subagent**: invoke the `req-research` subagent via the Agent tool. Pass the intake file path and a short description like "Run req-research deduplication and feasibility analysis on this intake."
+2. The subagent will:
+   - Scan all existing specs for duplicates and partial overlaps
+   - Assess feasibility (new tech, integrations, schema changes, security)
+   - Gather related code/persona/conflict context
+   - Write `${REQ_DATA_ROOT}/specs/{feature-slug}/research.md`
+   - Return a structured summary (under 30 lines)
+3. **Surface the subagent's summary** to the user as-is — do not re-summarize or expand it.
+4. **Decide the next step based on the summary**:
+   - `recommended next step: proceed to /req-translate` → automatically run `/req-translate` on the intake
+   - `recommended next step: merge via /req-iterate <slug>` → present this option to the user and wait for confirmation (this is a human checkpoint per AGENTS.md §5)
+   - `recommended next step: wait for human decision` → stop and wait
 
 ## Constraints
-- **MUST** check for duplicates before every new spec creation
-- **MUST NOT** skip this step, even if the requirement seems obviously new
-- **MUST** preserve the original intake file (immutability principle)
-- **MUST** create research.md even if no issues are found (for audit trail)
-- Research reports are informational — they do not block the process unless duplicates are found
+- **MUST** delegate to `req-research`; do not perform the spec scan inline in the main conversation
+- **MUST** preserve the subagent's structured summary verbatim in the user-facing output
+- **MUST NOT** auto-merge or auto-iterate when duplicates are found — that requires human approval
+- **MUST NOT** call `/req-translate` if the subagent flagged duplicates with >80% overlap

@@ -62,6 +62,34 @@ done
 
 echo "✓ Generated $count slash commands → $OUT_DIR/req-*.md"
 
+# --- Sync agents (parallel to commands sync) ---
+AGENTS_SRC="$(dirname "$COMMANDS_SRC")/agents"
+AGENTS_OUT="$REQ_HOST_ROOT/.claude/agents"
+if [ -d "$AGENTS_SRC" ]; then
+    mkdir -p "$AGENTS_OUT"
+    echo "→ Cleaning previous req-*.md from $AGENTS_OUT"
+    find "$AGENTS_OUT" -maxdepth 1 -name 'req-*.md' -type f -delete 2>/dev/null || true
+    agent_count=0
+    for src in "$AGENTS_SRC"/*.md; do
+        [ -f "$src" ] || continue
+        name="$(basename "$src" .md)"
+        # Source filename already starts with req- (e.g. req-research.md); don't double-prefix.
+        case "$name" in
+            req-*) out="$AGENTS_OUT/${name}.md" ;;
+            *)     out="$AGENTS_OUT/req-${name}.md" ;;
+        esac
+        {
+            echo "<!-- AUTO-GENERATED FROM ${REQ_FRAMEWORK_ROOT}/framework/agents/${name}.md — DO NOT EDIT -->"
+            echo "<!-- req framework version: ${CURRENT_VERSION} -->"
+            echo "<!-- regenerate via: bash ${REQ_FRAMEWORK_ROOT}/framework/scripts/req-sync-commands.sh -->"
+            echo ""
+            req_substitute_vars "$src"
+        } > "$out"
+        agent_count=$((agent_count + 1))
+    done
+    echo "✓ Generated $agent_count subagents → $AGENTS_OUT/req-*.md"
+fi
+
 # Major version bump warning
 if [ -n "${REQ_LAST_SYNCED_VERSION:-}" ] && [ "$REQ_LAST_SYNCED_VERSION" != "$CURRENT_VERSION" ]; then
     PREV_MAJOR="$(req_semver_major "$REQ_LAST_SYNCED_VERSION")"

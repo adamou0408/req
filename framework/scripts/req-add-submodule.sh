@@ -100,7 +100,23 @@ This file logs every spec state transition.
 EOF
 fi
 
-echo "→ Generating .claude/commands/req-*.md"
+# Install .claude/settings.json (skip if user already has one)
+SETTINGS_TEMPLATE="$HOST/.req-framework/framework/templates/settings.json"
+if [ -f "$SETTINGS_TEMPLATE" ]; then
+    mkdir -p "$HOST/.claude"
+    if [ ! -f "$HOST/.claude/settings.json" ]; then
+        sed \
+            -e "s|\${REQ_DATA_ROOT}|${DATA_ROOT}|g" \
+            -e "s|\${REQ_CODE_ROOT}|${CODE_ROOT}|g" \
+            -e "s|\${REQ_FRAMEWORK_ROOT}|.req-framework|g" \
+            "$SETTINGS_TEMPLATE" > "$HOST/.claude/settings.json"
+        echo "→ Installed .claude/settings.json (permissions only)"
+    else
+        echo "⚠ .claude/settings.json already exists — skipped (merge .req-framework/framework/templates/settings.json manually if needed)"
+    fi
+fi
+
+echo "→ Generating .claude/commands/req-*.md and .claude/agents/req-*.md"
 bash "$HOST/.req-framework/framework/scripts/req-sync-commands.sh"
 
 cat <<EOF
@@ -111,12 +127,14 @@ What was added:
   - .req.config.yml             (config — commit this)
   - $DATA_ROOT/                 (business data — commit this)
   - .claude/commands/req-*.md   (auto-generated slash commands — commit this)
+  - .claude/agents/req-*.md     (auto-generated subagents — commit this)
+  - .claude/settings.json       (permissions only, only if you didn't already have one)
 
 What was NOT touched:
   - your existing src/, tests/, README.md, CI, .gitignore main body
 
 Next steps:
-  1. git add .req.config.yml $DATA_ROOT .claude/commands/req-*.md
+  1. git add .req.config.yml $DATA_ROOT .claude/commands/req-*.md .claude/agents/req-*.md .claude/settings.json
   2. git commit -m "chore: install req framework (v$FW_VERSION)"
   3. Open Claude Code and run /req-intake
 

@@ -102,8 +102,24 @@ This file logs every spec state transition. Auto-updated by /req-* commands.
 EOF
 fi
 
-# 5. Generate the slash commands
-echo "→ Generating .claude/commands/req-*.md"
+# 4.5 Install .claude/settings.json (skip if user already has one)
+SETTINGS_TEMPLATE="$SOURCE_REPO_ROOT/framework/templates/settings.json"
+if [ -f "$SETTINGS_TEMPLATE" ]; then
+    mkdir -p "$HOST/.claude"
+    if [ ! -f "$HOST/.claude/settings.json" ]; then
+        sed \
+            -e "s|\${REQ_DATA_ROOT}|.|g" \
+            -e "s|\${REQ_CODE_ROOT}|.|g" \
+            -e "s|\${REQ_FRAMEWORK_ROOT}|.req-framework|g" \
+            "$SETTINGS_TEMPLATE" > "$HOST/.claude/settings.json"
+        echo "→ Installed .claude/settings.json (permissions only)"
+    else
+        echo "⚠ .claude/settings.json already exists — skipped (merge framework/templates/settings.json manually if needed)"
+    fi
+fi
+
+# 5. Generate the slash commands and subagents
+echo "→ Generating .claude/commands/req-*.md and .claude/agents/req-*.md"
 bash "$HOST/.req-framework/framework/scripts/req-sync-commands.sh"
 
 # 6. Friendly next-steps

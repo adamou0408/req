@@ -30,6 +30,8 @@ my-new-req-project/
 ├── .req.config.yml          ← data_root=. code_root=. framework_root=.req-framework
 ├── .req-framework/          ← copy of framework + VERSION + CHANGELOG + MIGRATION
 ├── .claude/commands/req-*.md ← auto-generated slash commands
+├── .claude/agents/req-*.md   ← auto-generated subagents (research / conflict-detector)
+├── .claude/settings.json    ← permissions whitelist (only created if absent)
 ├── intake/raw/
 ├── specs/
 ├── personas/
@@ -75,10 +77,14 @@ What was added:
 - `.req.config.yml`
 - `.req/` (business data: intake, specs, personas, conflicts, reviews, docs)
 - `.claude/commands/req-*.md` (11 auto-generated slash commands, prefixed `req-`)
+- `.claude/agents/req-*.md` (auto-generated subagents — `req-research`, `req-conflict-detector`)
+- `.claude/settings.json` (permissions whitelist, **only if you didn't already have one** — see note below)
 
 What was **not** touched:
 - Your existing `src/`, `tests/`, `README.md`, `.gitignore`, CI workflows
 - Your existing `.claude/commands/*.md` (if any) — only `req-*.md` files are created/replaced
+- Your existing `.claude/agents/*.md` (if any) — only `req-*.md` files are created/replaced
+- Your existing `.claude/settings.json` (if any) — the framework will **never** overwrite it; if you want the framework's deny/allow rules, manually merge from `.req-framework/framework/templates/settings.json`
 
 ---
 

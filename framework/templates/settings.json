@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "deny": [
+      "Edit(${REQ_FRAMEWORK_ROOT}/**)",
+      "Write(${REQ_FRAMEWORK_ROOT}/**)",
+      "Edit(.git/**)",
+      "Write(.git/**)"
+    ],
+    "allow": [
+      "Read(**)",
+      "Edit(${REQ_DATA_ROOT}/intake/**)",
+      "Edit(${REQ_DATA_ROOT}/specs/**)",
+      "Edit(${REQ_DATA_ROOT}/personas/**)",
+      "Edit(${REQ_DATA_ROOT}/conflicts/**)",
+      "Edit(${REQ_DATA_ROOT}/reviews/**)",
+      "Edit(${REQ_DATA_ROOT}/docs/**)",
+      "Edit(${REQ_CODE_ROOT}/src/**)",
+      "Edit(${REQ_CODE_ROOT}/tests/**)",
+      "Write(${REQ_DATA_ROOT}/intake/**)",
+      "Write(${REQ_DATA_ROOT}/specs/**)",
+      "Write(${REQ_DATA_ROOT}/personas/**)",
+      "Write(${REQ_DATA_ROOT}/conflicts/**)",
+      "Write(${REQ_DATA_ROOT}/reviews/**)",
+      "Write(${REQ_DATA_ROOT}/docs/**)",
+      "Write(${REQ_CODE_ROOT}/src/**)",
+      "Write(${REQ_CODE_ROOT}/tests/**)"
+    ]
+  }
+}

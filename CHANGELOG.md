@@ -3,6 +3,33 @@
 All notable changes to the **req** framework are documented in this file.
 The framework follows [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] — 2026-04-08
+
+### Added
+- **Subagents** for context-heavy commands. `framework/agents/req-research.md` and
+  `framework/agents/req-conflict-detector.md` are now installed to `.claude/agents/`
+  by `req-sync-commands.sh`. The matching slash commands `/req-research` and
+  `/req-detect-conflicts` are now thin wrappers that delegate to the subagent so the
+  main conversation context is no longer polluted by per-spec scan output.
+- **Plan Mode integration for `/req-plan`.** After writing `plan.md` and `tasks.md`,
+  `/req-plan` now calls `ExitPlanMode` to surface a native approval popup. The spec
+  only transitions from `approved` to `in-progress` once the human accepts the plan,
+  and `/req-implement` is blocked until that transition happens.
+- **`.claude/settings.json` permissions template** (`framework/templates/settings.json`).
+  Init and submodule installers now write a permissions-only settings file that denies
+  edits to `${REQ_FRAMEWORK_ROOT}/**` and `.git/**` and whitelists writes under
+  `${REQ_DATA_ROOT}` and `${REQ_CODE_ROOT}`. Existing `.claude/settings.json` files
+  in the host repo are **never** overwritten — installers print a merge reminder.
+- New AGENTS.md §5 human checkpoint: "Approving technical plans".
+
+### Changed
+- `framework/commands/research.md` and `framework/commands/detect-conflicts.md`
+  rewritten as thin wrappers (delegation only).
+- `framework/commands/plan.md` now calls `ExitPlanMode` and transitions spec status.
+- `framework/commands/implement.md` now requires `spec.md` status to be exactly
+  `in-progress` (not `approved`); refuses with a clear remediation message otherwise.
+- `req-sync-commands.sh` now also syncs `framework/agents/*.md` to `.claude/agents/`.
+
 ## [2.0.0] — 2026-04-07
 
 ### Breaking

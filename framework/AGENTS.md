@@ -48,6 +48,7 @@ The following actions **REQUIRE** human approval and cannot be bypassed:
 
 - Resolving requirement conflicts (via `/resolve-conflict`)
 - Approving specs (transitioning from `in-review` to `approved`)
+- Approving technical plans (transitioning from `approved` to `in-progress` via `/plan` → `ExitPlanMode` popup; `/implement` is blocked until this happens)
 - Overriding failed tests after 3 auto-fix attempts
 - Deleting or archiving existing specs
 - Deciding how to handle duplicate requirements found during `/research`
