@@ -50,15 +50,16 @@ Generate a human-readable review checklist for a spec pending approval.
       👉 建議先點開上列連結確認細節後再做決定。
       ```
 
-   b. **Then call the `AskUserQuestion` tool** with the decision question. Options:
-      - `Approve` — 全部通過，送進 /plan
-      - `Approve w/ notes` — 通過但需記錄補充意見
-      - `Request changes` — 退回 draft，需修正
-      - `Reject` — 整個 spec 不採用
+   b. **Then call the `AskUserQuestion` tool** per the [Next Step Picker Convention](../AGENTS.md#7b-next-step-picker-convention) (max 3 options, AI-recommended option first with `（建議）` suffix). The four historical outcomes are collapsed into 3 picker options + automatic "Other":
+      - `Approve（建議）` — 全部通過，送進 /plan（補充意見走第二輪 picker 收集）
+      - `Request changes` — 退回 draft，列出待修正的 checklist 項目
+      - `Reject` — 整個 spec 不採用，標記為 wontfix
 
-      This renders as a popup picker in Claude Code instead of asking the reviewer to type free text.
+      The "Other" entry is added by the tool itself and covers edge cases like "Approve with conditional notes" — pick it only if none of the three explicit options fit.
 
-   c. If the reviewer picks `Approve w/ notes` or `Request changes`, call `AskUserQuestion` **again** to collect which specific checklist item(s) failed (multiSelect across the checklist items). Avoid free-text whenever the answer can be a fixed choice.
+      If the AI recommendation is *not* Approve (e.g. Decision Brief flagged a high-risk item), reorder so the recommended option is first and update its `（建議）` suffix accordingly.
+
+   c. If the reviewer picks `Approve` and the Decision Brief mentioned items needing notes, call `AskUserQuestion` **again** to collect notes (single picker: `加註意見` / `直接通過`). If the reviewer picks `Request changes`, call `AskUserQuestion` **again** to collect which specific checklist item(s) failed (multiSelect across the checklist items). Avoid free-text whenever the answer can be a fixed choice.
 
    d. Only after the structured answer is captured, render the full markdown checklist for the record (saved to `reviews/`).
 

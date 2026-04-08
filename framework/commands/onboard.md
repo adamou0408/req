@@ -16,7 +16,7 @@ Run this **once** after installing the framework into an existing repo (`req-add
 ## Behavior
 
 1. **Validate argument** against `shallow|balanced|medium|deep` (the canonical values are `shallow`, `medium`, `deep`). On invalid input, print the three valid values and abort.
-2. **No-argument path**: call `AskUserQuestion` with three options (Shallow / Medium / Deep). Each option's `preview` field **MUST** contain the scan scope and the exact file list that will be produced, so the user can judge before committing. On selection, fall through to the delegate step.
+2. **No-argument path**: call `AskUserQuestion` per the [Next Step Picker Convention](../AGENTS.md#7b-next-step-picker-convention). Three options — `Medium（建議）` first (default depth, covers 90% of repos), then `Shallow`, then `Deep`. Each option's `preview` field **MUST** contain the scan scope and the exact file list that will be produced, so the user can judge before committing. On selection, fall through to the delegate step. If the host repo is detected as exceptionally large or small, swap the recommendation accordingly — exactly one `（建議）` per picker.
 3. **Delegate to the `req-onboarder` subagent** via the Agent tool. Pass:
    - The chosen depth
    - The host root (the directory containing `.req.config.yml`)

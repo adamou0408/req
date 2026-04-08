@@ -77,10 +77,12 @@ If `/feedback` was triggered manually (not by the monitoring webhook), **MUST** 
 👉 建議先點開上列連結確認細節後再做決定。
 ```
 
-For manual invocations, then call `AskUserQuestion`:
-- `進入需求循環` — 自動轉交 `/research`
+For manual invocations, then call `AskUserQuestion` per the [Next Step Picker Convention](../AGENTS.md#7b-next-step-picker-convention) (max 3 options, AI-recommended option first with `（建議）` suffix). The recommendation depends on the alert classification:
+- `進入需求循環（建議）` — 自動轉交 `/research`（critical / warning 類預設）
 - `先檢視原始監控資料` — 暫不轉交，由人工先看 dashboard
 - `去重併入既有 intake` — 若 AI 已建議重複項目，將本次資訊併入
+
+For info-level alerts the AI recommendation should swap to `先檢視原始監控資料（建議）` (no urgency, batch later). For obvious duplicates the recommendation should swap to `去重併入既有 intake（建議）`. Always exactly one `（建議）` per picker.
 
 ## Constraints
 - **MUST** preserve all monitoring data in the intake item

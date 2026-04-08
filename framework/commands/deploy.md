@@ -69,10 +69,12 @@ After all Pre-deployment Checks pass and the strategy is selected, **MUST** prin
 👉 建議先點開上列連結確認細節後再做決定。
 ```
 
-For `prod`, then call `AskUserQuestion`:
-- `確認部署` — 進入實際部署流程
+For `prod`, then call `AskUserQuestion` per the [Next Step Picker Convention](../AGENTS.md#7b-next-step-picker-convention) (max 3 options, AI-recommended option first with `（建議）` suffix):
+- `確認部署（建議）` — 進入實際部署流程
 - `延後` — 暫不部署，保留所有檢查結果
 - `取消` — 中止本次 /deploy
+
+If the Decision Brief flagged a high-risk item under `需特別關注` (irreversible schema change, config parity gap, etc.), swap the recommendation to `延後（建議）` and remove `（建議）` from `確認部署`. There is exactly one `（建議）` per picker.
 
 For `dev` / `staging`, proceed automatically after printing the Brief.
 

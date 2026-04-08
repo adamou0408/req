@@ -139,6 +139,35 @@ Cross-cutting rules:
 - When `/plan` is executed, **MUST** verify that all specs listed in "前置需求" (dependencies) have status `approved` or later.
 - If a dependency spec is not yet approved, **MUST** warn the user and wait for confirmation before proceeding.
 
+### 7b. Next Step Picker Convention
+
+Whenever a `/req-*` command reaches a point in the workflow where the human has more than one valid next action — for example "continue to the next stage", "drill into an open question", "stop", "merge with an existing item" — the agent **MUST NOT** ask the question with free text and **MUST NOT** silently auto-chain. Instead, it **MUST** present a structured **Next Step Picker**:
+
+1. **Print a Decision Brief in Chinese** (per §7.0 Language Convention) summarising the key facts with drill-down links. The Brief **MUST** end with a single-line `**建議**：` row stating the AI's recommended next action and the one-sentence reason.
+2. **Then call `AskUserQuestion`** with **at most three options** representing the concrete next steps. The picker **MUST** follow these rules:
+
+   - **Option count**: maximum 3 options. If the natural option set is larger (e.g. conflict resolution alternatives), collapse less-likely options into the automatic "Other" entry rather than overloading the picker. The "Other" entry is added by the tool itself — **do not** include it in the explicit list.
+   - **Recommendation placement**: the AI-recommended option **MUST** be the **first** option, and its `label` **MUST** end with the suffix `（建議）`. There is exactly one `（建議）` per picker.
+   - **Label length**: each `label` ≤ 12 Chinese characters; each `description` ≤ 1 line summarising the trade-off so the user can pick without reading the Brief twice.
+   - **Mutually exclusive**: options must be distinct concrete actions, not paraphrases. "Continue" and "Continue with notes" only count as distinct if they trigger different downstream commands.
+   - **Always include a stop**: one of the three options **MUST** be a non-destructive escape (e.g. `稍後再決定`, `取消`, `保留結果不前進`). The user must always be able to walk away without committing.
+3. **Branch on the answer**. The agent **MUST** dispatch on the picker result rather than re-prompting with free text. Never wrap the picker output in another open-ended question; if more information is needed, call `AskUserQuestion` a *second* time with another structured picker.
+
+#### When the picker is required vs. optional
+
+- **Required (every autonomy level)** — every command transition that crosses a HARD checkpoint (§5) or a SOFT checkpoint (§5b), and every `/req-*` command that has more than one downstream command it could legally chain into.
+- **Required at `strict`, optional at `balanced` / `auto`** — SOFT checkpoint transitions where the autonomy level grants the AI permission to take the recommended path automatically. When auto-taken, the agent **MUST** still print the Decision Brief (so the action is auditable in transcript) and **MUST** log `[autonomy: balanced|auto]` in `docs/changelog.md`, but **MUST NOT** call `AskUserQuestion`.
+- **Forbidden** — automated webhook invocations (e.g. `/feedback` triggered by a monitor) and HARD checkpoint approvals that have a dedicated native handshake (`/plan` uses `ExitPlanMode`, not `AskUserQuestion`). The Decision Brief is still printed in those cases for the record.
+
+#### Anti-patterns
+
+The following patterns are **forbidden** and existed in the v2.x codebase before this convention was introduced — new commands and edits to existing commands **MUST NOT** reintroduce them:
+
+- Printing `recommended next step: /req-xxx` in a subagent summary and assuming the user will type the command. Use a picker.
+- Asking "Do you want to continue?" with no options, expecting a yes/no in chat. Use a picker.
+- Auto-chaining into the next command without surfacing the Brief at all. The user loses the audit trail.
+- Returning a wall of text and ending with "what would you like to do next?". Use a picker with three concrete actions.
+
 ### 8. Security & Compliance
 
 - **MUST** include a security assessment section in every `spec.md`, even if minimal.
