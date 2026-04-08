@@ -59,7 +59,18 @@ The following two checkpoints are **SOFT** — their behavior depends on `REQ_AU
 - Deciding how to handle duplicate requirements found during `/research`
 - Approving impact analysis during `/iterate` (and deleting/archiving specs)
 
-### 5a. Autonomy Level
+### 5a. Onboarding Artifacts
+
+The optional `/onboard` command (v2.3.0+) seeds the following files in `${REQ_DATA_ROOT}/` by scanning the host repository. Other commands **MUST** read them when present and **MUST** tolerate their absence (pre-onboarding projects behave exactly as before):
+
+- `${REQ_DATA_ROOT}/docs/project-context.md` — detected stack, domain summary, entry points, CI presence. Read by `/plan` and `/research` to avoid recommending foreign libraries or duplicating existing functionality.
+- `${REQ_DATA_ROOT}/docs/existing-features.md` — inventory of features already present in the host code. Read by `/research` as a second deduplication baseline in addition to `specs/`.
+- `${REQ_DATA_ROOT}/personas/<slug>.md` (auto-generated ones carry `source: auto-generated` frontmatter) — initial persona set for new specs.
+- `${REQ_DATA_ROOT}/CONSTITUTION.md` (deep mode only) — project-specific architectural constraints. When present, `/plan` **MUST** read this instead of the framework's generic `CONSTITUTION.md`.
+
+None of these files are checkpoints; their absence never blocks a command.
+
+### 5b. Autonomy Level
 
 All commands **MUST** read `REQ_AUTONOMY_LEVEL` (exported by `_lib.sh`'s `req_load_config`, defaulting to `strict` if absent from `.req.config.yml` for backward compatibility) and branch accordingly:
 

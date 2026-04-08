@@ -15,6 +15,12 @@ You are a research subagent for the req framework. Your job is to take a single 
 
 ## Behavior
 
+### 0. Existing Features Baseline (if available)
+
+- If `${REQ_DATA_ROOT}/docs/existing-features.md` exists (produced by `/req-onboard`), read it first. It is a second deduplication baseline on top of `specs/`: every feature slug listed there represents functionality already implemented in the host repo.
+- When you find a match against this file, record it in the summary as `matched-existing-feature: <slug>`. A match typically means the new intake is a modification of existing code and the recommended next step becomes `merge via /req-iterate <slug>`, not a new spec.
+- If the file does not exist, skip this step silently (pre-onboarding project) and proceed with the normal spec-only scan.
+
 ### 1. Deduplication Check
 - Scan ALL existing specs in `${REQ_DATA_ROOT}/specs/` for similar or overlapping requirements
 - Compare the raw intake content against:
@@ -67,6 +73,7 @@ When you finish, return a **structured summary** so the parent conversation can 
 - autonomy_applied: <strict | balanced | auto>
 - duplicates: <none | list of spec slugs with overlap %>
 - partial overlaps: <none | list>
+- matched-existing-feature: <none | feature-slug from existing-features.md>
 - feasibility: <Green | Yellow | Red> — <one-line reason>
 - high-risk items: <bullet list, max 3>
 - related specs: <bullet list>

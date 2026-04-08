@@ -137,7 +137,10 @@ What was NOT touched:
 Next steps:
   1. git add .req.config.yml $DATA_ROOT .claude/commands/req-*.md .claude/agents/req-*.md .claude/settings.json
   2. git commit -m "chore: install req framework (v$FW_VERSION)"
-  3. Open Claude Code and run /req-intake
+  3. Open Claude Code and run /req-onboard  (recommended for existing repos —
+     seeds personas and feature inventory from your existing code so the
+     framework has a baseline to work from)
+  4. Run /req-intake to capture your first requirement
 
 Upgrade later with:
   git submodule update --remote .req-framework

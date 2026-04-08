@@ -88,6 +88,29 @@ What was **not** touched:
 
 ---
 
+## Post-install onboarding (submodule mode)
+
+When you install the framework into an **existing** repo, `.req/personas/` starts empty and `.req/specs/` knows nothing about the features already implemented in your codebase. Running `/req-onboard` once, immediately after install, lets the framework scan the host repo and seed baseline artifacts so subsequent `/req-*` commands have context to work from.
+
+```bash
+/req-onboard                  # no arg → popup picker showing the 3 depths
+/req-onboard shallow          # README + manifests → 1 file
+/req-onboard medium           # default — + src tree + entry points + CI → personas + feature inventory
+/req-onboard deep             # + legacy reverse-specs + project-specific CONSTITUTION overlay
+```
+
+| Depth | What it scans | What it writes | When to use |
+|---|---|---|---|
+| `shallow` | `README.md`, package manifest(s) | `.req/docs/project-context.md` | Small repos, quick smoke test |
+| `medium` (default) | + `src/` tree + entry points + CI config | + `.req/personas/*.md` (3–5 auto-detected) + `.req/docs/existing-features.md` | Most existing repos — best cost/value |
+| `deep` | + every main feature | + `.req/specs/legacy-*/spec.md` + `.req/CONSTITUTION.md` | Large legacy repos where you want the framework to fully understand the code |
+
+**Safe to re-run.** Re-running `/req-onboard` later will merge new findings into existing files instead of overwriting them. Any persona you manually edit should have its frontmatter changed from `source: auto-generated` to `source: human` — the onboarder will then skip it on future runs.
+
+Onboarding is **not** a checkpoint — it never blocks any other `/req-*` command, and its artifacts are optional. A project that never runs `/req-onboard` behaves exactly like v2.2.0. Init-mode projects usually have nothing to scan and can skip this step.
+
+---
+
 ## Autonomy levels
 
 Since v2.2.0 you can dial how many human checkpoints the framework enforces via `/req-autonomy`. Three levels are provided (the supervised model):

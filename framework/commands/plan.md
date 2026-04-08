@@ -17,7 +17,9 @@ Generate a technical implementation plan from an approved spec, informed by the 
 1. Verify prerequisites. Abort with a clear message if not met.
 2. **Check spec dependencies**: verify all specs listed in "前置需求" have status `approved` or later. If not, warn user and wait for confirmation.
 3. Read the `spec.md`, `research.md`, and any resolved conflict records.
-4. Read `${REQ_FRAMEWORK_ROOT}/framework/CONSTITUTION.md` for architectural constraints.
+4. Read CONSTITUTION for architectural constraints, **preferring the project-specific overlay**:
+   - If `${REQ_DATA_ROOT}/CONSTITUTION.md` exists (produced by `/req-onboard deep`), read that — it contains project-specific stack, naming, and CI constraints layered on top of the framework version.
+   - Otherwise, fall back to `${REQ_FRAMEWORK_ROOT}/framework/CONSTITUTION.md`.
 5. Generate `plan.md` in the spec directory, including:
    - **Work estimate** (S/M/L/XL complexity, estimated tasks, estimated timeline)
    - **Technology choices** with justification

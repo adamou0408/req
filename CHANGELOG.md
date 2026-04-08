@@ -3,6 +3,42 @@
 All notable changes to the **req** framework are documented in this file.
 The framework follows [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] — 2026-04-08
+
+### Added
+- **`/req-onboard` slash command** — one-time reverse onboarding for repos
+  that install req on top of an existing codebase (submodule mode). Scans
+  the host repo and seeds baseline personas, a feature inventory, and
+  project context in `.req/` so subsequent `/req-*` commands have something
+  to work from. Three depths: `shallow` (README + manifests),
+  `medium` (default — + src tree + entry points + CI → personas +
+  feature inventory), `deep` (+ legacy reverse-specs +
+  project-specific `.req/CONSTITUTION.md` overlay).
+- **`req-onboarder` subagent** — context-heavy scanning delegated out of the
+  main conversation. Supports safe re-runs: auto-generated personas may be
+  refreshed, but any persona whose frontmatter is `source: human` is
+  preserved untouched. New features are appended under a dated subheading
+  in `existing-features.md`.
+- **`/req-research` now uses `.req/docs/existing-features.md` as a second
+  deduplication baseline** (on top of `specs/`). New intake items that
+  match an existing feature slug get `matched-existing-feature: <slug>` in
+  the subagent summary and typically trigger a `merge via /req-iterate`
+  recommendation instead of a fresh spec.
+- **`/req-plan` now prefers `.req/CONSTITUTION.md` when present** (produced
+  by `/req-onboard deep`) and falls back to the framework's generic
+  `CONSTITUTION.md` otherwise. This lets `/req-plan` absorb project-specific
+  stack, naming, and CI constraints without editing the framework.
+- Two new templates: `framework/templates/spec/project-context.md` and
+  `framework/templates/spec/existing-features.md`.
+- New AGENTS.md §5a "Onboarding Artifacts" section documenting how other
+  commands consume the onboarding outputs and tolerate their absence.
+
+### Changed
+- `req-add-submodule.sh` post-install message now recommends running
+  `/req-onboard` as the third step before the first `/req-intake`.
+- AGENTS.md §5a (autonomy) renumbered to §5b to make room for the
+  onboarding section.
+
 ## [2.2.0] — 2026-04-08
 
 ### Added

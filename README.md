@@ -80,6 +80,7 @@ graph TD
 | 監控/回報 | `/req-feedback` | AI | 持續監控,發現問題自動回報成新 intake |
 | 迭代 | `/req-iterate` | **你** | 想改什麼隨時說,流程會重新跑 |
 | 切換自主程度 | `/req-autonomy` | **你** | 三級切換 `strict` / `balanced` / `auto`,預設 `strict` 全部要人(詳見 [docs/installation.md](docs/installation.md)) |
+| Onboarding(選配) | `/req-onboard` | AI | 在既有 repo 安裝後跑一次,掃描 host code 產出 personas + feature inventory + project context,給後續 `/req-*` 當 baseline。三個深度 `shallow` / `medium` / `deep`,預設 `medium`。 |
 
 ---
 

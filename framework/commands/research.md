@@ -13,10 +13,11 @@ Before translating a raw requirement into a spec, research existing specs for du
 1. **Delegate to subagent**: invoke the `req-research` subagent via the Agent tool. Pass the intake file path and a short description like "Run req-research deduplication and feasibility analysis on this intake."
 2. The subagent will:
    - Scan all existing specs for duplicates and partial overlaps
+   - **Also** compare against `${REQ_DATA_ROOT}/docs/existing-features.md` (the onboarding inventory, if present). A match there means the feature is already implemented in the host repo and the new intake is likely a modification rather than a new build.
    - Assess feasibility (new tech, integrations, schema changes, security)
    - Gather related code/persona/conflict context
    - Write `${REQ_DATA_ROOT}/specs/{feature-slug}/research.md`
-   - Return a structured summary (under 30 lines)
+   - Return a structured summary (under 30 lines), including the `matched-existing-feature:` field
 3. **Surface the subagent's summary** to the user as-is — do not re-summarize or expand it.
 4. **Decide the next step based on the summary AND `REQ_AUTONOMY_LEVEL`**:
    - `recommended next step: proceed to /req-translate` → automatically run `/req-translate` on the intake (all levels)
