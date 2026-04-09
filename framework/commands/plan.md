@@ -15,6 +15,11 @@ Generate a technical implementation plan from an approved spec, informed by the 
 
 ## Behavior
 1. Verify prerequisites. Abort with a clear message if not met.
+1a. **Idempotency check for resumed sessions**: if `plan.md` or `tasks.md` already exists in the spec directory, branch on `spec.md` status:
+    - **Status is `approved`** (plan exists from a previous `/req-plan` run that never reached `in-progress`, or a session crash before ExitPlanMode): run `git diff --stat` against existing `plan.md` / `tasks.md` / `contracts.md` to show the reviewer what is currently on disk, then ask: `Overwrite / Show full diff / Cancel`. Proceed only after explicit choice.
+    - **Status is `in-progress`**: refuse with `Plan has already been accepted (spec is in-progress). Use /req-iterate to adjust this feature, or /req-iterate --fixup for patch-level changes.` Do NOT overwrite.
+    - **Status is `done`**: refuse with `Spec is done. Use /req-iterate to reopen or /req-iterate --fixup for targeted patches.` Do NOT overwrite.
+    - **Status is `draft` or `in-review`**: this is inconsistent state (plan without approval). Report the inconsistency and ask the user to manually resolve before continuing.
 2. **Check spec dependencies**: verify all specs listed in "前置需求" have status `approved` or later. If not, warn user and wait for confirmation.
 3. Read the `spec.md`, `research.md`, and any resolved conflict records.
 4. Read CONSTITUTION for architectural constraints, **preferring the project-specific overlay**:
@@ -29,7 +34,7 @@ Generate a technical implementation plan from an approved spec, informed by the 
    - Mark dependent tasks with `[depends: N]` notation
    - Each task must include a **test strategy** (unit / integration / e2e)
    - Each task should be independently testable
-7. If the spec involves API changes, generate `contracts.md` in the spec directory.
+7. If the spec involves API changes, generate `contracts.md` in the spec directory. When the API has any form of quota or rate limit, **MUST** fill the `速率限制與配額` section. When the API is internet-facing or has multiple clients, **MUST** fill the `版本策略` section (not "無" unless genuinely no versioning is planned).
 8. **Print a Decision Brief** in Chinese (per [AGENTS.md](../AGENTS.md) section 7.0 Language Convention) summarising the plan with drill-down links, then call `ExitPlanMode`. Format defined in the "Decision Brief" section below.
 9. **Trigger Plan Mode approval**: after the Decision Brief is printed, **MUST** call the `ExitPlanMode` tool. This surfaces the native Claude Code approval popup so the human can accept or reject the technical plan. Do **NOT** proceed to `/req-implement` in the same turn — wait for the human to accept the plan via the popup.
 10. Once the human accepts the plan via ExitPlanMode, update `spec.md` status from `approved` to `in-progress` and log the transition in `${REQ_DATA_ROOT}/docs/changelog.md`. Only after this transition is `/req-implement` allowed to run.
