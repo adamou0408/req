@@ -332,13 +332,209 @@ def cmd_list(args):
         print(f"  {qid:<35} [{qtype}] {header}")
 
 
+# ---------------------------------------------------------------------------
+# Autonomy subcommands
+# ---------------------------------------------------------------------------
+
+def find_host_root():
+    """Walk upward from CWD to find .req.config.yml."""
+    d = Path.cwd().resolve()
+    while d != d.parent:
+        if (d / ".req.config.yml").is_file():
+            return d
+        d = d.parent
+    return None
+
+
+def read_config_field(config_path: Path, field: str, default: str = "") -> str:
+    """Read a top-level field from .req.config.yml (minimal YAML parser)."""
+    if not config_path.is_file():
+        return default
+    for line in config_path.read_text(encoding="utf-8").splitlines():
+        m = re.match(rf"^{re.escape(field)}\s*:\s*(.+)", line)
+        if m:
+            return m.group(1).strip().strip("'\"")
+    return default
+
+
+def write_config_field(config_path: Path, field: str, value: str):
+    """Update or append a field in .req.config.yml."""
+    text = config_path.read_text(encoding="utf-8")
+    pattern = re.compile(rf"^({re.escape(field)}\s*:\s*)(.+)$", re.MULTILINE)
+    if pattern.search(text):
+        new_text = pattern.sub(rf"\g<1>{value}", text)
+    else:
+        new_text = text.rstrip() + f"\n{field}: {value}\n"
+    config_path.write_text(new_text, encoding="utf-8")
+
+
+def load_autonomy_matrix():
+    """Load autonomy-matrix.yaml. Returns the parsed dict."""
+    fw_root = find_framework_root()
+    matrix_path = fw_root / "config" / "autonomy-matrix.yaml"
+    if not matrix_path.is_file():
+        sys.stderr.write(f"ERROR: {matrix_path} not found\n")
+        sys.exit(3)
+    with open(matrix_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data, matrix_path
+
+
+def format_matrix_table(matrix_data: dict, highlight_level: str = "") -> str:
+    """Render the checkpoint matrix as a markdown table."""
+    levels = matrix_data["levels"]
+    checkpoints = matrix_data["checkpoints"]
+
+    header = "| # | Checkpoint | " + " | ".join(f"L{i+1} {lv.capitalize()}" for i, lv in enumerate(levels)) + " |"
+    sep = "|---|---|" + "|".join("---|" for _ in levels)
+
+    rows = [header, sep]
+    for i, cp in enumerate(checkpoints, 1):
+        cells = [f"| {i}", cp["label_en"]]
+        for lv in levels:
+            beh = cp["behavior"].get(lv, {})
+            actor = beh.get("actor", "human")
+            if actor == "human":
+                cell = "👤 Human"
+            else:
+                note = beh.get("note") or beh.get("condition") or "AI"
+                cell = f"🤖 {note}"
+            cells.append(cell)
+        rows.append(" | ".join(cells) + " |")
+    return "\n".join(rows)
+
+
+def append_changelog(data_root: Path, entry: str):
+    """Append a timestamped entry to docs/changelog.md."""
+    changelog = data_root / "docs" / "changelog.md"
+    changelog.parent.mkdir(parents=True, exist_ok=True)
+    date = datetime.now().strftime("%Y-%m-%d")
+    line = f"- {date}: {entry}\n"
+    if changelog.is_file():
+        text = changelog.read_text(encoding="utf-8")
+        changelog.write_text(text.rstrip() + "\n" + line, encoding="utf-8")
+    else:
+        changelog.write_text(f"# Changelog\n\n{line}", encoding="utf-8")
+
+
+def cmd_autonomy_current(args):
+    """Display current autonomy level + checkpoint matrix."""
+    host_root = find_host_root()
+    if not host_root:
+        sys.stderr.write("ERROR: .req.config.yml not found. Run req-init.sh first.\n")
+        sys.exit(1)
+    config = host_root / ".req.config.yml"
+    current = read_config_field(config, "autonomy_level", "strict")
+
+    matrix_data, _ = load_autonomy_matrix()
+    valid_levels = matrix_data["levels"]
+    if current not in valid_levels:
+        sys.stderr.write(f"WARNING: unknown level '{current}', treating as strict\n")
+        current = "strict"
+
+    if args.format == "json":
+        payload = {
+            "level": current,
+            "valid_levels": valid_levels,
+            "checkpoints": [],
+        }
+        for cp in matrix_data["checkpoints"]:
+            cp_out = {
+                "id": cp["id"],
+                "label": cp["label_en"],
+                "command": cp["command"],
+                "hard": cp["hard"],
+                "actor": cp["behavior"][current]["actor"],
+            }
+            beh = cp["behavior"][current]
+            if "condition" in beh:
+                cp_out["condition"] = beh["condition"]
+            if "note" in beh:
+                cp_out["note"] = beh["note"]
+            payload["checkpoints"].append(cp_out)
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        print(f"Current autonomy level: **{current}**\n")
+        print(format_matrix_table(matrix_data, current))
+        safety = matrix_data.get("safety_net_note", "")
+        if current != "strict" and safety:
+            print(f"\n> {safety.strip()}")
+    sys.exit(0)
+
+
+def cmd_autonomy_set(args):
+    """Change autonomy level: validate, update config, log changelog, print matrix."""
+    matrix_data, _ = load_autonomy_matrix()
+    valid_levels = matrix_data["levels"]
+    new_level = args.level
+
+    if new_level not in valid_levels:
+        sys.stderr.write(
+            f"ERROR: invalid level '{new_level}'. "
+            f"Valid levels: {', '.join(valid_levels)}\n"
+        )
+        sys.exit(1)
+
+    host_root = find_host_root()
+    if not host_root:
+        sys.stderr.write("ERROR: .req.config.yml not found. Run req-init.sh first.\n")
+        sys.exit(1)
+
+    config = host_root / ".req.config.yml"
+    old_level = read_config_field(config, "autonomy_level", "strict")
+
+    if old_level == new_level:
+        sys.stderr.write(f"Autonomy level is already '{new_level}'. No change.\n")
+        sys.exit(0)
+
+    # Update config
+    write_config_field(config, "autonomy_level", new_level)
+
+    # Append changelog
+    data_root_rel = read_config_field(config, "data_root", ".")
+    data_root = host_root / data_root_rel
+    append_changelog(data_root, f"autonomy level: {old_level} → {new_level} (via /req-autonomy)")
+
+    if args.format == "json":
+        payload = {
+            "old_level": old_level,
+            "new_level": new_level,
+            "config_path": str(config),
+            "changelog_appended": True,
+        }
+        if new_level == "auto":
+            payload["warning"] = matrix_data.get("warnings", {}).get("auto", "")
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        print(f"Autonomy level changed: {old_level} → **{new_level}**\n")
+        print(format_matrix_table(matrix_data, new_level))
+        warning = matrix_data.get("warnings", {}).get(new_level)
+        if warning:
+            print(f"\n{warning}")
+        safety = matrix_data.get("safety_net_note", "")
+        if new_level != "strict" and safety:
+            print(f"\n> {safety.strip()}")
+
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+from datetime import datetime
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="req",
-        description="req framework CLI (PoC — ask/list subcommands only)",
+        description="req framework CLI",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    # --- ask ---
     ask = sub.add_parser(
         "ask",
         help="Resolve a question catalog entry into an AskUserQuestion JSON payload",
@@ -355,8 +551,22 @@ def main():
     )
     ask.set_defaults(func=cmd_ask)
 
+    # --- list ---
     lst = sub.add_parser("list", help="List all question ids in the catalog")
     lst.set_defaults(func=cmd_list)
+
+    # --- autonomy ---
+    autonomy_sub = sub.add_parser("autonomy", help="View or change autonomy level")
+    autonomy_cmds = autonomy_sub.add_subparsers(dest="autonomy_cmd", required=True)
+
+    auto_current = autonomy_cmds.add_parser("current", help="Show current level + matrix")
+    auto_current.add_argument("--format", choices=["text", "json"], default="text")
+    auto_current.set_defaults(func=cmd_autonomy_current)
+
+    auto_set = autonomy_cmds.add_parser("set", help="Change autonomy level")
+    auto_set.add_argument("level", help="New level: strict | balanced | auto")
+    auto_set.add_argument("--format", choices=["text", "json"], default="text")
+    auto_set.set_defaults(func=cmd_autonomy_set)
 
     args = parser.parse_args()
     args.func(args)

@@ -81,6 +81,19 @@ catalog:
       - label: "取消"
         description: "先不處理，保留 intake 檔案待人工檢視後再決定"
 
+  autonomy.level_picker:
+    type: static
+    header: "Autonomy"
+    question: "要切換到哪個自主程度？"
+    multi_select: false
+    options:
+      - label: "Strict (L1)"
+        description: "全部 7 個 checkpoint 由人類執行（預設，最安全）"
+      - label: "Balanced (L2)"
+        description: "5 個硬性 checkpoint + 2 個由 AI 建議（低風險自動化）"
+      - label: "Auto (L3)"
+        description: "同 L2 + 擴大 AI 灰色地帶裁量；僅限個人專案或原型"
+
   resolve_conflict.picker:
     type: dynamic
     source: conflict_file
