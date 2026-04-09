@@ -48,6 +48,11 @@ When finished, return a **structured summary** in exactly this format:
 ## conflict detection summary
 - scope: <single spec slug | all>
 - autonomy_applied: <strict | balanced | auto>
+- scan_mode: <full | sampled-pairs | status-prioritised>
+- sampled_pair_count: <N, omit when scan_mode is full>
+- scan_errors: <none | list of spec paths that failed to read>
+- frontmatter_errors: <none | list of spec slugs with malformed frontmatter>
+- time_budget_exceeded: <false | true>
 - specs scanned: <count>
 - conflicts detected: <count>
 - new conflict records:
@@ -57,6 +62,18 @@ When finished, return a **structured summary** in exactly this format:
 - specs needing human decision: <bullet list of spec slugs>
 - recommended next step: /req-resolve-conflict <path-or-all>
 ```
+
+## Error Handling & Limits
+
+These rules guarantee the subagent returns a usable summary even against malformed or very large spec corpora.
+
+- **Large persona count (> 15 personas on one spec)**: do **not** do full pairwise comparison. Instead sample persona pairs by (a) pairs whose User Stories share at least one keyword and (b) pairs explicitly flagged in the spec's "衝突標記" section. Annotate the return summary with `scan_mode: sampled-pairs` and `sampled_pair_count: <N>`.
+- **Unreadable spec files**: if a `spec.md` cannot be read (missing, permissions, encoding error) while scope is `all`, list it under `scan_errors:` in the return summary and continue scanning the rest. Never abort because one file is broken.
+- **Malformed YAML frontmatter**: if a spec has broken frontmatter but a readable body, still scan the User Stories. Add the spec slug to `frontmatter_errors:` so the parent is aware the metadata (status, version) was not considered.
+- **Time budget**: when scope is `all` and the total scan would exceed ~60 seconds of wall-clock time, prioritise specs with `status: in-review` or `approved` first, then stop. Annotate `scan_mode: status-prioritised` + `time_budget_exceeded: true`.
+- **Empty scope**: if scope is a single spec path but the spec has zero User Stories, return immediately with `conflicts detected: 0` and `error: spec-empty`. Do not fabricate conflicts.
+
+Under no circumstance may this subagent silently drop conflict detection. Every degraded mode must be visible in the return summary so the parent can escalate or re-run with a narrower scope.
 
 ## Constraints
 

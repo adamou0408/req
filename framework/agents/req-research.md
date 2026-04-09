@@ -71,6 +71,11 @@ When you finish, return a **structured summary** so the parent conversation can 
 - intake: <path>
 - feature slug: <slug>
 - autonomy_applied: <strict | balanced | auto>
+- scan_mode: <full | sampled | recency-only>
+- sampled_count: <N, omit when scan_mode is full>
+- scan_errors: <none | list of spec paths that failed to read>
+- existing_features_baseline: <absent | ok | malformed>
+- time_budget_exceeded: <false | true>
 - duplicates: <none | list of spec slugs with overlap %>
 - partial overlaps: <none | list>
 - matched-existing-feature: <none | feature-slug from existing-features.md>
@@ -81,6 +86,18 @@ When you finish, return a **structured summary** so the parent conversation can 
 - recommended next step: <proceed to /req-translate | merge via /req-iterate <slug> | wait for human decision>
 - research.md path: <path>
 ```
+
+## Error Handling & Limits
+
+These rules guarantee the subagent returns a usable summary even against malformed or very large repositories, instead of crashing silently or running forever.
+
+- **Large spec corpus (> 200 specs)**: do **not** full-scan. Sample by (a) specs modified in the last 180 days and (b) specs whose titles/summaries share at least one keyword with the intake. Annotate the return summary with `scan_mode: sampled` and `sampled_count: <N>`.
+- **Unreadable spec files**: if a `spec.md` cannot be read (missing, permissions, encoding error), list it under `scan_errors:` in the return summary and continue scanning the rest. Never abort the whole scan because one file is broken.
+- **Malformed `existing-features.md`**: if the file exists but is not in the expected format (e.g. hand-edited YAML is broken), log the issue once and fall back to the spec-only scan. Add `existing_features_baseline: malformed` to the return summary.
+- **Time budget**: if the deduplication scan would exceed ~60 seconds of wall-clock time (large repo with slow I/O, or many thousand specs despite sampling), short-circuit to recency-based sampling (most recent 50 specs) and annotate `scan_mode: recency-only` + `time_budget_exceeded: true`.
+- **Empty intake file**: if the raw intake is empty or only contains frontmatter, return immediately with `recommended next step: wait for human decision` and `error: intake-empty`. Do not fabricate requirements.
+
+Under no circumstance may this subagent silently drop scan coverage. Every degraded mode must be visible in the return summary so the parent conversation can escalate if needed.
 
 ## Constraints
 

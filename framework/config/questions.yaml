@@ -1,0 +1,109 @@
+# Question Catalog — req framework decision forks
+#
+# Every AskUserQuestion invocation in a /req-* command SHOULD come from this catalog.
+# AI commands SHOULD NOT improvise alternative option lists. This keeps the user-facing
+# choice points deterministic, auditable, and testable.
+#
+# Schema:
+#   catalog:
+#     <question_id>:
+#       type: static | dynamic
+#       header: <string, max 12 chars>  — short chip label for the UI
+#       question: <string>              — full question text (static type)
+#       question_template: <string>     — template with {placeholders} (dynamic type)
+#       multi_select: true | false      — default false
+#       options:                        — for static type
+#         - label: <string, <=5 words>
+#           description: <string>
+#       source: conflict_file | ...     — for dynamic type
+#       fallback_options: [...]         — used when dynamic extraction fails
+#
+# Adding a new entry:
+#   1. Add it below
+#   2. Add a smoke-test case to framework/scripts/tests/test_req_ask.sh
+#   3. Update docs/req-cli.md's "Catalog" section
+#
+# This is the PoC catalog (v0.1). Future expansion would cover all 14 decision
+# forks across the /req-* commands; this file currently includes 5 representative
+# entries to prove the pattern.
+
+catalog:
+
+  intake.confirmation:
+    type: static
+    header: "Intake"
+    question: "確認這份需求送出？"
+    multi_select: false
+    options:
+      - label: "確認送出"
+        description: "進入 /req-research 階段做去重與可行性評估"
+      - label: "補充細節"
+        description: "再問一輪細節問題，補完後回到這個確認點"
+      - label: "取消"
+        description: "放棄這筆需求，不建立 intake 檔案"
+
+  review.approval:
+    type: static
+    header: "Review"
+    question: "此 spec 的審核結果？"
+    multi_select: false
+    options:
+      - label: "通過"
+        description: "所有檢查項通過，狀態 → approved，可進入 /req-plan"
+      - label: "通過（附註）"
+        description: "主要通過但有小修正建議，狀態 → approved，附註記錄待追蹤項"
+      - label: "要求修改"
+        description: "列出需修正項目，狀態保持 in-review，退給 spec 擁有者"
+      - label: "退件"
+        description: "與現有設計不符，狀態 → draft，必須記錄退件原因"
+
+  deploy.prod_confirmation:
+    type: static
+    header: "Prod deploy"
+    question: "所有前置檢查已通過，確認部署到 production？"
+    multi_select: false
+    options:
+      - label: "確認部署"
+        description: "執行部署並開始 health check 監控，失敗時自動回滾"
+      - label: "取消"
+        description: "中止部署，維持現狀；可稍後重試或降級到 staging"
+
+  research.duplicate_action:
+    type: static
+    header: "Duplicate"
+    question: "調研發現與現有 spec 高度重疊（>80%）。下一步？"
+    multi_select: false
+    options:
+      - label: "合併到現有 spec"
+        description: "使用 /req-iterate 合併，不建立新 spec，保留 intake 追溯"
+      - label: "建立獨立 spec"
+        description: "儘管重疊，仍作為獨立需求處理（需填寫差異理由）"
+      - label: "取消"
+        description: "先不處理，保留 intake 檔案待人工檢視後再決定"
+
+  autonomy.level_picker:
+    type: static
+    header: "Autonomy"
+    question: "要切換到哪個自主程度？"
+    multi_select: false
+    options:
+      - label: "Strict (L1)"
+        description: "全部 7 個 checkpoint 由人類執行（預設，最安全）"
+      - label: "Balanced (L2)"
+        description: "5 個硬性 checkpoint + 2 個由 AI 建議（低風險自動化）"
+      - label: "Auto (L3)"
+        description: "同 L2 + 擴大 AI 灰色地帶裁量；僅限個人專案或原型"
+
+  resolve_conflict.picker:
+    type: dynamic
+    source: conflict_file
+    header: "Conflict"
+    question_template: "選擇「{title}」的解決方向"
+    multi_select: false
+    # options are extracted from the CONFLICT-NNN.md file's
+    # "## 可能解決方向" section — each "### Option N：<title>" becomes one option.
+    fallback_options:
+      - label: "手動解決"
+        description: "跳出對話框，人工直接在 CONFLICT 檔案寫下決議"
+      - label: "取消"
+        description: "暫不解決此衝突；spec 保持被 ⚠️ 標記狀態"

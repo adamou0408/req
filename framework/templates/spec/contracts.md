@@ -43,3 +43,26 @@
 - 此 API 是否會破壞現有客戶端？
 - 如果會，遷移策略是什麼？
 - 棄用計畫：（舊端點保留多久？）
+
+## 速率限制與配額 (Rate Limits & Quotas)
+
+> 若此 API 有任何形式的配額，**必填**此段。若確無任何配額，明確寫「無」。
+
+| 端點 | 限制 | 窗口 | 超限行為 | 豁免對象 |
+|------|------|------|----------|----------|
+|      |      |      |          |          |
+
+- 實作方式：（例如 token bucket / sliding window / 固定窗口）
+- 儲存後端：（例如 Redis / 記憶體 / DB）
+- 設定來源：（環境變數名稱 / ConfigMap key）
+- 超限回應格式：（HTTP 429 + `Retry-After` header？錯誤 payload 結構？）
+- 監控告警：（超限達多少次/多少時間 → 觸發告警；是否串到 `feedback_loop`）
+
+## 版本策略 (Versioning Strategy)
+
+- **版本方案**：URL 前綴 (`/v1/`) / Header (`Accept: application/vnd.xxx.v1+json`) / Query param (`?v=1`)
+- **當前版本**：
+- **客戶端發現方式**：（例如 `GET /v1` 回傳版本元資料，或 discovery endpoint）
+- **棄用窗口**：（breaking change 後保留舊版本多久；建議至少 6 個月）
+- **棄用通知方式**：（回應 header `Deprecation: true` + `Sunset: <date>`）
+- **與「向後相容性」段落關係**：backward-compatible 變更於同一版本內進行；breaking change 則升版並保留舊版本至少一個棄用窗口
