@@ -493,6 +493,241 @@ def cmd_changelog_append(args):
 
 
 # ---------------------------------------------------------------------------
+# Audit subcommand
+# ---------------------------------------------------------------------------
+
+def cmd_audit_run(args):
+    """Read-only drift sweep. Writes AUDIT-{timestamp}.md report."""
+    host_root = find_host_root()
+    if not host_root:
+        sys.stderr.write("ERROR: .req.config.yml not found.\n")
+        sys.exit(1)
+    config = host_root / ".req.config.yml"
+    data_root_rel = read_config_field(config, "data_root", ".")
+    code_root_rel = read_config_field(config, "code_root", ".")
+    autonomy = read_config_field(config, "autonomy_level", "strict")
+    data_root = host_root / data_root_rel
+    code_root = host_root / code_root_rel
+    specs_dir = data_root / "specs"
+
+    if not specs_dir.is_dir():
+        sys.stderr.write(f"ERROR: specs directory not found: {specs_dir}\n")
+        sys.exit(1)
+
+    # Determine scope
+    since_date = args.since or ""
+    target_slug = args.spec or ""
+
+    # Enumerate eligible specs (done or in-progress)
+    drift_rows = []
+    skipped = []
+    specs_scanned = 0
+
+    for spec_dir in sorted(specs_dir.iterdir()):
+        if not spec_dir.is_dir():
+            continue
+        slug = spec_dir.name
+        if target_slug and slug != target_slug:
+            continue
+        spec_path = spec_dir / "spec.md"
+        if not spec_path.is_file():
+            skipped.append(f"{slug}: spec.md missing")
+            continue
+        try:
+            status = parse_spec_status(spec_path)
+        except SystemExit:
+            skipped.append(f"{slug}: status parse failed")
+            continue
+        if status not in ("done", "in-progress"):
+            continue
+        specs_scanned += 1
+
+        # --- 1a. Spec ↔ code drift ---
+        drift_rows.extend(_check_spec_code_drift(spec_path, slug, code_root))
+
+        # --- 1b. Auto residue (TODO(auto) / FIXME(auto)) ---
+        drift_rows.extend(_check_auto_residue(slug, code_root))
+
+    # --- 1c. Changelog review (autonomy entries) ---
+    drift_rows.extend(_check_changelog_autonomy(data_root, since_date))
+
+    # --- 1d. Test rerun (STUB — not implemented in Phase 1) ---
+    # Requires host project test runner config. Deferred to Phase 2.
+
+    # Generate report
+    now = datetime.now()
+    timestamp = now.strftime("%Y-%m-%d-%H%M")
+    report_date = now.strftime("%Y-%m-%d %H:%M")
+
+    audits_dir = data_root / "audits"
+    audits_dir.mkdir(parents=True, exist_ok=True)
+    report_path = audits_dir / f"AUDIT-{timestamp}.md"
+
+    scope_desc = "full"
+    if target_slug:
+        scope_desc = f"--spec {target_slug}"
+    elif since_date:
+        scope_desc = f"--since {since_date}"
+
+    # Build report
+    lines = [
+        f"# Audit Report — {report_date}\n",
+        f"- **Triggered by:** user",
+        f"- **Scope:** {scope_desc}",
+        f"- **Specs scanned:** {specs_scanned}",
+        f"- **Autonomy level at audit time:** {autonomy}",
+        f"- **Test rerun:** skipped (Phase 2 — requires host test runner config)\n",
+        "## Drift Summary\n",
+    ]
+
+    if drift_rows:
+        lines.append("| # | Spec | Source | Severity | Description |")
+        lines.append("|---|------|--------|----------|-------------|")
+        for i, row in enumerate(drift_rows, 1):
+            lines.append(
+                f"| {i} | {row['slug']} | {row['source']} | {row['severity']} | {row['description']} |"
+            )
+    else:
+        lines.append("**No drift detected.** All scanned specs are consistent with current code and changelog.")
+
+    lines.append("\n## Recommended Actions\n")
+    high = [r for r in drift_rows if r["severity"] == "high"]
+    med = [r for r in drift_rows if r["severity"] == "medium"]
+    low = [r for r in drift_rows if r["severity"] == "low"]
+    if high:
+        slugs = sorted(set(r["slug"] for r in high))
+        lines.append(f"- **High severity ({len(high)} rows):** run `/req-iterate --fixup` for: {', '.join(slugs)}")
+    if med:
+        lines.append(f"- **Medium severity ({len(med)} rows):** review `TODO(auto)` / `FIXME(auto)` markers")
+    if low:
+        lines.append(f"- **Low severity ({len(low)} rows):** informational, no action needed")
+    if not drift_rows:
+        lines.append("- No action needed.")
+
+    if skipped:
+        lines.append("\n## Notes\n")
+        for s in skipped:
+            lines.append(f"- Skipped: {s}")
+
+    report_text = "\n".join(lines) + "\n"
+    report_path.write_text(report_text, encoding="utf-8")
+
+    # Output
+    if args.format == "json":
+        payload = {
+            "report_path": str(report_path),
+            "specs_scanned": specs_scanned,
+            "drift_rows": len(drift_rows),
+            "high": len(high),
+            "medium": len(med),
+            "low": len(low),
+            "skipped": skipped,
+            "rows": drift_rows,
+        }
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        sys.stdout.write(report_text)
+
+    sys.exit(0)
+
+
+def _check_spec_code_drift(spec_path: Path, slug: str, code_root: Path) -> list:
+    """1a: Check if acceptance criteria keywords appear in code."""
+    rows = []
+    text = spec_path.read_text(encoding="utf-8")
+
+    # Extract acceptance criteria lines (checkboxes)
+    criteria = re.findall(r"- \[[ x]\]\s*(.+)", text)
+    if not criteria:
+        return rows
+
+    # Only check if code_root has source files
+    src_dir = code_root / "src"
+    if not src_dir.is_dir():
+        return rows
+
+    # Build a simple search: look for spec slug references in code comments
+    import subprocess
+    for criterion in criteria:
+        # Extract potential symbol names (camelCase, snake_case identifiers)
+        symbols = re.findall(r"`([a-zA-Z_]\w+(?:\(\))?)`", criterion)
+        for sym in symbols:
+            sym_clean = sym.rstrip("()")
+            try:
+                result = subprocess.run(
+                    ["grep", "-r", "-l", sym_clean, str(src_dir)],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode != 0:
+                    rows.append({
+                        "slug": slug,
+                        "source": "spec-code",
+                        "severity": "high",
+                        "description": f"Symbol `{sym_clean}` from acceptance criteria not found in {src_dir}",
+                    })
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+    return rows
+
+
+def _check_auto_residue(slug: str, code_root: Path) -> list:
+    """1b: Find TODO(auto) / FIXME(auto) markers in code."""
+    rows = []
+    src_dir = code_root / "src"
+    if not src_dir.is_dir():
+        return rows
+
+    import subprocess
+    for marker in ["TODO(auto)", "FIXME(auto)"]:
+        try:
+            result = subprocess.run(
+                ["grep", "-r", "-n", marker, str(src_dir)],
+                capture_output=True, text=True, timeout=10,
+            )
+            for line in result.stdout.strip().splitlines():
+                if line:
+                    rows.append({
+                        "slug": slug,
+                        "source": "auto-residue",
+                        "severity": "medium",
+                        "description": f"`{marker}` found: {line[:120]}",
+                    })
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    return rows
+
+
+def _check_changelog_autonomy(data_root: Path, since_date: str) -> list:
+    """1c: Find [autonomy: balanced/auto] entries in changelog."""
+    rows = []
+    changelog = data_root / "docs" / "changelog.md"
+    if not changelog.is_file():
+        return rows
+
+    for line in changelog.read_text(encoding="utf-8").splitlines():
+        if "[autonomy:" not in line:
+            continue
+        # Extract date if present
+        date_m = re.match(r"^-\s*(\d{4}-\d{2}-\d{2})", line)
+        if since_date and date_m:
+            if date_m.group(1) < since_date:
+                continue
+        # Extract spec slug if present
+        slug_m = re.search(r"spec\s+([a-zA-Z0-9_-]+)", line)
+        slug = slug_m.group(1) if slug_m else "(unknown)"
+        level_m = re.search(r"\[autonomy:\s*(balanced|auto)\]", line)
+        level = level_m.group(1) if level_m else "unknown"
+        rows.append({
+            "slug": slug,
+            "source": "changelog-review",
+            "severity": "high",
+            "description": f"Autonomy-driven action ({level}): {line.strip()[:100]}",
+        })
+    return rows
+
+
+# ---------------------------------------------------------------------------
 # Subcommand dispatch
 # ---------------------------------------------------------------------------
 
@@ -792,6 +1027,15 @@ def main():
     spec_set.add_argument("--reason", help="Reason tag (e.g., 'fixup', 'rejected')")
     spec_set.add_argument("--by", help="Who triggered the transition (e.g., '/req-review')")
     spec_set.set_defaults(func=cmd_spec_set_status)
+
+    # --- audit ---
+    audit_sub = sub.add_parser("audit", help="Drift detection for done specs")
+    audit_cmds = audit_sub.add_subparsers(dest="audit_cmd", required=True)
+    audit_run = audit_cmds.add_parser("run", help="Read-only drift sweep → write AUDIT report")
+    audit_run.add_argument("--spec", help="Restrict to one spec slug")
+    audit_run.add_argument("--since", help="Only consider entries on or after YYYY-MM-DD")
+    audit_run.add_argument("--format", choices=["text", "json"], default="text")
+    audit_run.set_defaults(func=cmd_audit_run)
 
     # --- autonomy ---
     autonomy_sub = sub.add_parser("autonomy", help="View or change autonomy level")
