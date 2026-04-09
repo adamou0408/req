@@ -1,0 +1,7 @@
+# Quickstart 範例專用設定
+# 把這個目錄當作 host repo 時，業務資料與生成程式碼都放在 data/
+data_root: data
+code_root: data
+framework_root: .req-framework
+autonomy_level: strict
+last_synced_version: 2.3.0

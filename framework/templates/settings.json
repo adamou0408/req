@@ -1,4 +1,5 @@
 {
+  "_comment": "See docs/permissions.md for per-entry rationale and customization guide. If you modify this file, keep docs/permissions.md in sync.",
   "permissions": {
     "deny": [
       "Edit(${REQ_FRAMEWORK_ROOT}/**)",

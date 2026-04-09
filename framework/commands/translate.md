@@ -10,6 +10,10 @@ Translate raw, unstructured requirements from `intake/` into structured specs wi
 
 ## Behavior
 1. Read the specified raw requirement file from `${REQ_DATA_ROOT}/intake/raw/`.
+1a. **Idempotency check for resumed sessions**: if a `spec.md` already exists under `${REQ_DATA_ROOT}/specs/{feature-slug}/` that was generated from this same intake file, branch on `spec.md` status:
+    - **Status is `draft` or `in-review`**: run `git diff --stat` against the existing `spec.md` to show the reviewer what is currently on disk, then ask: `Overwrite / Show full diff / Cancel`. Proceed only after explicit choice. This covers session crashes between `/req-translate` and `/req-review`.
+    - **Status is `approved` / `in-progress` / `done`**: refuse with `Spec already exists and is past the draft stage. Use /req-iterate to modify it.` Do NOT overwrite.
+    - **No existing spec matches this intake**: proceed normally (step 2 onwards).
 2. Identify all user personas involved:
    - Cross-reference with existing personas in `${REQ_DATA_ROOT}/personas/`.
    - If a new persona is discovered, create a new persona file in `${REQ_DATA_ROOT}/personas/` using the `_template.md` format.

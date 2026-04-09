@@ -1,0 +1,1270 @@
+#!/usr/bin/env python3
+"""req — CLI for the req framework (PoC).
+
+This is the first script-layer entry point for the req framework. It currently
+implements only a single subcommand (`ask`) as a proof-of-concept for moving
+decision-fork option generation from AI-interpreted markdown into deterministic
+scripts.
+
+Current subcommands:
+    req ask <question-id> [--context <path>] [--var KEY=VALUE ...]
+
+Future subcommands (not implemented in this PoC, listed for reference):
+    req spec status <slug>
+    req spec set-status <slug> <new-status>
+    req spec check-prerequisites <slug>
+    req review checklist <slug>
+    req deploy pre-checks <slug>
+    req brief render <command> <slug>
+    req autonomy current | set <level>
+    req changelog append <entry>
+    req audit run
+
+The PoC intentionally does NOT modify any existing /req-* command. It exists so
+the framework can evaluate the "scripts generate option lists, AI does not
+improvise" pattern before wider adoption.
+
+Exit codes:
+    0  success — JSON written to stdout
+    1  usage error (bad arguments)
+    2  unknown question id
+    3  malformed catalog
+    4  missing context file (dynamic question)
+    5  dynamic extraction failed — fallback options were used (JSON still valid)
+    10 missing dependency (PyYAML)
+"""
+
+import argparse
+import json
+import re
+import sys
+from pathlib import Path
+
+try:
+    import yaml
+except ImportError:
+    sys.stderr.write(
+        "ERROR: PyYAML is required for `req ask`. Install with: pip install pyyaml\n"
+    )
+    sys.exit(10)
+
+
+# ---------------------------------------------------------------------------
+# Catalog loading
+# ---------------------------------------------------------------------------
+
+def find_framework_root():
+    """Locate framework/ directory by walking up from this script's location.
+
+    The script lives at framework/scripts/req, so the framework root is its
+    parent directory. Fall back to searching upward for framework/config/
+    in case the script is symlinked elsewhere.
+    """
+    script_path = Path(__file__).resolve()
+    # script_path = .../framework/scripts/req → framework dir is parent.parent
+    candidate = script_path.parent.parent
+    if (candidate / "config" / "questions.yaml").is_file():
+        return candidate
+    # Fallback: walk upward from CWD looking for framework/config/questions.yaml
+    for d in [Path.cwd().resolve(), *Path.cwd().resolve().parents]:
+        if (d / "framework" / "config" / "questions.yaml").is_file():
+            return d / "framework"
+    sys.stderr.write(
+        "ERROR: framework/config/questions.yaml not found. "
+        "Run this from inside a req-framework repo.\n"
+    )
+    sys.exit(3)
+
+
+def load_catalog():
+    """Load and validate the questions catalog. Returns (catalog_dict, path)."""
+    fw_root = find_framework_root()
+    catalog_path = fw_root / "config" / "questions.yaml"
+    try:
+        with open(catalog_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except yaml.YAMLError as e:
+        sys.stderr.write(f"ERROR: invalid YAML in {catalog_path}: {e}\n")
+        sys.exit(3)
+    if not isinstance(data, dict) or "catalog" not in data:
+        sys.stderr.write(
+            f"ERROR: malformed catalog at {catalog_path} "
+            f"(expected top-level 'catalog:' mapping)\n"
+        )
+        sys.exit(3)
+    catalog = data["catalog"]
+    if not isinstance(catalog, dict):
+        sys.stderr.write(
+            f"ERROR: 'catalog' in {catalog_path} must be a mapping\n"
+        )
+        sys.exit(3)
+    return catalog, catalog_path
+
+
+# ---------------------------------------------------------------------------
+# Static question handling
+# ---------------------------------------------------------------------------
+
+def format_static(entry, vars_map):
+    """Format a static question entry into an AskUserQuestion JSON payload."""
+    question = entry.get("question", "")
+    if vars_map:
+        try:
+            question = question.format(**vars_map)
+        except KeyError as e:
+            sys.stderr.write(
+                f"ERROR: static question references undefined template var {e}\n"
+            )
+            sys.exit(1)
+    header = entry.get("header", "")
+    if len(header) > 12:
+        sys.stderr.write(
+            f"WARNING: header '{header}' exceeds 12 chars; "
+            f"AskUserQuestion will reject it\n"
+        )
+    multi = bool(entry.get("multi_select", False))
+    options = []
+    for o in entry.get("options", []) or []:
+        if not isinstance(o, dict) or "label" not in o or "description" not in o:
+            sys.stderr.write(
+                f"ERROR: option malformed (need label + description): {o}\n"
+            )
+            sys.exit(3)
+        options.append({"label": o["label"], "description": o["description"]})
+    if not options:
+        sys.stderr.write("ERROR: static question has no options\n")
+        sys.exit(3)
+    return {
+        "questions": [
+            {
+                "question": question,
+                "header": header,
+                "multiSelect": multi,
+                "options": options,
+            }
+        ]
+    }
+
+
+# ---------------------------------------------------------------------------
+# Dynamic question handling — conflict_file source
+# ---------------------------------------------------------------------------
+
+CONFLICT_TITLE_RE = re.compile(r"^#\s*CONFLICT-\d+[：:]\s*(.+?)\s*$", re.MULTILINE)
+POSSIBLE_SECTION_RE = re.compile(
+    r"##\s*可能解決方向\s*\n(.+?)(?=\n##\s|\Z)", re.DOTALL
+)
+OPTION_BLOCK_RE = re.compile(
+    r"###\s*Option\s*(\d+)[:：]\s*(.+?)\n(.+?)(?=\n###\s*Option\s|\Z)", re.DOTALL
+)
+
+
+def extract_conflict_title(text):
+    m = CONFLICT_TITLE_RE.search(text)
+    return m.group(1).strip() if m else None
+
+
+def extract_conflict_options(text):
+    """Extract resolution options from a CONFLICT-NNN.md body.
+
+    Returns a list of {label, description} dicts, or None on failure.
+    """
+    section_match = POSSIBLE_SECTION_RE.search(text)
+    if not section_match:
+        return None
+    section = section_match.group(1)
+    options = []
+    for m in OPTION_BLOCK_RE.finditer(section):
+        num = m.group(1)
+        title = m.group(2).strip().rstrip("*").strip()
+        body = m.group(3).strip()
+        description = _summarise_option_body(body)
+        label = f"Option {num}：{title}"
+        # Keep label short — AskUserQuestion labels should be 1-5 words
+        if len(label) > 40:
+            label = label[:37] + "..."
+        options.append({"label": label, "description": description})
+    return options if options else None
+
+
+def _summarise_option_body(body):
+    """Pick the first '做法' bullet or first non-empty line as description."""
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    # Prefer a '做法' line if present
+    for ln in lines:
+        if "做法" in ln:
+            cleaned = re.sub(r"^[-*]\s*\**做法\**\s*[:：]?\s*", "", ln)
+            cleaned = re.sub(r"\*\*", "", cleaned)
+            return _truncate(cleaned)
+    # Fall back to the first non-header, non-bullet-intro line
+    for ln in lines:
+        if ln.startswith("###") or ln.startswith("##"):
+            continue
+        cleaned = re.sub(r"^[-*]\s*", "", ln)
+        cleaned = re.sub(r"\*\*", "", cleaned)
+        if cleaned:
+            return _truncate(cleaned)
+    return ""
+
+
+def _truncate(s, limit=120):
+    return s if len(s) <= limit else s[: limit - 3] + "..."
+
+
+def handle_dynamic(entry, context_path, vars_map):
+    """Resolve a dynamic question. Returns (payload_dict, exit_code)."""
+    source = entry.get("source")
+    if source != "conflict_file":
+        sys.stderr.write(
+            f"ERROR: unsupported dynamic source '{source}' (only 'conflict_file' "
+            f"implemented in PoC)\n"
+        )
+        sys.exit(3)
+    if not context_path:
+        sys.stderr.write(
+            "ERROR: --context <path-to-CONFLICT-NNN.md> is required for "
+            "resolve_conflict.picker\n"
+        )
+        sys.exit(4)
+    cpath = Path(context_path)
+    if not cpath.is_file():
+        sys.stderr.write(f"ERROR: context file not found: {cpath}\n")
+        sys.exit(4)
+    text = cpath.read_text(encoding="utf-8")
+    title = extract_conflict_title(text) or "衝突"
+    options = extract_conflict_options(text)
+
+    question_template = entry.get("question_template", "")
+    try:
+        question = question_template.format(title=title, **vars_map)
+    except KeyError as e:
+        sys.stderr.write(
+            f"ERROR: dynamic question references undefined template var {e}\n"
+        )
+        sys.exit(1)
+    header = entry.get("header", "")
+
+    exit_code = 0
+    if not options:
+        sys.stderr.write(
+            f"WARNING: could not extract resolution options from {cpath}; "
+            f"using fallback options from catalog\n"
+        )
+        fallback = entry.get("fallback_options", []) or []
+        options = [
+            {"label": o["label"], "description": o["description"]}
+            for o in fallback
+            if isinstance(o, dict) and "label" in o and "description" in o
+        ]
+        if not options:
+            sys.stderr.write(
+                "ERROR: no fallback options defined and extraction failed\n"
+            )
+            sys.exit(3)
+        exit_code = 5  # signal fallback-used but still valid
+
+    payload = {
+        "questions": [
+            {
+                "question": question,
+                "header": header,
+                "multiSelect": bool(entry.get("multi_select", False)),
+                "options": options,
+            }
+        ]
+    }
+    return payload, exit_code
+
+
+# ---------------------------------------------------------------------------
+# Spec state primitives
+# ---------------------------------------------------------------------------
+
+VALID_STATUSES = ["draft", "in-review", "approved", "in-progress", "done"]
+
+# Allowed transitions: from_status → set of to_statuses
+# Derived from AGENTS.md §6 State Management
+VALID_TRANSITIONS = {
+    "draft":       {"in-review"},
+    "in-review":   {"approved", "draft"},
+    "approved":    {"in-progress", "draft"},
+    "in-progress": {"done", "draft"},
+    "done":        {"draft"},
+}
+
+STATUS_RE = re.compile(
+    r"^(##\s*\*?\s*狀態[：:]\s*)`([a-z-]+)`(.*)$",
+    re.MULTILINE,
+)
+
+VERSION_ROW_RE = re.compile(
+    r"^\|\s*(v[\d.]+)\s*\|",
+    re.MULTILINE,
+)
+
+
+def find_spec_dir(slug: str) -> Path:
+    """Locate a spec directory by slug. Searches ${REQ_DATA_ROOT}/specs/<slug>/."""
+    host_root = find_host_root()
+    if not host_root:
+        sys.stderr.write("ERROR: .req.config.yml not found.\n")
+        sys.exit(1)
+    config = host_root / ".req.config.yml"
+    data_root_rel = read_config_field(config, "data_root", ".")
+    spec_dir = host_root / data_root_rel / "specs" / slug
+    if not spec_dir.is_dir():
+        sys.stderr.write(f"ERROR: spec directory not found: {spec_dir}\n")
+        sys.exit(1)
+    return spec_dir
+
+
+def parse_spec_status(spec_path: Path) -> str:
+    """Extract the status field from a spec.md file. Returns the status string."""
+    text = spec_path.read_text(encoding="utf-8")
+    m = STATUS_RE.search(text)
+    if not m:
+        sys.stderr.write(
+            f"ERROR: could not find status line (## * 狀態：`...`) in {spec_path}\n"
+        )
+        sys.exit(3)
+    return m.group(2)
+
+
+def parse_spec_title(spec_path: Path) -> str:
+    """Extract the H1 title from spec.md."""
+    for line in spec_path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("# ") and not line.startswith("## "):
+            return line[2:].strip()
+    return "(untitled)"
+
+
+def parse_spec_version(spec_path: Path) -> str:
+    """Extract the latest version from the version history table."""
+    text = spec_path.read_text(encoding="utf-8")
+    versions = VERSION_ROW_RE.findall(text)
+    return versions[-1] if versions else "v1.0"
+
+
+def parse_spec_owner(spec_path: Path) -> str:
+    """Extract the Spec 擁有者 field."""
+    for line in spec_path.read_text(encoding="utf-8").splitlines():
+        if "Spec 擁有者" in line or "Spec擁有者" in line:
+            parts = line.split("：", 1) if "：" in line else line.split(":", 1)
+            if len(parts) == 2:
+                return parts[1].strip()
+    return ""
+
+
+def parse_spec_deps(spec_path: Path) -> list:
+    """Extract 前置需求 dependency slugs."""
+    text = spec_path.read_text(encoding="utf-8")
+    m = re.search(r"前置需求[：:]\s*(.+)", text)
+    if not m:
+        return []
+    val = m.group(1).strip()
+    if val in ("無", "none", "None", "—", "-"):
+        return []
+    # Extract slugs from bracket links or plain text
+    slugs = re.findall(r"specs/([a-zA-Z0-9_-]+)/", val)
+    if not slugs:
+        slugs = [s.strip() for s in val.split(",") if s.strip()]
+    return slugs
+
+
+def cmd_spec_status(args):
+    """Read spec status and key metadata. Output JSON."""
+    spec_dir = find_spec_dir(args.slug)
+    spec_path = spec_dir / "spec.md"
+    if not spec_path.is_file():
+        sys.stderr.write(f"ERROR: spec.md not found in {spec_dir}\n")
+        sys.exit(1)
+
+    status = parse_spec_status(spec_path)
+    title = parse_spec_title(spec_path)
+    version = parse_spec_version(spec_path)
+    owner = parse_spec_owner(spec_path)
+    deps = parse_spec_deps(spec_path)
+
+    # Check for unresolved conflicts
+    host_root = find_host_root()
+    config = host_root / ".req.config.yml"
+    data_root_rel = read_config_field(config, "data_root", ".")
+    conflicts_dir = host_root / data_root_rel / "conflicts"
+    unresolved = []
+    if conflicts_dir.is_dir():
+        for cf in sorted(conflicts_dir.glob("CONFLICT-*.md")):
+            text = cf.read_text(encoding="utf-8")
+            if args.slug in text:
+                cf_status_m = re.search(r"狀態[：:]\s*`(\w[\w-]*)`", text)
+                cf_status = cf_status_m.group(1) if cf_status_m else "unknown"
+                if cf_status != "resolved":
+                    unresolved.append(cf.name)
+
+    payload = {
+        "slug": args.slug,
+        "status": status,
+        "title": title,
+        "version": version,
+        "owner": owner,
+        "dependencies": deps,
+        "unresolved_conflicts": unresolved,
+        "spec_path": str(spec_path),
+    }
+    json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    sys.exit(0)
+
+
+def cmd_spec_set_status(args):
+    """Change spec status: validate transition, update spec.md, append changelog."""
+    spec_dir = find_spec_dir(args.slug)
+    spec_path = spec_dir / "spec.md"
+    if not spec_path.is_file():
+        sys.stderr.write(f"ERROR: spec.md not found in {spec_dir}\n")
+        sys.exit(1)
+
+    new_status = args.new_status
+    if new_status not in VALID_STATUSES:
+        sys.stderr.write(
+            f"ERROR: invalid status '{new_status}'. "
+            f"Valid: {', '.join(VALID_STATUSES)}\n"
+        )
+        sys.exit(1)
+
+    old_status = parse_spec_status(spec_path)
+    if old_status == new_status:
+        sys.stderr.write(f"Spec {args.slug} is already '{new_status}'. No change.\n")
+        sys.exit(0)
+
+    # Validate transition
+    allowed = VALID_TRANSITIONS.get(old_status, set())
+    if new_status not in allowed:
+        sys.stderr.write(
+            f"ERROR: invalid transition '{old_status}' → '{new_status}' for spec {args.slug}.\n"
+            f"       Allowed from '{old_status}': {', '.join(sorted(allowed)) or 'none'}\n"
+            f"       (see AGENTS.md §6 State Management)\n"
+        )
+        sys.exit(1)
+
+    # Update spec.md status line
+    text = spec_path.read_text(encoding="utf-8")
+    new_text = STATUS_RE.sub(rf"\g<1>`{new_status}`\3", text)
+    if new_text == text:
+        sys.stderr.write("ERROR: failed to update status line in spec.md\n")
+        sys.exit(3)
+    spec_path.write_text(new_text, encoding="utf-8")
+
+    # Atomic changelog append
+    host_root = find_host_root()
+    config = host_root / ".req.config.yml"
+    data_root_rel = read_config_field(config, "data_root", ".")
+    data_root = host_root / data_root_rel
+
+    reason = f" [{args.reason}]" if args.reason else ""
+    by = f" by {args.by}" if args.by else ""
+    entry = f"spec {args.slug} (`{old_status}` → `{new_status}`){reason}{by}"
+    append_changelog(data_root, entry)
+
+    payload = {
+        "slug": args.slug,
+        "old_status": old_status,
+        "new_status": new_status,
+        "reason": args.reason or "",
+        "changelog_appended": True,
+        "spec_path": str(spec_path),
+    }
+    json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    sys.exit(0)
+
+
+def cmd_changelog_append(args):
+    """Append a timestamped entry to docs/changelog.md."""
+    host_root = find_host_root()
+    if not host_root:
+        sys.stderr.write("ERROR: .req.config.yml not found.\n")
+        sys.exit(1)
+    config = host_root / ".req.config.yml"
+    data_root_rel = read_config_field(config, "data_root", ".")
+    data_root = host_root / data_root_rel
+    append_changelog(data_root, args.entry)
+    print(f"Appended to {data_root / 'docs' / 'changelog.md'}")
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Review checklist
+# ---------------------------------------------------------------------------
+
+def cmd_review_checklist(args):
+    """Run all review prerequisite checks on a spec. Output JSON."""
+    spec_dir = find_spec_dir(args.slug)
+    spec_path = spec_dir / "spec.md"
+    if not spec_path.is_file():
+        sys.stderr.write(f"ERROR: spec.md not found in {spec_dir}\n")
+        sys.exit(1)
+
+    text = spec_path.read_text(encoding="utf-8")
+    status = parse_spec_status(spec_path)
+    title = parse_spec_title(spec_path)
+    owner = parse_spec_owner(spec_path)
+    deps = parse_spec_deps(spec_path)
+    version = parse_spec_version(spec_path)
+
+    host_root = find_host_root()
+    config = host_root / ".req.config.yml"
+    data_root_rel = read_config_field(config, "data_root", ".")
+    data_root = host_root / data_root_rel
+
+    items = []
+
+    # 1. Status check
+    items.append(_check_item(
+        "spec_status",
+        "Spec 狀態為 in-review",
+        status in ("in-review", "draft"),
+        f"目前狀態: {status}" if status not in ("in-review", "draft") else f"狀態: {status}",
+    ))
+
+    # 2. User Stories present
+    story_count = len(re.findall(r"\*\*作為\*\*", text))
+    items.append(_check_item(
+        "user_stories",
+        "User Stories 完整",
+        story_count > 0,
+        f"找到 {story_count} 個 User Story" if story_count else "未找到 User Story",
+    ))
+
+    # 3. Acceptance criteria present and testable (only under User Stories section)
+    stories_section = re.search(
+        r"## \*?\s*使用者故事\s*\n(.+?)(?=\n## |\Z)", text, re.DOTALL
+    )
+    criteria = []
+    if stories_section:
+        criteria = re.findall(r"- \[[ x]\]\s*(.+)", stories_section.group(1))
+    items.append(_check_item(
+        "acceptance_criteria",
+        "驗收條件明確且可測試",
+        len(criteria) > 0,
+        f"找到 {len(criteria)} 條驗收條件" if criteria else "未找到驗收條件",
+    ))
+
+    # 4. Conflicts resolved
+    conflicts_dir = data_root / "conflicts"
+    unresolved = []
+    if conflicts_dir.is_dir():
+        for cf in conflicts_dir.glob("CONFLICT-*.md"):
+            cf_text = cf.read_text(encoding="utf-8")
+            if args.slug in cf_text:
+                cf_status_m = re.search(r"狀態[：:]\s*`(\w[\w-]*)`", cf_text)
+                cf_status = cf_status_m.group(1) if cf_status_m else "unknown"
+                if cf_status != "resolved":
+                    unresolved.append(cf.name)
+    items.append(_check_item(
+        "conflicts_resolved",
+        "所有衝突已解決",
+        len(unresolved) == 0,
+        f"未解決衝突: {', '.join(unresolved)}" if unresolved else "無未解決衝突",
+    ))
+
+    # 5. Open questions answered
+    open_section = re.search(r"## \*?\s*開放問題.*?\n(.+?)(?=\n## |\Z)", text, re.DOTALL)
+    has_open = False
+    if open_section:
+        section_text = open_section.group(1)
+        has_open = bool(re.findall(r"- \[ \]", section_text))
+    items.append(_check_item(
+        "open_questions",
+        "無未回答的開放問題",
+        not has_open,
+        f"仍有未回答問題" if has_open else "開放問題已全部回答或標為「無」",
+    ))
+
+    # 6. Security assessment
+    security_filled = _section_filled(text, "安全性需求")  # more than just field labels
+    items.append(_check_item(
+        "security_assessment",
+        "安全性需求已評估",
+        security_filled,
+        "安全性段落已填寫" if security_filled else "安全性段落為空或僅有欄位標題",
+    ))
+
+    # 7. Dependencies valid
+    dep_issues = []
+    for dep_slug in deps:
+        dep_dir = data_root / "specs" / dep_slug
+        dep_spec = dep_dir / "spec.md"
+        if not dep_spec.is_file():
+            dep_issues.append(f"{dep_slug}: 不存在")
+        else:
+            dep_status = parse_spec_status(dep_spec)
+            if dep_status not in ("approved", "in-progress", "done"):
+                dep_issues.append(f"{dep_slug}: 狀態為 {dep_status}")
+    items.append(_check_item(
+        "dependencies",
+        "前置需求已 approved 或更後期",
+        len(dep_issues) == 0,
+        f"問題: {'; '.join(dep_issues)}" if dep_issues else "無前置需求 或 前置需求已通過",
+    ))
+
+    # 8. Success metrics
+    metrics_filled = _section_filled(text, "成功指標")
+    items.append(_check_item(
+        "success_metrics",
+        "成功指標已定義",
+        metrics_filled,
+        "成功指標已填寫" if metrics_filled else "成功指標為空",
+    ))
+
+    # 9. Owner + reviewer assigned
+    reviewer = ""
+    for line in text.splitlines():
+        if "審核者" in line:
+            parts = line.split("：", 1) if "：" in line else line.split(":", 1)
+            if len(parts) == 2:
+                reviewer = parts[1].strip()
+    items.append(_check_item(
+        "ownership",
+        "Spec 擁有者與審核者已指派",
+        bool(owner) and bool(reviewer),
+        f"擁有者: {owner or '(空)'}, 審核者: {reviewer or '(空)'}",
+    ))
+
+    # 10. Traceability
+    has_intake_link = bool(re.search(r"原始需求[：:].*\[", text))
+    items.append(_check_item(
+        "traceability",
+        "可追溯至原始 intake",
+        has_intake_link,
+        "intake 連結存在" if has_intake_link else "未找到 intake 連結",
+    ))
+
+    # 11. Non-functional requirements
+    nfr_filled = _section_filled(text, "非功能需求", min_len=10)
+    items.append(_check_item(
+        "non_functional",
+        "非功能需求已評估",
+        nfr_filled,
+        "非功能需求已填寫" if nfr_filled else "非功能需求為空",
+    ))
+
+    all_pass = all(item["pass"] for item in items)
+    payload = {
+        "slug": args.slug,
+        "title": title,
+        "status": status,
+        "version": version,
+        "all_pass": all_pass,
+        "pass_count": sum(1 for i in items if i["pass"]),
+        "fail_count": sum(1 for i in items if not i["pass"]),
+        "items": items,
+    }
+    json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    sys.exit(0)
+
+
+def _section_filled(text: str, heading_keyword: str, min_len: int = 20) -> bool:
+    """Check if a markdown section has meaningful content (not just labels)."""
+    # Find section: ## [*] heading_keyword ... \n CONTENT \n## next
+    pattern = re.compile(
+        rf"##\s*\*?\s*{re.escape(heading_keyword)}.*?\n(.*?)(?=\n##|\Z)",
+        re.DOTALL,
+    )
+    m = pattern.search(text)
+    if not m:
+        return False
+    content = m.group(1).strip()
+    # Filter out lines that are just field labels (ending with : or ：and no value)
+    meaningful_lines = []
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("|--") or line.startswith("| 版本"):
+            continue
+        # A line with just "- 欄位：" or "- 欄位:" with nothing after is label-only
+        if re.match(r"^-\s*.+[：:]\s*$", line):
+            continue
+        meaningful_lines.append(line)
+    return len("\n".join(meaningful_lines)) > min_len
+
+
+def _check_item(item_id: str, label: str, passed: bool, detail: str) -> dict:
+    return {
+        "id": item_id,
+        "label": label,
+        "pass": passed,
+        "detail": detail,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Audit subcommand
+# ---------------------------------------------------------------------------
+
+def cmd_audit_run(args):
+    """Read-only drift sweep. Writes AUDIT-{timestamp}.md report."""
+    host_root = find_host_root()
+    if not host_root:
+        sys.stderr.write("ERROR: .req.config.yml not found.\n")
+        sys.exit(1)
+    config = host_root / ".req.config.yml"
+    data_root_rel = read_config_field(config, "data_root", ".")
+    code_root_rel = read_config_field(config, "code_root", ".")
+    autonomy = read_config_field(config, "autonomy_level", "strict")
+    data_root = host_root / data_root_rel
+    code_root = host_root / code_root_rel
+    specs_dir = data_root / "specs"
+
+    if not specs_dir.is_dir():
+        sys.stderr.write(f"ERROR: specs directory not found: {specs_dir}\n")
+        sys.exit(1)
+
+    # Determine scope
+    since_date = args.since or ""
+    target_slug = args.spec or ""
+
+    # Enumerate eligible specs (done or in-progress)
+    drift_rows = []
+    skipped = []
+    specs_scanned = 0
+
+    for spec_dir in sorted(specs_dir.iterdir()):
+        if not spec_dir.is_dir():
+            continue
+        slug = spec_dir.name
+        if target_slug and slug != target_slug:
+            continue
+        spec_path = spec_dir / "spec.md"
+        if not spec_path.is_file():
+            skipped.append(f"{slug}: spec.md missing")
+            continue
+        try:
+            status = parse_spec_status(spec_path)
+        except SystemExit:
+            skipped.append(f"{slug}: status parse failed")
+            continue
+        if status not in ("done", "in-progress"):
+            continue
+        specs_scanned += 1
+
+        # --- 1a. Spec ↔ code drift ---
+        drift_rows.extend(_check_spec_code_drift(spec_path, slug, code_root))
+
+        # --- 1b. Auto residue (TODO(auto) / FIXME(auto)) ---
+        drift_rows.extend(_check_auto_residue(slug, code_root))
+
+    # --- 1c. Changelog review (autonomy entries) ---
+    drift_rows.extend(_check_changelog_autonomy(data_root, since_date))
+
+    # --- 1d. Test rerun (STUB — not implemented in Phase 1) ---
+    # Requires host project test runner config. Deferred to Phase 2.
+
+    # Generate report
+    now = datetime.now()
+    timestamp = now.strftime("%Y-%m-%d-%H%M")
+    report_date = now.strftime("%Y-%m-%d %H:%M")
+
+    audits_dir = data_root / "audits"
+    audits_dir.mkdir(parents=True, exist_ok=True)
+    report_path = audits_dir / f"AUDIT-{timestamp}.md"
+
+    scope_desc = "full"
+    if target_slug:
+        scope_desc = f"--spec {target_slug}"
+    elif since_date:
+        scope_desc = f"--since {since_date}"
+
+    # Build report
+    lines = [
+        f"# Audit Report — {report_date}\n",
+        f"- **Triggered by:** user",
+        f"- **Scope:** {scope_desc}",
+        f"- **Specs scanned:** {specs_scanned}",
+        f"- **Autonomy level at audit time:** {autonomy}",
+        f"- **Test rerun:** skipped (Phase 2 — requires host test runner config)\n",
+        "## Drift Summary\n",
+    ]
+
+    if drift_rows:
+        lines.append("| # | Spec | Source | Severity | Description |")
+        lines.append("|---|------|--------|----------|-------------|")
+        for i, row in enumerate(drift_rows, 1):
+            lines.append(
+                f"| {i} | {row['slug']} | {row['source']} | {row['severity']} | {row['description']} |"
+            )
+    else:
+        lines.append("**No drift detected.** All scanned specs are consistent with current code and changelog.")
+
+    lines.append("\n## Recommended Actions\n")
+    high = [r for r in drift_rows if r["severity"] == "high"]
+    med = [r for r in drift_rows if r["severity"] == "medium"]
+    low = [r for r in drift_rows if r["severity"] == "low"]
+    if high:
+        slugs = sorted(set(r["slug"] for r in high))
+        lines.append(f"- **High severity ({len(high)} rows):** run `/req-iterate --fixup` for: {', '.join(slugs)}")
+    if med:
+        lines.append(f"- **Medium severity ({len(med)} rows):** review `TODO(auto)` / `FIXME(auto)` markers")
+    if low:
+        lines.append(f"- **Low severity ({len(low)} rows):** informational, no action needed")
+    if not drift_rows:
+        lines.append("- No action needed.")
+
+    if skipped:
+        lines.append("\n## Notes\n")
+        for s in skipped:
+            lines.append(f"- Skipped: {s}")
+
+    report_text = "\n".join(lines) + "\n"
+    report_path.write_text(report_text, encoding="utf-8")
+
+    # Output
+    if args.format == "json":
+        payload = {
+            "report_path": str(report_path),
+            "specs_scanned": specs_scanned,
+            "drift_rows": len(drift_rows),
+            "high": len(high),
+            "medium": len(med),
+            "low": len(low),
+            "skipped": skipped,
+            "rows": drift_rows,
+        }
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        sys.stdout.write(report_text)
+
+    sys.exit(0)
+
+
+def _check_spec_code_drift(spec_path: Path, slug: str, code_root: Path) -> list:
+    """1a: Check if acceptance criteria keywords appear in code."""
+    rows = []
+    text = spec_path.read_text(encoding="utf-8")
+
+    # Extract acceptance criteria lines (checkboxes)
+    criteria = re.findall(r"- \[[ x]\]\s*(.+)", text)
+    if not criteria:
+        return rows
+
+    # Only check if code_root has source files
+    src_dir = code_root / "src"
+    if not src_dir.is_dir():
+        return rows
+
+    # Build a simple search: look for spec slug references in code comments
+    import subprocess
+    for criterion in criteria:
+        # Extract potential symbol names (camelCase, snake_case identifiers)
+        symbols = re.findall(r"`([a-zA-Z_]\w+(?:\(\))?)`", criterion)
+        for sym in symbols:
+            sym_clean = sym.rstrip("()")
+            try:
+                result = subprocess.run(
+                    ["grep", "-r", "-l", sym_clean, str(src_dir)],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode != 0:
+                    rows.append({
+                        "slug": slug,
+                        "source": "spec-code",
+                        "severity": "high",
+                        "description": f"Symbol `{sym_clean}` from acceptance criteria not found in {src_dir}",
+                    })
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+    return rows
+
+
+def _check_auto_residue(slug: str, code_root: Path) -> list:
+    """1b: Find TODO(auto) / FIXME(auto) markers in code."""
+    rows = []
+    src_dir = code_root / "src"
+    if not src_dir.is_dir():
+        return rows
+
+    import subprocess
+    for marker in ["TODO(auto)", "FIXME(auto)"]:
+        try:
+            result = subprocess.run(
+                ["grep", "-r", "-n", marker, str(src_dir)],
+                capture_output=True, text=True, timeout=10,
+            )
+            for line in result.stdout.strip().splitlines():
+                if line:
+                    rows.append({
+                        "slug": slug,
+                        "source": "auto-residue",
+                        "severity": "medium",
+                        "description": f"`{marker}` found: {line[:120]}",
+                    })
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+    return rows
+
+
+def _check_changelog_autonomy(data_root: Path, since_date: str) -> list:
+    """1c: Find [autonomy: balanced/auto] entries in changelog."""
+    rows = []
+    changelog = data_root / "docs" / "changelog.md"
+    if not changelog.is_file():
+        return rows
+
+    for line in changelog.read_text(encoding="utf-8").splitlines():
+        if "[autonomy:" not in line:
+            continue
+        # Extract date if present
+        date_m = re.match(r"^-\s*(\d{4}-\d{2}-\d{2})", line)
+        if since_date and date_m:
+            if date_m.group(1) < since_date:
+                continue
+        # Extract spec slug if present
+        slug_m = re.search(r"spec\s+([a-zA-Z0-9_-]+)", line)
+        slug = slug_m.group(1) if slug_m else "(unknown)"
+        level_m = re.search(r"\[autonomy:\s*(balanced|auto)\]", line)
+        level = level_m.group(1) if level_m else "unknown"
+        rows.append({
+            "slug": slug,
+            "source": "changelog-review",
+            "severity": "high",
+            "description": f"Autonomy-driven action ({level}): {line.strip()[:100]}",
+        })
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Subcommand dispatch
+# ---------------------------------------------------------------------------
+
+def cmd_ask(args):
+    catalog, catalog_path = load_catalog()
+    if args.question_id not in catalog:
+        sys.stderr.write(
+            f"ERROR: unknown question id '{args.question_id}'\n"
+            f"       Available ids in {catalog_path}:\n"
+        )
+        for k in sorted(catalog.keys()):
+            sys.stderr.write(f"         - {k}\n")
+        sys.exit(2)
+
+    entry = catalog[args.question_id]
+    if not isinstance(entry, dict):
+        sys.stderr.write(
+            f"ERROR: catalog entry '{args.question_id}' must be a mapping\n"
+        )
+        sys.exit(3)
+
+    vars_map = {}
+    for v in args.var or []:
+        if "=" not in v:
+            sys.stderr.write(f"ERROR: --var must be KEY=VALUE, got '{v}'\n")
+            sys.exit(1)
+        k, val = v.split("=", 1)
+        vars_map[k] = val
+
+    qtype = entry.get("type", "static")
+    if qtype == "static":
+        payload = format_static(entry, vars_map)
+        exit_code = 0
+    elif qtype == "dynamic":
+        payload, exit_code = handle_dynamic(entry, args.context, vars_map)
+    else:
+        sys.stderr.write(f"ERROR: unknown question type '{qtype}'\n")
+        sys.exit(3)
+
+    json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+    sys.stdout.write("\n")
+    sys.exit(exit_code)
+
+
+def cmd_list(args):
+    """List all available question ids in the catalog."""
+    catalog, catalog_path = load_catalog()
+    print(f"# Catalog: {catalog_path}")
+    for qid in sorted(catalog.keys()):
+        entry = catalog[qid]
+        qtype = entry.get("type", "static")
+        header = entry.get("header", "")
+        print(f"  {qid:<35} [{qtype}] {header}")
+
+
+# ---------------------------------------------------------------------------
+# Autonomy subcommands
+# ---------------------------------------------------------------------------
+
+def find_host_root():
+    """Walk upward from CWD to find .req.config.yml."""
+    d = Path.cwd().resolve()
+    while d != d.parent:
+        if (d / ".req.config.yml").is_file():
+            return d
+        d = d.parent
+    return None
+
+
+def read_config_field(config_path: Path, field: str, default: str = "") -> str:
+    """Read a top-level field from .req.config.yml (minimal YAML parser)."""
+    if not config_path.is_file():
+        return default
+    for line in config_path.read_text(encoding="utf-8").splitlines():
+        m = re.match(rf"^{re.escape(field)}\s*:\s*(.+)", line)
+        if m:
+            return m.group(1).strip().strip("'\"")
+    return default
+
+
+def write_config_field(config_path: Path, field: str, value: str):
+    """Update or append a field in .req.config.yml."""
+    text = config_path.read_text(encoding="utf-8")
+    pattern = re.compile(rf"^({re.escape(field)}\s*:\s*)(.+)$", re.MULTILINE)
+    if pattern.search(text):
+        new_text = pattern.sub(rf"\g<1>{value}", text)
+    else:
+        new_text = text.rstrip() + f"\n{field}: {value}\n"
+    config_path.write_text(new_text, encoding="utf-8")
+
+
+def load_autonomy_matrix():
+    """Load autonomy-matrix.yaml. Returns the parsed dict."""
+    fw_root = find_framework_root()
+    matrix_path = fw_root / "config" / "autonomy-matrix.yaml"
+    if not matrix_path.is_file():
+        sys.stderr.write(f"ERROR: {matrix_path} not found\n")
+        sys.exit(3)
+    with open(matrix_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data, matrix_path
+
+
+def format_matrix_table(matrix_data: dict, highlight_level: str = "") -> str:
+    """Render the checkpoint matrix as a markdown table."""
+    levels = matrix_data["levels"]
+    checkpoints = matrix_data["checkpoints"]
+
+    header = "| # | Checkpoint | " + " | ".join(f"L{i+1} {lv.capitalize()}" for i, lv in enumerate(levels)) + " |"
+    sep = "|---|---|" + "|".join("---|" for _ in levels)
+
+    rows = [header, sep]
+    for i, cp in enumerate(checkpoints, 1):
+        cells = [f"| {i}", cp["label_en"]]
+        for lv in levels:
+            beh = cp["behavior"].get(lv, {})
+            actor = beh.get("actor", "human")
+            if actor == "human":
+                cell = "👤 Human"
+            else:
+                note = beh.get("note") or beh.get("condition") or "AI"
+                cell = f"🤖 {note}"
+            cells.append(cell)
+        rows.append(" | ".join(cells) + " |")
+    return "\n".join(rows)
+
+
+def append_changelog(data_root: Path, entry: str):
+    """Append a timestamped entry to docs/changelog.md."""
+    changelog = data_root / "docs" / "changelog.md"
+    changelog.parent.mkdir(parents=True, exist_ok=True)
+    date = datetime.now().strftime("%Y-%m-%d")
+    line = f"- {date}: {entry}\n"
+    if changelog.is_file():
+        text = changelog.read_text(encoding="utf-8")
+        changelog.write_text(text.rstrip() + "\n" + line, encoding="utf-8")
+    else:
+        changelog.write_text(f"# Changelog\n\n{line}", encoding="utf-8")
+
+
+def cmd_autonomy_current(args):
+    """Display current autonomy level + checkpoint matrix."""
+    host_root = find_host_root()
+    if not host_root:
+        sys.stderr.write("ERROR: .req.config.yml not found. Run req-init.sh first.\n")
+        sys.exit(1)
+    config = host_root / ".req.config.yml"
+    current = read_config_field(config, "autonomy_level", "strict")
+
+    matrix_data, _ = load_autonomy_matrix()
+    valid_levels = matrix_data["levels"]
+    if current not in valid_levels:
+        sys.stderr.write(f"WARNING: unknown level '{current}', treating as strict\n")
+        current = "strict"
+
+    if args.format == "json":
+        payload = {
+            "level": current,
+            "valid_levels": valid_levels,
+            "checkpoints": [],
+        }
+        for cp in matrix_data["checkpoints"]:
+            cp_out = {
+                "id": cp["id"],
+                "label": cp["label_en"],
+                "command": cp["command"],
+                "hard": cp["hard"],
+                "actor": cp["behavior"][current]["actor"],
+            }
+            beh = cp["behavior"][current]
+            if "condition" in beh:
+                cp_out["condition"] = beh["condition"]
+            if "note" in beh:
+                cp_out["note"] = beh["note"]
+            payload["checkpoints"].append(cp_out)
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        print(f"Current autonomy level: **{current}**\n")
+        print(format_matrix_table(matrix_data, current))
+        safety = matrix_data.get("safety_net_note", "")
+        if current != "strict" and safety:
+            print(f"\n> {safety.strip()}")
+    sys.exit(0)
+
+
+def cmd_autonomy_set(args):
+    """Change autonomy level: validate, update config, log changelog, print matrix."""
+    matrix_data, _ = load_autonomy_matrix()
+    valid_levels = matrix_data["levels"]
+    new_level = args.level
+
+    if new_level not in valid_levels:
+        sys.stderr.write(
+            f"ERROR: invalid level '{new_level}'. "
+            f"Valid levels: {', '.join(valid_levels)}\n"
+        )
+        sys.exit(1)
+
+    host_root = find_host_root()
+    if not host_root:
+        sys.stderr.write("ERROR: .req.config.yml not found. Run req-init.sh first.\n")
+        sys.exit(1)
+
+    config = host_root / ".req.config.yml"
+    old_level = read_config_field(config, "autonomy_level", "strict")
+
+    if old_level == new_level:
+        sys.stderr.write(f"Autonomy level is already '{new_level}'. No change.\n")
+        sys.exit(0)
+
+    # Update config
+    write_config_field(config, "autonomy_level", new_level)
+
+    # Append changelog
+    data_root_rel = read_config_field(config, "data_root", ".")
+    data_root = host_root / data_root_rel
+    append_changelog(data_root, f"autonomy level: {old_level} → {new_level} (via /req-autonomy)")
+
+    if args.format == "json":
+        payload = {
+            "old_level": old_level,
+            "new_level": new_level,
+            "config_path": str(config),
+            "changelog_appended": True,
+        }
+        if new_level == "auto":
+            payload["warning"] = matrix_data.get("warnings", {}).get("auto", "")
+        json.dump(payload, sys.stdout, ensure_ascii=False, indent=2)
+        sys.stdout.write("\n")
+    else:
+        print(f"Autonomy level changed: {old_level} → **{new_level}**\n")
+        print(format_matrix_table(matrix_data, new_level))
+        warning = matrix_data.get("warnings", {}).get(new_level)
+        if warning:
+            print(f"\n{warning}")
+        safety = matrix_data.get("safety_net_note", "")
+        if new_level != "strict" and safety:
+            print(f"\n> {safety.strip()}")
+
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+from datetime import datetime
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="req",
+        description="req framework CLI",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    # --- ask ---
+    ask = sub.add_parser(
+        "ask",
+        help="Resolve a question catalog entry into an AskUserQuestion JSON payload",
+    )
+    ask.add_argument("question_id", help="Question catalog id (e.g., review.approval)")
+    ask.add_argument(
+        "--context",
+        help="Context file path (required for dynamic questions like resolve_conflict.picker)",
+    )
+    ask.add_argument(
+        "--var",
+        action="append",
+        help="Template variable KEY=VALUE, repeatable",
+    )
+    ask.set_defaults(func=cmd_ask)
+
+    # --- list ---
+    lst = sub.add_parser("list", help="List all question ids in the catalog")
+    lst.set_defaults(func=cmd_list)
+
+    # --- changelog ---
+    chlog = sub.add_parser("changelog", help="Append to docs/changelog.md")
+    chlog_sub = chlog.add_subparsers(dest="changelog_cmd", required=True)
+    chlog_append = chlog_sub.add_parser("append", help="Append a timestamped entry")
+    chlog_append.add_argument("entry", help="Changelog entry text")
+    chlog_append.set_defaults(func=cmd_changelog_append)
+
+    # --- spec ---
+    spec_sub = sub.add_parser("spec", help="Read/write spec state")
+    spec_cmds = spec_sub.add_subparsers(dest="spec_cmd", required=True)
+
+    spec_status = spec_cmds.add_parser("status", help="Read spec status + metadata (JSON)")
+    spec_status.add_argument("slug", help="Spec directory slug (e.g., 001-custom-slug)")
+    spec_status.set_defaults(func=cmd_spec_status)
+
+    spec_set = spec_cmds.add_parser("set-status", help="Change spec status (atomic)")
+    spec_set.add_argument("slug", help="Spec directory slug")
+    spec_set.add_argument("new_status", help="New status: draft | in-review | approved | in-progress | done")
+    spec_set.add_argument("--reason", help="Reason tag (e.g., 'fixup', 'rejected')")
+    spec_set.add_argument("--by", help="Who triggered the transition (e.g., '/req-review')")
+    spec_set.set_defaults(func=cmd_spec_set_status)
+
+    # --- review ---
+    review_sub = sub.add_parser("review", help="Review checklist checks")
+    review_cmds = review_sub.add_subparsers(dest="review_cmd", required=True)
+    review_check = review_cmds.add_parser("checklist", help="Run all prerequisite checks (JSON)")
+    review_check.add_argument("slug", help="Spec directory slug")
+    review_check.set_defaults(func=cmd_review_checklist)
+
+    # --- audit ---
+    audit_sub = sub.add_parser("audit", help="Drift detection for done specs")
+    audit_cmds = audit_sub.add_subparsers(dest="audit_cmd", required=True)
+    audit_run = audit_cmds.add_parser("run", help="Read-only drift sweep → write AUDIT report")
+    audit_run.add_argument("--spec", help="Restrict to one spec slug")
+    audit_run.add_argument("--since", help="Only consider entries on or after YYYY-MM-DD")
+    audit_run.add_argument("--format", choices=["text", "json"], default="text")
+    audit_run.set_defaults(func=cmd_audit_run)
+
+    # --- autonomy ---
+    autonomy_sub = sub.add_parser("autonomy", help="View or change autonomy level")
+    autonomy_cmds = autonomy_sub.add_subparsers(dest="autonomy_cmd", required=True)
+
+    auto_current = autonomy_cmds.add_parser("current", help="Show current level + matrix")
+    auto_current.add_argument("--format", choices=["text", "json"], default="text")
+    auto_current.set_defaults(func=cmd_autonomy_current)
+
+    auto_set = autonomy_cmds.add_parser("set", help="Change autonomy level")
+    auto_set.add_argument("level", help="New level: strict | balanced | auto")
+    auto_set.add_argument("--format", choices=["text", "json"], default="text")
+    auto_set.set_defaults(func=cmd_autonomy_set)
+
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()

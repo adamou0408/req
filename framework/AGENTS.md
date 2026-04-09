@@ -34,6 +34,7 @@ This document defines the behavioral rules and constraints for all AI agents ope
 - **MUST** ensure every piece of generated code is traceable to a specific User Story in the spec.
 - **MUST** generate corresponding tests for every implementation.
 - **MUST** run tests after code generation. If tests fail, attempt auto-fix up to 3 iterations before escalating to human intervention.
+- **MUST** consult `${REQ_DATA_ROOT}/docs/project-context.md` when present; the detected **stack**, **conventions**, and **entry points** act as hard constraints on generated code. **MUST NOT** introduce libraries or patterns inconsistent with the detected stack without explicitly justifying the deviation in the implementation report. When the file is absent (pre-onboarding project), proceed with generic conventions and annotate the implementation report's "Context sources" line accordingly.
 
 ### 4. Traceability
 
@@ -63,7 +64,7 @@ The following two checkpoints are **SOFT** — their behavior depends on `REQ_AU
 
 The optional `/onboard` command (v2.3.0+) seeds the following files in `${REQ_DATA_ROOT}/` by scanning the host repository. Other commands **MUST** read them when present and **MUST** tolerate their absence (pre-onboarding projects behave exactly as before):
 
-- `${REQ_DATA_ROOT}/docs/project-context.md` — detected stack, domain summary, entry points, CI presence. Read by `/plan` and `/research` to avoid recommending foreign libraries or duplicating existing functionality.
+- `${REQ_DATA_ROOT}/docs/project-context.md` — detected stack, domain summary, entry points, CI presence. Read by `/plan`, `/research`, and `/implement` to avoid recommending or generating code that introduces foreign libraries or duplicates existing functionality.
 - `${REQ_DATA_ROOT}/docs/existing-features.md` — inventory of features already present in the host code. Read by `/research` as a second deduplication baseline in addition to `specs/`.
 - `${REQ_DATA_ROOT}/personas/<slug>.md` (auto-generated ones carry `source: auto-generated` frontmatter) — initial persona set for new specs.
 - `${REQ_DATA_ROOT}/CONSTITUTION.md` (deep mode only) — project-specific architectural constraints. When present, `/plan` **MUST** read this instead of the framework's generic `CONSTITUTION.md`.
@@ -71,6 +72,8 @@ The optional `/onboard` command (v2.3.0+) seeds the following files in `${REQ_DA
 None of these files are checkpoints; their absence never blocks a command.
 
 ### 5b. Autonomy Level
+
+> The canonical checkpoint matrix (which checkpoints are enforced at each level) lives in [`framework/config/autonomy-matrix.yaml`](config/autonomy-matrix.yaml). This section describes the semantics; the YAML file is the data that `req autonomy` and other scripts enforce. Edit the YAML to change behavior; edit this section to change documentation.
 
 All commands **MUST** read `REQ_AUTONOMY_LEVEL` (exported by `_lib.sh`'s `req_load_config`, defaulting to `strict` if absent from `.req.config.yml` for backward compatibility) and branch accordingly:
 
