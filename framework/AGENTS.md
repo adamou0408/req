@@ -73,6 +73,8 @@ None of these files are checkpoints; their absence never blocks a command.
 
 ### 5b. Autonomy Level
 
+> The canonical checkpoint matrix (which checkpoints are enforced at each level) lives in [`framework/config/autonomy-matrix.yaml`](config/autonomy-matrix.yaml). This section describes the semantics; the YAML file is the data that `req autonomy` and other scripts enforce. Edit the YAML to change behavior; edit this section to change documentation.
+
 All commands **MUST** read `REQ_AUTONOMY_LEVEL` (exported by `_lib.sh`'s `req_load_config`, defaulting to `strict` if absent from `.req.config.yml` for backward compatibility) and branch accordingly:
 
 - **strict** (default) — enforce both HARD and SOFT checkpoints. Current v2.1.0 behavior.

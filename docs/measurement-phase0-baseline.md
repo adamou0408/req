@@ -198,3 +198,56 @@ Simulates 7 steps of a typical feature cycle on `examples/quickstart/`.
    offset the context savings.
 6. **This is a single-pass simulation**: real sessions may re-read files, retry, or branch.
    Actual savings could be higher (re-reads avoided) or lower (more branching).
+
+---
+
+## 7. Phase 1 Delta — `/req-autonomy` Migration
+
+> Measured after commit: autonomy.md rewritten as thin CLI wrapper
+
+### Command markdown delta
+
+| Metric | Before | After | Delta |
+|--------|--------|-------|-------|
+| `autonomy.md` bytes | 5,233 | 1,221 | **-4,012 (77%)** |
+| `autonomy.md` tokens | 1,282 | 304 | **-978 (76%)** |
+| 14-command total tokens | 16,409 | 15,431 | **-978 (6%)** |
+
+### What moved out of markdown into code/data
+
+| Artifact | Destination | Tokens removed from markdown |
+|----------|-------------|------------------------------|
+| Checkpoint matrix (7×3 table) | `framework/config/autonomy-matrix.yaml` | ~400 |
+| Three level descriptions (L1/L2/L3) | `autonomy-matrix.yaml` + CLI | ~300 |
+| Behavior logic (read/validate/write/changelog) | `framework/scripts/req` Python | ~200 |
+| Safety net explanation | `autonomy-matrix.yaml` `safety_net_note` | ~80 |
+
+### What stays in markdown
+
+| Content | Tokens | Why |
+|---------|--------|-----|
+| Command description + usage | ~100 | User needs to know syntax |
+| "delegate to CLI" behavior | ~100 | AI needs to know to call `req autonomy` |
+| Constraints (3 lines) | ~100 | Enforcement reminder |
+
+### Actual vs estimated
+
+| | Estimated (from baseline report) | Actual |
+|---|---|---|
+| autonomy.md saving | 1,182 tokens (92%) | 978 tokens (76%) |
+| Reason for gap | Estimated wrapper at 100 tokens | Actual wrapper is 304 tokens (includes usage/constraints) |
+
+The actual saving is **17% below estimate** — the thin wrapper still carries usage examples and
+constraint reminders that the baseline assumed would be 100 tokens. This is expected: wrappers
+can't be zero-content because AI needs to know the CLI exists and what arguments to pass.
+
+**Correction factor for remaining estimates**: multiply baseline savings by ~0.83 to account for
+wrapper overhead. Revised full-workflow estimate: 23,035 × 0.83 ≈ **19,100 tokens saved (54%)**
+per feature cycle. Still a significant reduction.
+
+### Test coverage
+
+| Test suite | Assertions | Status |
+|------------|-----------|--------|
+| `test_req_ask.sh` | 33 | ✅ all pass |
+| `test_req_autonomy.sh` | 24 | ✅ all pass |

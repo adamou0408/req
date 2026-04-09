@@ -1,0 +1,108 @@
+# Autonomy Checkpoint Matrix — canonical data for the req framework
+#
+# This file is the SINGLE SOURCE OF TRUTH for which checkpoints are enforced
+# at each autonomy level. AGENTS.md §5b describes the semantics; this file
+# encodes the matrix as data so `req autonomy` and other scripts can enforce it.
+#
+# Schema:
+#   levels: ordered list of valid autonomy level names (first = default)
+#   checkpoints: list of checkpoint definitions
+#     - id:          stable identifier
+#       label_zh:    Chinese display label
+#       label_en:    English display label
+#       command:     which /req-* command triggers this checkpoint
+#       hard:        true = cannot be bypassed at any level; false = soft
+#       behavior:    map of level → {actor, condition?, note?}
+#         actor:     "human" | "ai"
+#         condition: (optional) when actor=ai, what triggers auto-proceed
+#         note:      (optional) displayed alongside the matrix row
+#
+# Maintenance:
+#   - Editing this file changes actual framework behavior
+#   - Run `framework/scripts/tests/test_req_autonomy.sh` after any edit
+#   - Keep AGENTS.md §5b description aligned (it describes semantics, not data)
+#   - There is intentionally no L4 / "yolo" level
+
+levels:
+  - strict
+  - balanced
+  - auto
+
+checkpoints:
+  - id: conflict_resolution
+    label_zh: "衝突裁決"
+    label_en: "Conflict resolution"
+    command: "/req-resolve-conflict"
+    hard: true
+    behavior:
+      strict:   { actor: human }
+      balanced: { actor: human }
+      auto:     { actor: human }
+
+  - id: spec_approval
+    label_zh: "Spec 審核"
+    label_en: "Spec approval"
+    command: "/req-review"
+    hard: true
+    behavior:
+      strict:   { actor: human }
+      balanced: { actor: human }
+      auto:     { actor: human }
+
+  - id: plan_approval
+    label_zh: "Plan 核准"
+    label_en: "Plan approval"
+    command: "/req-plan → ExitPlanMode"
+    hard: true
+    behavior:
+      strict:   { actor: human }
+      balanced: { actor: human }
+      auto:     { actor: human }
+
+  - id: prod_deploy
+    label_zh: "Production 部署"
+    label_en: "Production deploy"
+    command: "/req-deploy"
+    hard: true
+    behavior:
+      strict:   { actor: human }
+      balanced: { actor: human }
+      auto:     { actor: human }
+
+  - id: three_strike_failure
+    label_zh: "3-strike 測試失敗"
+    label_en: "3-strike test failure"
+    command: "/req-implement"
+    hard: true
+    behavior:
+      strict:   { actor: human }
+      balanced: { actor: human }
+      auto:     { actor: human }
+
+  - id: duplicate_handling
+    label_zh: "重複需求處理"
+    label_en: "Duplicate intake handling"
+    command: "/req-research"
+    hard: false
+    behavior:
+      strict:   { actor: human }
+      balanced: { actor: ai, note: "AI recommendation, annotated in changelog" }
+      auto:     { actor: ai, note: "AI recommendation, partial overlaps proceed silently" }
+
+  - id: iteration_impact
+    label_zh: "Iteration 影響審核"
+    label_en: "Iteration impact approval"
+    command: "/req-iterate"
+    hard: false
+    behavior:
+      strict:   { actor: human }
+      balanced: { actor: ai, condition: "≤1 spec affected & minor version bump" }
+      auto:     { actor: ai, condition: "≤1 spec affected & minor version bump" }
+
+warnings:
+  auto: "⚠ L3 Auto is recommended only for solo projects or prototypes. Do not use for team or production work without a code review gate."
+
+safety_net_note: |
+  balanced and auto levels MUST be paired with /req-audit + /req-iterate --fixup.
+  Automated decisions leave breadcrumbs ([autonomy: ...] changelog tags, TODO(auto) markers).
+  Run /req-audit periodically to surface drift; use /req-iterate --fixup to repair.
