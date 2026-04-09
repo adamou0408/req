@@ -8,7 +8,7 @@
 
 | 指標 | 定義 | 目標 | 當前 |
 |------|------|------|------|
-| Spec 首次通過審核率 | 首次 `/review` 即通過的 spec 比例 | > 70% | _待追蹤_ |
+| Spec 首次通過審核率 | 首次 `/review` 即通過的 spec 比例 | > 70% | 由 `status-report.sh` 自動計算 |
 | 平均審核週期 | 從 `draft` 到 `approved` 的平均天數 | < 2 天 | _待追蹤_ |
 | 衝突偵測率 | 含衝突的 spec 佔總 spec 比例 | _僅觀察_ | _待追蹤_ |
 | 衝突解決平均時間 | 從 `detected` 到 `resolved` 的平均天數 | < 3 天 | _待追蹤_ |
@@ -48,7 +48,7 @@
 | Intake → Spec（含調研） | 從提需求到 spec 完成的天數 | < 1 天 | _待追蹤_ |
 | Spec → Approved | 從 draft 到 approved 的天數 | < 3 天 | _待追蹤_ |
 | Approved → Deployed | 從 approved 到 staging 部署的天數 | < 2 天 | _待追蹤_ |
-| **端到端前置時間** | 從 intake 到 production 部署的天數 | < 7 天 | _待追蹤_ |
+| **端到端前置時間** | 從 intake 到 production 部署的天數 | < 7 天 | 由 `status-report.sh` 近似計算（draft→done 中位數）|
 
 ## 團隊協作指標
 
@@ -64,7 +64,13 @@
 
 這些指標應在每次 sprint 回顧或每月固定時間更新。可透過以下方式蒐集：
 
-1. **git log 分析**：從 commit 時間戳計算前置時間
-2. **spec 狀態掃描**：掃描所有 `specs/*/spec.md` 的狀態欄位
-3. **CI/CD 記錄**：從 GitHub Actions 歷史提取部署成功率
-4. **monitoring 記錄**：從 `intake/raw/*-auto-*` 計算回饋迴路指標
+1. **`status-report.sh` 自動計算**（v2.4.0+）：跑 `bash framework/scripts/status-report.sh` 會輸出以下三項衍生指標：
+   - **Median cycle time (draft → done)** — 從 `docs/changelog.md` 解析 `draft → ... → done` 的日期差，取中位數
+   - **First-pass approval rate** — 從 `docs/changelog.md` 解析 `in-review → approved` 是否曾折返 `draft`
+   - **Fixup frequency** — 從 `docs/changelog.md` 統計最近 30 天含 `[reason: fixup]` 標記的條目數
+2. **git log 分析**：從 commit 時間戳計算前置時間（腳本計算以 changelog 為準，若要雙重驗證可用 git log）
+3. **spec 狀態掃描**：掃描所有 `specs/*/spec.md` 的狀態欄位（`status-report.sh` 已提供）
+4. **CI/CD 記錄**：從 GitHub Actions 歷史提取部署成功率
+5. **monitoring 記錄**：從 `intake/raw/*-auto-*` 計算回饋迴路指標
+
+> ⚠️ **準確度注意**：`status-report.sh` 的衍生指標依賴 `docs/changelog.md` 的完整性。AGENTS.md §6 強制要求每次狀態轉換都必須寫入 changelog；若團隊漏寫，指標會低估真實流量。一旦發現數字與現實明顯不符，先檢查 changelog 是否有漏記條目。

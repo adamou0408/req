@@ -17,6 +17,7 @@ Execute the technical plan by generating code and tests automatically.
 1. Verify prerequisites. Abort with a clear message if not met. Specifically check:
    - `plan.md` and `tasks.md` exist
    - `spec.md` status is exactly `in-progress` (not `approved`, not `done`). If status is `approved`, abort with: "Plan has not been accepted. Run /req-plan and accept the plan via the approval popup before implementing."
+   - **Consult project context (if present)**: if `${REQ_DATA_ROOT}/docs/project-context.md` exists (produced by `/req-onboard`), read its **stack**, **conventions**, and **entry points** sections. Treat the detected stack/framework/libraries and naming/format conventions as **hard constraints** on generated code: prefer the existing stack, match existing patterns, and do not introduce foreign dependencies unless explicitly justified in the implementation report. If the file is absent (pre-onboarding project), proceed with generic conventions and note this fact in the implementation report's "Context sources" line.
 2. Update `spec.md` version history (increment version, note implementation start).
 4. Process tasks from `tasks.md`:
    - Respect dependency order: tasks with `[depends: N]` wait for task N to complete.
