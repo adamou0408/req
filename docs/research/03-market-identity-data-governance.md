@@ -324,7 +324,7 @@
 | 30 | ServiceNow 新聞稿〈ServiceNow to Expand Security Portfolio With Acquisition of Veza〉；ServiceNow Form 8-K（FY2026 Q1） | https://newsroom.servicenow.com/press-releases/details/2025/ServiceNow-to-Expand-Security-Portfolio-With-Acquisition-of-Vezas-Leading-AI-native-Identity-Security-Platform/ ；https://www.sec.gov/Archives/edgar/data/0001373715/000137371526000054/erq1fy26.htm | 搜尋摘要 |
 | 31 | Zluri — Pricing；Zluri Help — SoD Violation Insights in Access Requests；Zluri 部落格（廠商資料） | https://www.zluri.com/pricing ；https://help.zluri.com/docs/sod-violation-insights-in-access-requests ；https://www.zluri.com/blog/access-request-management ；https://www.zluri.com/blog/just-in-time-access-in-zluri | 前兩頁直接開啟；部落格為搜尋摘要 |
 | 32 | Immuta 文件 — Request: Introduction；Review flows | https://documentation.immuta.com/saas/request/introduction ；https://documentation.immuta.com/SaaS/request/review-access-requests/reference-guides/request-forms/review-flows | 直接開啟 |
-| 33 | Immuta 文件 — Deployment options；Self-hosted Immuta；Universal Audit Model (UAM)；Getting Started with Marketplace | https://documentation.immuta.com/saas/configuration/application-configuration/reference-guides/deployment-options ；https://documentation.immuta.com/knowledge-base/LmMmmLqSszWn8sdGe7gH/self-hosted-immuta ；https://documentation.immuta.com/2026.1/governance/detect-your-activity/audit/reference-guides/universal-audit-model-uam ；https://documentation.immuta.com/saas/knowledge-base/implementation/marketplace/getting-started-with-marketplace | 搜尋摘要 |
+| 33 | Immuta 文件 — Deployment options；Self-hosted Immuta；Universal Audit Model (UAM)；Getting Started with Marketplace | https://documentation.immuta.com/saas/configuration/application-configuration/reference-guides/deployment-options ；https://documentation.immuta.com/knowledge-base/LmMmmLqSszWn8sdGe7gH/self-hosted-immuta ；https://documentation.immuta.com/2026.1/governance/detect-your-activity/audit/reference-guides/universal-audit-model-uam ；https://documentation.immuta.com/saas/knowledge-base/implementation/marketplace/getting-started-with-marketplace | UAM 頁於查證時直接開啟；其餘搜尋摘要 |
 | 34 | Databricks 文件 — Access requests（GCP 版）；Manage access request destinations（AWS 版） | https://docs.databricks.com/gcp/en/data-governance/unity-catalog/manage-privileges/access-requests ；https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/access-request-destinations | 第一頁直接開啟（查證時重開）；第二頁搜尋摘要；Preview 狀態見 [63] |
 | 35 | Snowflake 文件 — Manage the request approval workflow；Request access workflow for organizational listings；Release note 2025-05-30（GA） | https://docs.snowflake.com/en/user-guide/collaboration/listings/organizational/request-approval-workflow ；https://docs.snowflake.com/en/user-guide/collaboration/listings/organizational/request-access-workflow ；https://docs.snowflake.com/en/release-notes/2025/other/2025-05-30-raw | 第一頁直接開啟；其餘搜尋摘要 |
 | 36 | Snowflake 文件 — Request Access in Workspaces | https://docs.snowflake.com/user-guide/access-requests-workspaces | 直接開啟 |
@@ -355,3 +355,50 @@
 | 61 | Okta Support〈Access request expected reviewer self-attestation behavior〉；Okta Help〈Configure an approval sequence〉 | https://support.okta.com/help/s/article/access-request-expected-reviewer-self-attestation-behavior ；https://help.okta.com/oie/en-us/content/topics/identity-governance/access-requests/rcar-approval-seq-edit.htm | 直接開啟（查證時新增） |
 | 62 | 經濟日報〈金管會發布「金融資安韌性藍圖」 4年推動盼部分措施落地全面實施〉（2025-12-30）；iThome 金融資安監理報導 | https://udn.com/news/story/7239/9235636 ；https://www.ithome.com.tw/news/173594 | 經濟日報直接開啟；iThome 為搜尋摘要（直接開啟回應 403）（查證時新增） |
 | 63 | Databricks 部落格〈Announcing Public Preview of Request for Access in Unity Catalog〉（2025-08-20） | https://www.databricks.com/en/blog/announcing-public-preview-request-access-unity-catalog | 直接開啟（查證時新增；併入 [34] 引用） |
+
+---
+
+## 6. 查證紀錄
+
+查證日期：2026-11-19。查證者未參與原稿撰寫；以下逐項回到原始頁面核對（「重開」指本次查證親自開啟原頁）。
+
+### 6.1 逐項查核（17 項）
+
+| # | 論點 | 查核方式 | 結果 |
+|---|---|---|---|
+| 1 | Entra：「Approvers aren't able to approve their own access package requests.」[1] | 重開 [1] | 已確認 |
+| 2 | Entra：最多三階、每階任一人即可、替代簽核人須逾時至少 4 天 [1] | 重開 [1] | 已確認；補上「各階不同人」只是文件建議、非強制 |
+| 3 | Entra：access package 增加資源後既有指派自動取得 [7] | 重開 [7]（更新 2026-10-06） | 已確認（群組、應用程式、SharePoint 三處都有「automatically」句） |
+| 4 | Entra 稽核紀錄 Free 7 天、P1／P2 30 天 [5] | 重開 [5] | 已確認 |
+| 5 | Entra ID Governance 每人每月 7 美元、須另有 P1 或 P2 [3][4] | 重開 [3][4] | 已確認；前提條件出自 [3] 而非定價頁 [4]，補上「P2 不再新增 IGA 功能」 |
+| 6 | SailPoint ISC：簽核人即申請人時可依 `autoApprove` 自動核准；預設 90 天逾時、上限 90 天 [10] | 重開 [10] | 已確認 |
+| 7 | Okta：多張申請並行時 SoD 警告不會出現 [19] | 重開 [19] | 已確認 |
+| 8 | Snowflake MPA：門檻預設 2（1–20）、申請人自己的核准預設計入（true）、申請有效 1–14 天（預設 3）、核准後 3 天內執行、需 Business Critical [37] | 重開 [37] | 已確認；頁面仍未標 GA 或 preview |
+| 9 | Snowflake listing 核准流程：可改授不同角色、「cannot be used to grant access to roles and users」、需 OWNERSHIP 或 MODIFY；2025-05-30 GA [35] | 重開 [35] 與 release note | 已確認 |
+| 10 | Zluri：SoD 只提示不擋、需 SoD 模組並由 Owner／Admin 開啟 [31] | 重開 [31] | 已確認 |
+| 11 | Databricks RFA：任何開啟連結並登入者可拒絕、7 天過期、保留 365 天、「Managed externally」[34] | 重開 [34] | 已確認 |
+| 11a | Databricks RFA：「授出的內容不受申請內容約束」[34] | 重開 [34] | **已更正**：原頁沒有這句；改寫為「文件未說明授出內容須等於申請」，2.5 表 Q2 由「沒有」降級為「未查到（不利跡象）」，跨產品觀察的反例由三個改為兩個 |
+| 11b | Databricks RFA 為 Public Preview（原為搜尋摘要） | 開 Databricks 部落格 [63] | 已確認：2025-08-20 發表 Public Preview，未查到 GA |
+| 12 | Immuta 稽核紀錄預設 7 天、可匯出到 S3／ADLS [33] | 重開 UAM 頁 [33] | 7 天**已確認**（升為直接開啟）；S3／ADLS **降級為未查證**（UAM 頁只寫存於 Elasticsearch／OpenSearch 供匯出） |
+| 13 | MIM 2016 支援到 2029-01-09（由 2026-01-13 延後）[56] | 開 Microsoft MIM 頁 | 已確認；原引用的 deprecated features 頁並未載此日期，已改引 MIM 主頁 |
+| 14 | SailPoint ISC 支援 22 種語言、含 zh-TW [13] | 重開 [13] | 已確認 |
+| 15 | Okta 終端使用者介面有繁體中文、Admin Console 只有英法日 [20] | 重開 [20] | 已確認 |
+| 16 | EmpowerID 白皮書雜湊鏈與可獨立驗證的匯出 [57] | 重開 [57] | 已確認；補上白皮書自己的條件「when the verifier is actually run」 |
+| 17 | Zilla：84% 靠人工、83% 整合困難、90% 角色、11% 多餘權限 [46] | 重開 [46] | 已確認；**小幅更正**「過半組織」為「超過 52% 的組織」 |
+| 18 | ServiceNow 2026-03-02 完成併購 Veza；Palo Alto Networks 2026-02-11 完成併購 CyberArk [30][44] | 搜尋 SEC 8-K／10-Q 摘要；重開 PANW 新聞稿 | 已確認 |
+
+統計：已確認 16 項；已更正 3 項（Databricks 授出內容、Zilla 百分比、MIM 與 Entra 前提的引用來源）；降級為未查證 1 項（Immuta 匯出到 S3／ADLS）；刪除 0 項。
+
+### 6.2 補漏搜尋（6 次）
+
+1. **Okta 自我核准（補「查不到」）**：找到官方 Support 文章與 approval sequence 文件 [61]，結果是「依核准人類型而定」，指定特定使用者時允許自我核准。已補入 2.1.2、2.5、結論 2、M1。
+2. **反面證據：是否有其他 IGA 產品文件寫明雜湊鏈或防竄改紀錄**：搜尋結果只有 EmpowerID 白皮書 [57] 與一般開源元件，未找到其他 IGA 或資料治理廠商的官方說明。結論 4 維持。另見一般性提醒：雜湊鏈本身擋不住「整段截尾刪除」，需要外部錨點或簽章（非一手來源，未寫入內文；僅供設計參考）。
+3. **最新消息：SailPoint IdentityIQ 終止日期**：只查到社群文章指向 Compass 內的 End of Life Policy，日期仍未公開。維持【查不到】。
+4. **最新消息：Gartner 2026 IGA 研究**：只查到 2026-08-28 的 Market Guide（非 Magic Quadrant），Okta 等廠商自稱入列；內文需付費。與 [59] 一致，未新增內文。
+5. **台灣在地：金融業身分治理與零信任**：補入金管會 2025-12-30「金融資安韌性發展藍圖」[62]，並註明媒體間「必備」與「自律規範、非強制」說法有落差。
+6. **Databricks RFA 現況**：確認仍為 Public Preview [63]，Azure 的「What's coming」寫將預設啟用但無日期（搜尋摘要，未寫入內文）。
+
+### 6.3 仍未解決
+
+- SailPoint IdentityIQ 終止支援日期、多數廠商價格、Okta 套裝價格與 Agent 365 價格（仍為搜尋摘要）。
+- iThome 報導原頁無法開啟（403），台灣零信任「必備」說法以經濟日報的「非強制」為準。
