@@ -71,16 +71,16 @@ export function createStaticSite(webDist: string): StaticSite {
     }
   }
 
-  async function send(
+  function send(
     req: FastifyRequest,
     reply: FastifyReply,
     found: { file: string; size: number; mtimeMs: number },
     cacheControl: string,
-  ): Promise<void> {
+  ): void {
     const etag = `W/"${found.size.toString(16)}-${Math.floor(found.mtimeMs).toString(16)}"`;
     reply.header('cache-control', cacheControl).header('etag', etag);
     if (req.headers['if-none-match'] === etag) {
-      await reply.code(304).send();
+      reply.code(304).send();
       return;
     }
     reply
@@ -88,10 +88,10 @@ export function createStaticSite(webDist: string): StaticSite {
       .type(MIME[path.extname(found.file).toLowerCase()] ?? 'application/octet-stream')
       .header('content-length', found.size);
     if (req.method === 'HEAD') {
-      await reply.send();
+      reply.send();
       return;
     }
-    await reply.send(createReadStream(found.file));
+    reply.send(createReadStream(found.file));
   }
 
   return {
@@ -102,7 +102,7 @@ export function createStaticSite(webDist: string): StaticSite {
       if (found) {
         // Vite 產生的 /assets/* 檔名帶雜湊，可以永久快取；其餘每次都要重新確認。
         const immutable = urlPath.startsWith('/assets/');
-        await send(req, reply, found, immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
+        send(req, reply, found, immutable ? 'public, max-age=31536000, immutable' : 'no-cache');
         return true;
       }
       // 看起來是在要檔案（最後一段有副檔名）卻找不到：回 404，不要回 index.html。
@@ -111,7 +111,7 @@ export function createStaticSite(webDist: string): StaticSite {
       // SPA fallback：其餘路徑都交給前端路由。
       const index = await locate('/index.html');
       if (!index) return false;
-      await send(req, reply, index, 'no-cache');
+      send(req, reply, index, 'no-cache');
       return true;
     },
   };

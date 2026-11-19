@@ -57,8 +57,8 @@ function MfaDialogContent(props: ContentProps) {
       <form id={formId} className="mfa" onSubmit={submit} noValidate>
         {summary && summary.length > 0 && (
           <p className="mfa__summary">
-            {summary.map((line) => (
-              <span key={line}>{line}</span>
+            {summary.map((line, index) => (
+              <span key={`${index}-${line}`}>{line}</span>
             ))}
           </p>
         )}
