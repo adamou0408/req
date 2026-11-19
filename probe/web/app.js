@@ -172,7 +172,7 @@ function renderApply(section) {
             await api.caseSubmit(created.case_id);
             const mine = await api.caseListMine();
             await renderHome();
-            flash(t.submitted(mine.find((c) => c.case_no === created.case_no)), true);
+            flash(t.submitted(mine.find((c) => String(c.case_no) === String(created.case_no))), true);
         } catch (err) {
             flash(explain(err));
         }

@@ -108,7 +108,7 @@ async function verifyPasskeyProof(proof, event, events, submitted) {
     return problems;
 }
 
-/** 驗證一張單。回傳 { status: 'ok' | 'warn' | 'bad', checks, problems, unanchored, events }。 */
+/** 驗證一張單。回傳 { status: 'ok' | 'warn' | 'bad', checks, problems, unanchored, events }；events 含這張單的事件與所用通行金鑰的登記事件。 */
 export async function verifyCase(api, audit) {
     const chain = await verifyChain(api);
     const anchors = await verifyAnchors(api, chain);
@@ -139,5 +139,5 @@ export async function verifyCase(api, audit) {
         `重驗 ${proofsChecked} 個決定的通行金鑰簽章、金鑰登記與簽核人`,
     ];
     const status = problems.length ? 'bad' : unanchored > 0 || anchors.anchorCount === 0 ? 'warn' : 'ok';
-    return { status, checks, problems, unanchored, events: ownEvents };
+    return { status, checks, problems, unanchored, events };
 }
