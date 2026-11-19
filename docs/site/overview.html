@@ -1,0 +1,274 @@
+<title>資料授權簽核 專案總覽</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one reading column (max 760px), sections stacked; the process is a vertical timeline so it reads the same on a phone and a desktop. */
+:root {
+  --bg: #F4F6F9; --surface: #FFFFFF; --fg: #1B2330; --muted: #566070; --line: #D5DBE3;
+  --accent: #0B5CAD; --accent-soft: #E6EFF9;
+  --ok: #17663A; --ok-soft: #E1F3E7; --warn: #8A4500; --warn-soft: #FFF0D9;
+  --danger: #A32A1B; --danger-soft: #FCE6E3; --auto: #EDF0F4;
+  --r-applicant: #2F6FDB; --r-manager: #0E8F7E; --r-owner: #8250DF; --r-ciso: #CF3F2E; --r-mis: #6B7785;
+  --font: 'Noto Sans TC', 'PingFang TC', 'Microsoft JhengHei', system-ui, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #10151C; --surface: #18202A; --fg: #E6EBF2; --muted: #9AA6B5; --line: #2C3744;
+  --accent: #6FB1F5; --accent-soft: #16304D;
+  --ok: #6FD39A; --ok-soft: #143524; --warn: #F2B866; --warn-soft: #3B2A10;
+  --danger: #F28B7D; --danger-soft: #3F1B17; --auto: #212B37; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #10151C; --surface: #18202A; --fg: #E6EBF2; --muted: #9AA6B5; --line: #2C3744;
+  --accent: #6FB1F5; --accent-soft: #16304D;
+  --ok: #6FD39A; --ok-soft: #143524; --warn: #F2B866; --warn-soft: #3B2A10;
+  --danger: #F28B7D; --danger-soft: #3F1B17; --auto: #212B37; color-scheme: dark }
+
+body { background: var(--bg); color: var(--fg); font-family: var(--font); font-size: 16px; line-height: 1.7;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 64px; }
+.page { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px; }
+h1 { font-size: 1.6rem; line-height: 1.3; margin: 0; text-wrap: balance; }
+h2 { font-size: 1.25rem; line-height: 1.4; margin: 0; text-wrap: balance; }
+h3 { font-size: 1rem; line-height: 1.5; margin: 0; }
+p { margin: 0; }
+a { color: var(--accent); }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+.muted { color: var(--muted); font-size: 0.875rem; }
+section { display: flex; flex-direction: column; gap: 16px; scroll-margin-top: 16px; }
+.lead { display: flex; flex-direction: column; gap: 8px; }
+
+.toc { display: flex; flex-wrap: wrap; gap: 8px; }
+.toc a { display: inline-flex; align-items: center; min-height: 40px; padding: 0 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); text-decoration: none; font-size: 0.9rem; color: var(--fg); }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.pill { display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; font-size: 0.8rem; font-weight: 500; white-space: nowrap; background: var(--auto); color: var(--fg); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.danger { background: var(--danger-soft); color: var(--danger); }
+.pill.now { background: var(--accent-soft); color: var(--accent); }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.row.between { justify-content: space-between; }
+
+/* role chip: name + coloured dot, so colour is never the only signal */
+.role { display: inline-flex; align-items: center; gap: 6px; padding: 1px 10px 1px 8px; border: 1px solid var(--line); border-radius: 999px; font-size: 0.8rem; font-weight: 500; white-space: nowrap; background: var(--surface); }
+.role::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--r-mis); }
+.role.applicant::before { background: var(--r-applicant); }
+.role.manager::before { background: var(--r-manager); }
+.role.owner::before { background: var(--r-owner); }
+.role.ciso::before { background: var(--r-ciso); }
+
+/* timeline */
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.steps li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; position: relative; padding-bottom: 12px; }
+.steps li::before { content: ""; position: absolute; left: 17px; top: 36px; bottom: 0; width: 2px; background: var(--line); }
+.steps li:last-child::before { display: none; }
+.num { width: 36px; height: 36px; border-radius: 50%; background: var(--fg); color: var(--bg); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.steps li.auto .num { background: var(--surface); color: var(--fg); border: 2px dashed var(--muted); box-sizing: border-box; }
+.steps li.auto .card { background: var(--auto); border-style: dashed; }
+.ext { margin-top: 4px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; font-size: 0.875rem; color: var(--muted); background: var(--bg); }
+
+.note { border-radius: 10px; padding: 14px 16px; background: var(--accent-soft); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.note ul, .card ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
+
+.qa { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 10px; align-items: start; font-size: 0.95rem; }
+.qa dt { margin: 0; }
+.qa dd { margin: 0; }
+.kv { display: grid; grid-template-columns: minmax(0, 9em) minmax(0, 1fr); gap: 6px 12px; margin: 0; font-size: 0.95rem; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; white-space: nowrap; }
+details { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+summary { cursor: pointer; padding: 12px 16px; font-weight: 700; min-height: 24px; }
+details > .stack { padding: 0 16px 16px; }
+.q { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 0.95rem; }
+.q:first-child { border-top: 0; }
+.qid { font-family: var(--mono); font-size: 0.85rem; color: var(--muted); }
+@media (min-width: 640px) { .grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; } }
+@media (max-width: 639px) { .grid2 { display: flex; flex-direction: column; gap: 12px; } }
+</style>
+
+<div class="page">
+<header class="lead">
+<h1>資料授權簽核 專案總覽</h1>
+<p>處理 L3、L4 資料的授權申請與簽核。核准結果輸出成規則，由 DataCentric（DC）套用；每張單都能當稽核證據。</p>
+<p class="muted">更新：2026-11-19。這一頁會隨著每個階段完成而更新。</p>
+<nav class="toc" aria-label="本頁內容">
+<a href="#progress">進度</a><a href="#flow">流程</a><a href="#decisions">判斷點</a><a href="#roles">角色</a><a href="#rules">規則</a><a href="#questions">待確認</a><a href="#screens">畫面</a>
+</nav>
+</header>
+
+<section id="progress">
+<h2>目前進度</h2>
+<div class="card">
+<div class="row between"><span>釐清需求、定方向</span><span class="pill ok">完成</span></div>
+<div class="row between"><span>畫面草圖、泳道圖、流程圖</span><span class="pill ok">完成</span></div>
+<div class="row between"><span>階段 1　資料庫與 API 的設計契約</span><span class="pill now">進行中</span></div>
+<div class="row between"><span>階段 2　資料庫、後端、前端同時實作</span><span class="pill">未開始</span></div>
+<div class="row between"><span>階段 3　整合，用瀏覽器走完 5 個驗收案例</span><span class="pill">未開始</span></div>
+<div class="row between"><span>階段 4　正確性與資安審查、部署文件</span><span class="pill">未開始</span></div>
+</div>
+<div class="grid2">
+<div class="card">
+<h3>「可以上線」的定義</h3>
+<ul>
+<li>每一條規則在資料庫層至少有一個自動測試</li>
+<li>5 個驗收案例在瀏覽器裡從送審走到生效，含手機核准</li>
+<li>申請人簽不了自己的單、稽核帳號改不了資料、紀錄被改會被偵測到</li>
+<li>有安裝文件、資料庫升版腳本、備份還原說明</li>
+<li>獨立審查找到的問題都已修正</li>
+</ul>
+</div>
+<div class="card">
+<h3>這個環境驗證不到的</h3>
+<ul>
+<li>真的 SSO、DC、人事系統、mail：先做可替換的介面和模擬版本，附串接檢查清單</li>
+<li>Docker 映像檔：設定檔會寫好，但可能無法在這裡實際執行</li>
+</ul>
+</div>
+</div>
+</section>
+
+<section id="flow">
+<h2>流程：一張申請從送審到生效</h2>
+<p class="muted">每一步都對得到一位可問責的人。虛線框是系統依規則自動執行的步驟，歸在規則負責人 MIS 名下。</p>
+<ol class="steps">
+<li><div class="num">1</div><div class="card"><div class="row"><h3>填寫申請</h3><span class="role applicant">申請人</span></div><p>從空白、前案或範本開始。一鍵續期也是從這裡預填。</p></div></li>
+<li class="auto"><div class="num">2</div><div class="card"><div class="row"><h3>送審檢查</h3><span class="role">MIS</span><span class="pill">自動</span></div><p>判定級別、檢查是否重複申請、分派各關的簽核人。</p></div></li>
+<li><div class="num">3</div><div class="card"><div class="row"><h3>主管簽核</h3><span class="role manager">申請人主管</span></div><p>判斷這個工作是不是真的需要這些資料。</p></div></li>
+<li><div class="num">4</div><div class="card"><div class="row"><h3>資料擁有者簽核</h3><span class="role owner">資料擁有者</span></div><p>判斷自己的資料能不能給這個用途。一張單有多位擁有者時並行簽，全部核准才往下。</p></div></li>
+<li><div class="num">5</div><div class="card"><div class="row"><h3>資安長簽核</h3><span class="role ciso">資安長</span><span class="pill warn">僅 L4</span></div><p>判斷 L4 的風險能不能接受。L3 的單略過這一關。</p></div></li>
+<li><div class="num">6</div><div class="card"><div class="row"><h3>認領與合規檢查</h3><span class="role">MIS</span></div><p>MIS 群組由一人認領並負責到結案。核准後產生要交給 DC 的規則。</p></div></li>
+<li><div class="num">7</div><div class="card"><div class="row"><h3>到 DC 套用規則</h3><span class="role">MIS</span></div><p>第一版由 MIS 手動套用，完成後標記「已套用」。</p><div class="ext">外部系統 DC：實際執行權限。它不是角色，所以不算一關。</div></div></li>
+<li class="auto"><div class="num">8</div><div class="card"><div class="row"><h3>驗證</h3><span class="role">MIS</span><span class="pill">自動</span></div><p>用被授權者的身分到 DC 試查：查得到該查的、查不到不該查的。</p></div></li>
+<li><div class="num">9</div><div class="card"><div class="row"><h3>確認驗證結果</h3><span class="role applicant">申請人</span></div><p>5 個工作天內確認。逾期沒有確認，這張單自動撤銷。</p></div></li>
+<li class="auto"><div class="num">10</div><div class="card"><div class="row"><h3>生效</h3><span class="role">MIS</span><span class="pill">自動</span></div><p>到期前 14 天提醒，到期自動失效。</p></div></li>
+</ol>
+<div class="note">
+<h3>第 3 到第 6 關共通的規則</h3>
+<ul>
+<li>每一關都必須是不同的人，也不能是申請人；撞到時改由上一層主管簽</li>
+<li>簽核人只能縮小範圍或期間；縮小後通知申請人，不用重簽</li>
+<li>3 個工作天未簽先催辦，再 2 個工作天升級給上一層主管，原簽核人不能再簽</li>
+<li>退回後，申請人只做縮小就從退回那一關繼續；做其他修改就從第 3 關重簽</li>
+<li>申請人、負責人、任一位簽核人、MIS 隨時可以撤銷，不需簽核，但必須填原因</li>
+</ul>
+</div>
+</section>
+
+<section id="decisions">
+<h2>判斷點</h2>
+<h3>送審前</h3>
+<div class="stack">
+<div class="card"><h3>有 L3 或 L4 欄位嗎？</h3><dl class="qa"><dt><span class="pill">否</span></dt><dd>不用申請。L1、L2 依規則自動給。</dd><dt><span class="pill ok">是</span></dt><dd>繼續。L1、L2 欄位會自動從單上移除。</dd></dl></div>
+<div class="card"><h3>已經被有效授權完全涵蓋嗎？</h3><dl class="qa"><dt><span class="pill danger">是</span></dt><dd>擋下，不能送審，並提示既有的授權單號。</dd><dt><span class="pill ok">否</span></dt><dd>繼續。</dd></dl></div>
+<div class="card"><h3>和有效授權部分重疊嗎？</h3><dl class="qa"><dt><span class="pill warn">是</span></dt><dd>必須填寫理由，簽核畫面會標示重疊的部分。</dd><dt><span class="pill ok">否</span></dt><dd>直接送審。</dd></dl></div>
+<div class="card"><h3>整張單是 L4 嗎？</h3><dl class="qa"><dt><span class="pill warn">是</span></dt><dd>多一關資安長；預設不可匯出；授權上限半年。</dd><dt><span class="pill">否</span></dt><dd>走 L3 路徑；授權上限一年。</dd></dl></div>
+</div>
+<h3>核准後</h3>
+<div class="stack">
+<div class="card"><h3>自動驗證全部通過嗎？</h3><dl class="qa"><dt><span class="pill warn">否</span></dt><dd>退回 MIS 修正設定，修好後重新套用、重新驗證。</dd><dt><span class="pill ok">是</span></dt><dd>交給申請人確認。</dd></dl></div>
+<div class="card"><h3>申請人 5 個工作天內確認了嗎？</h3><dl class="qa"><dt><span class="pill danger">否</span></dt><dd>自動撤銷。</dd><dt><span class="pill ok">是</span></dt><dd>結案生效。</dd></dl></div>
+<div class="card"><h3>負責人還在職、團隊或專案還在嗎？</h3><dl class="qa"><dt><span class="pill danger">否</span></dt><dd>通知主管改派負責人；14 天內未改派就自動撤銷。團隊解散或專案結束則直接撤銷。</dd><dt><span class="pill ok">是</span></dt><dd>授權繼續有效，直到到期日。</dd></dl></div>
+</div>
+</section>
+
+<section id="roles">
+<h2>角色</h2>
+<p class="muted">四道簽核關卡各自回答一個不同的問題，所以不能由同一個人兼任。</p>
+<div class="stack">
+<div class="card"><div class="row"><span class="role applicant">申請人</span></div><p>提出需要什麼資料、做什麼用；最後確認驗證結果。不能簽自己的單。</p></div>
+<div class="card"><div class="row"><span class="role manager">申請人主管</span></div><p>這個工作真的需要這些資料嗎？由組織圖決定是誰。</p></div>
+<div class="card"><div class="row"><span class="role owner">資料擁有者</span></div><p>我的資料可以給這個用途嗎？由申請的主題包決定，可能有好幾位。</p></div>
+<div class="card"><div class="row"><span class="role ciso">資安長</span></div><p>這個 L4 風險可以接受嗎？固定一人，另有代理人。</p></div>
+<div class="card"><div class="row"><span class="role">MIS</span></div><p>技術上能不能安全、合規地執行？群組中一人認領。MIS 也是控管規則的負責人，只有 MIS 系統管理員能改設定。</p></div>
+<div class="card"><h3>不在簽核關卡裡的</h3><dl class="kv"><dt>被授權者與負責人</dt><dd>權限給的是團隊、專案或 agent，不是個人。每個都要有一位在職的負責人。</dd><dt>稽核</dt><dd>唯讀，可以查全公司所有的單並匯出。</dd><dt>本站</dt><dd>記錄決定、保存證據；不執行權限。</dd><dt>DC</dt><dd>實際執行權限，也是資料目錄的來源。</dd></dl></div>
+</div>
+</section>
+
+<section id="rules">
+<h2>規則</h2>
+<div class="card">
+<h3>四個方向原則</h3>
+<dl class="kv">
+<dt>一律從嚴</dt><dd>簽得快和管得嚴衝突時選管得嚴；速度靠預填、沿用前案和介面設計來補。</dd>
+<dt>每關不同人</dt><dd>同一張單上每一關都是不同的人，也不能是申請人；代理人也一樣。</dd>
+<dt>縮小免簽、擴大重簽</dt><dd>縮小範圍或期間只需通知；任何擴大都從第一關重簽。</dd>
+<dt>沒人負責就失效</dt><dd>每筆有效授權，任何時刻都要有一位在職、可問責的負責人。</dd>
+</dl>
+</div>
+<div class="card">
+<h3>加速功能</h3>
+<dl class="kv">
+<dt>沿用前案或範本</dt><dd>新申請不用從頭填。</dd>
+<dt>一鍵續期</dt><dd>預填前案，仍走完整路徑；畫面標示與前案的差異。</dd>
+<dt>批次核准</dt><dd>只有與前案無差異的續期可以批次；每張單各留一筆紀錄。</dd>
+<dt>手機核准</dt><dd>SSO 登入，核准時多一道驗證（MFA）。</dd>
+</dl>
+</div>
+<div class="card">
+<h3>預設時限（都可以在設定頁調整）</h3>
+<div class="scroll">
+<table>
+<tbody>
+<tr><th scope="row">催辦</th><td>每關 3 個工作天未簽</td></tr>
+<tr><th scope="row">升級</th><td>催辦後再 2 個工作天未簽</td></tr>
+<tr><th scope="row">授權上限</th><td>L3 一年、L4 半年</td></tr>
+<tr><th scope="row">到期前提醒</th><td>14 天</td></tr>
+<tr><th scope="row">負責人異動寬限期</th><td>14 天</td></tr>
+<tr><th scope="row">驗證確認時限</th><td>5 個工作天</td></tr>
+<tr><th scope="row">紀錄保存</th><td>10 年（待稽核室確認）</td></tr>
+</tbody>
+</table>
+</div>
+</div>
+<div class="card">
+<h3>稽核證據</h3>
+<p>每次狀態變更都記下：誰、何時、依據哪條規則、改了什麼、IP 和裝置。紀錄只增不改，並用雜湊鏈串起來，任何修改或刪除都會被偵測到。</p>
+</div>
+</section>
+
+<section id="questions">
+<h2>待外部確認</h2>
+<p class="muted">在得到答案之前，先照「目前假設」設計。影響最大的是 M3 和 M4。</p>
+<details open>
+<summary>給 MIS（11 題）</summary>
+<div class="stack">
+<div>
+<div class="q"><div class="row"><span class="qid">M3</span><span class="pill danger">影響大</span></div><strong>DC 能不能用被授權者的身分做測試查詢？</strong><span class="muted">假設：能。做不到的話，自動驗證要改成由 MIS 上傳驗證證據。</span></div>
+<div class="q"><div class="row"><span class="qid">M4</span><span class="pill danger">影響大</span></div><strong>所有存取資料的管道都會經過 DC 嗎？</strong><span class="muted">假設：是。有管道能繞過 DC，那個管道就不受簽核約束。</span></div>
+<div class="q"><span class="qid">M1</span><strong>DC 有沒有資料目錄可以讓本站讀取？</strong><span class="muted">假設：有；第一版先用匯入檔案代替。</span></div>
+<div class="q"><span class="qid">M2</span><strong>DC 接受哪種格式的規則？怎麼交過去？</strong><span class="muted">假設：本站輸出結構化規則，第一版由 MIS 手動套用。</span></div>
+<div class="q"><span class="qid">M5</span><strong>DC 能不能區分「查詢」和「匯出」？</strong><span class="muted">假設：能。不能的話關掉「可否匯出」欄位。</span></div>
+<div class="q"><span class="qid">M6</span><strong>團隊名單和主管層級從哪裡來？</strong><span class="muted">假設：AD 群組加上 HR 的組織樹。</span></div>
+<div class="q"><span class="qid">M7</span><strong>手機核准走外網還是一定要 VPN？</strong><span class="muted">假設：外網，加上 SSO 和 MFA。</span></div>
+<div class="q"><span class="qid">M8</span><strong>SSO 用哪種協定？mail 怎麼寄？</strong><span class="muted">假設：公司 AD 做 SSO，公司 mail server 寄信。</span></div>
+<div class="q"><span class="qid">M9</span><strong>MIS 能維護 Node.js 嗎？</strong><span class="muted">已採用 Node.js＋TypeScript。無法維護時要改寫後端薄層，資料庫裡的規則不受影響。</span></div>
+<div class="q"><span class="qid">M10</span><strong>現有的簽核系統要不要同步？</strong><span class="muted">假設：第一版不整合，只預留介面。</span></div>
+<div class="q"><span class="qid">M11</span><strong>資安長和代理人是誰？</strong><span class="muted">做成設定，由系統管理員指定。</span></div>
+</div>
+</div>
+</details>
+<details open>
+<summary>給稽核室（4 題）</summary>
+<div class="stack">
+<div>
+<div class="q"><span class="qid">A1</span><strong>紀錄要保存幾年？</strong><span class="muted">假設：10 年，可調整。</span></div>
+<div class="q"><span class="qid">A2</span><strong>匯出成什麼格式？</strong><span class="muted">假設：Excel 清單，加上每張單一頁的 PDF 證據頁。</span></div>
+<div class="q"><span class="qid">A3</span><strong>每筆紀錄記下誰、何時、依據哪條規則、改了什麼，這樣夠嗎？</strong><span class="muted">會再加記 IP 和裝置。</span></div>
+<div class="q"><span class="qid">A4</span><strong>稽核的唯讀權限可以看到哪些單？</strong><span class="muted">假設：全公司所有的單，含已撤銷和已到期。</span></div>
+</div>
+</div>
+</details>
+</section>
+
+<section id="screens">
+<h2>畫面</h2>
+<div class="card">
+<p>14 張畫面草圖放在設計畫布上，適合用電腦看：<a href="https://claude.ai/artifact/JKDfL7Vtm3XgyzueqWXssr">資料授權簽核 Wireframe</a>。</p>
+<p>實際網站做好後，這裡會換成真實畫面的截圖，手機版和電腦版都有，並附上 5 個驗收案例逐步走完的紀錄。</p>
+</div>
+</section>
+</div>
