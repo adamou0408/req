@@ -1,0 +1,12 @@
+# 用途：複製到新專案根目錄並改名為 .gitignore。專案開始時就設好，避免執行期資料被提交。
+# 依專案增減；下面是通用的起點。
+node_modules/
+dist/
+.env
+*.log
+.screenshots/
+test-results/
+playwright-report/
+
+# 模擬環境的執行期資料（資料庫檔、pid、log、建置出來的執行檔）
+<模擬環境目錄>/.run/
