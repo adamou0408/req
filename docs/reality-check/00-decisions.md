@@ -333,14 +333,14 @@
 
 - 可進批次的單必須同時符合：
   - 內容無差異：與來源單相同；來源單已到期者，須在 `renewal.max_gap_days`（預設 30、硬上限 120）以內。
-  - 情境無差異：依目前規則重判的級別相同；專案與 agent 的成員無增加（團隊的成員變動在參數以內）；負責人相同；資料分級未變；所屬單位未改組；沒有未結的例外或對帳差異；前一期有使用紀錄；沒有受益人衝突。
+  - 情境無差異：依目前規則重判的級別相同；專案與 agent 的成員無增加（團隊的成員變動在參數以內）；負責人相同；資料分級未變；所屬單位未改組；沒有未結的例外或對帳差異；受管系統有回報使用資料時，前一期須有使用紀錄；沒有受益人衝突。
   - 不屬於不可批次的類別：最高級別、綁定敏感事件的資源、追認型的單。這些提供逐張的快速核准。
 - 不符合的單踢出批次並寫明原因。
 - 每批上限 `approval.batch_max_items`（預設 20、硬上限 50）；逐列勾選，沒有全選；每列顯示成員異動與風險事實。
 - 一次決定證明涵蓋清單上每張的版本雜湊與顯示快照雜湊；每張單各有一筆事件並帶批次編號；批次的每筆審閱時間進統計與偵測。
 - 另一種批次「同一標準範本的新申請」（05-E20）預設關閉；開啟是放寬類的設定變更，且只限最高級別以下。
 
-放棄：以前期使用紀錄以外的條件全面禁止批次（量大時逐張點擊同樣是盲簽）；追認可批次（11-3，改為 2.5 的分群確認並排除高風險）。
+放棄：全面禁止批次（量大時逐張點擊同樣是盲簽，而且少了批次層級的統計可供偵測）；追認可批次（11-3）改為 2.5 的分群確認並排除高風險。
 
 **定期複查。**
 
@@ -364,7 +364,7 @@
 - 預設要有一位合格的人即時事前核准（不得是宣告人或執行人）；`emergency.preapproval_wait_minutes`（預設 15）內無人回應時，值勤中的宣告人可先行，該筆自動列為較高嚴重度的例外。
 - 有效期以小時計，`emergency.max_hours` 預設 4、硬上限 24，不得續期。
 - 權限結束（到期或提前收回）一律產生事後覆核，不以「還在使用中」為前提。覆核人不得是宣告人、事前核准人、兩者的下屬或同一直屬主管下的同事。覆核畫面附期間的實際操作紀錄，取不到時標示「自報」。
-- 覆核結論三選一：確屬緊急；不應走緊急（計入宣告人與核准人的統計）；拒絕（自動撤銷並開調查例外）。`emergency.review_due_hours` 預設 72，逾期自動收回並列例外。
+- 覆核結論三選一：確屬緊急；不應走緊急（計入宣告人與核准人的統計）；拒絕（自動撤銷並開調查例外）。`emergency.review_due_hours` 預設 72（從權限結束起算）；逾期列例外，且宣告人在覆核完成前不得再宣告緊急。
 - 依人、系統、流程類型統計使用率，90 天內超過門檻列例外。
 
 放棄：一律事前核准（02-21）會在深夜找不到人時逼出共用的最高權限密碼；一律事後確認（04-F09）則讓事前控制完全消失。口頭先准的資料授權（05-E18）以急件加手機核准處理，真的發生在系統外的決定走線下決定登錄。
@@ -415,6 +415,315 @@
 
 放棄：在郵件或聊天卡片直接核准（無法做決定證明）；原生 App（PWA 已能推播與使用 passkey）。通道 adapter 依目標客群選定；其他通道（Slack、企業微信）在有客戶使用時以同一個 port 加入，不動核心。
 
-<!--NEXT-->
+## 3. 骨幹修改清單（依 `00-spine.md` 章節）
+
+括號內是來源議題。pending-amendments 已列的項目（A1–A23）不重複，只寫本次新增或改變的部分。
+
+### 第 1 節 命名
+
+| 動作 | 內容 |
+|---|---|
+| 修改 | 資料庫角色：`sgn_owner`（不是 superuser，平時不可登入，只在核准的升版期間啟用）；`sgn_app`（只能執行 `api`） |
+| 新增 | 資料庫角色：`sgn_job`（排程）、`sgn_sync`（人事同步）、`sgn_integration`（機器介面）、`sgn_idp_sync`（匯入身分提供者的簽章金鑰）、`sgn_pack_<代號>`（流程包 hook 的執行身分，只能讀核心的唯讀 view）（RA-13、RA-34） |
+| 新增 | schema：`api_job`、`api_sync`、`api_int`，各自只授權給對應的連線角色；決定類 function 只在 `api` |
+| 修改 | `api` 的 function 第一個參數由 `p_actor` 改為 `p_session`；hook 的 `p_actor` 不變 |
+| 刪除 | 「假時鐘 GUC」一列（RA-39） |
+| 新增 | 目錄 `db/testing/`（測試專用的 migration，含假時鐘，不進發行包） |
+| 新增 | 核心內建流程類型的保留前綴 `sys_`：`sys_config_change`、`sys_correction`、`sys_baseline`、`sys_member_change`、`sys_disposal`、`sys_legal_hold` |
+| 新增 | 流程包 `governance`（治理範本，全宣告、沒有 hook）：`subject_request`、`content_disclosure`、`incident_record`、`attestation`、`regulator_reply`（主管機關來函回覆，09-F06） |
+| 新增術語 | 控制負責人 `control_owner`；決定證明 `decision_proof`；雇用 `employment`；人事事件 `hr_event`；例外 `exception`；檢查點 `audit_checkpoint`；環境 `environment`；敏感事件 `sensitive_event`；需求側與控制側（`policy_stage.side`）；骨架與封套 |
+
+### 第 2 節 核心實體
+
+**人員與組織**
+
+| 動作 | 實體 | 內容 |
+|---|---|---|
+| 修改 | `person` | 代表自然人；增加 `timezone`、`processing_restricted`；不硬刪，離任後分階段最小化（RA-17、RB-39） |
+| 新增 | `employment` | 公司、工號、類型（regular、contractor、intern、dispatch、external）、狀態、起迄（RA-17、RB-07、RB-12） |
+| 修改 | `person_identity` | 只增不改；`external_id` 必須是不重用的屬性（RA-17） |
+| 修改 | `org_membership`、`reporting_line`、`role_assignment`、`principal_member` | 全部雙時間（生效期間與記錄期間）；`reporting_line` 增加 `kind`（line、functional）與公司別（RA-08、RA-27） |
+| 新增 | `hr_event`、`hr_transition`、`managed_source`、`appointment` | 人事事件、異動處理清單、權威來源登記、跨公司職權的任命（RB-01、RB-06、RA-38、RA-29） |
+| 修改 | `role`、`role_assignment` | `role.assignment_source_policy`、是否單一持有人；指派增加來源、公司別、跨公司服務的可見範圍（RA-38、RA-30） |
+| 新增 | `designated_deputy` | 角色的指定代理人名單（RA-26） |
+| 修改 | `delegation` | 範圍（公司別、流程類型、級別上限、金額上限、是否含保密單）、狀態、來源（自設、人資）、核准引用（RA-26） |
+| 新增 | `assistant_link` | 委託人、助理、期間、可見範圍（RA-19） |
+| 修改 | `principal` | 類型增加 `service_account`、`legacy_individual`；增加保密旗標與代號、單一成員旗標；非人類主體必填結束日；`agent_audience`（RA-41、RB-70、C-44、C-45） |
+| 新增 | `outsourcing_contract`、`related_party`、`interest_declaration` | 委外合約；關係人名單；利害關係申報（RA-18、RA-25） |
+
+**身分與決定證明（新的一組）**
+
+`identity_provider`、`identity_provider_key`、`auth_session`、`person_credential`、`action`（動作目錄與最低證明等級）、`decision_challenge`、`decision_proof`（2.1）。
+
+**設定**
+
+| 動作 | 實體 | 內容 |
+|---|---|---|
+| 修改 | `setting_definition` | 增加 `control_class`、`control_owner_role`、方向判定、`hard_floor`、`hard_ceiling`、是否可走快速路徑（RA-31、RA-32、RA-35） |
+| 修改 | `setting_value` | 增加 `effective_to`、依據生效日、來源的設定變更單；適用範圍增加公司別（RA-35、RB-53） |
+| 新增 | `connection_endpoint` | 控制相關的連線設定：端點、憑證指紋、是否為備援、環境種類（RA-33） |
+| 修改 | `calendar_holiday` | 依公司別與據點（RB-21） |
+| 新增 | `language_pack`、`privacy_notice`、`notice_ack` | 語言包資料；告知書版本與確認紀錄（RB-21、RB-42） |
+| 新增 | `company_control`、`detector`、`rollout_scope`、`population_definition` | 客戶控制目錄；偵測規則；上線範圍；母體定義（RA-51、RA-24、RA-40、RA-06） |
+
+**流程定義**
+
+| 動作 | 實體 | 內容 |
+|---|---|---|
+| 修改 | `approval_policy` | 增加 `top_resolver`、公司別；沒有 `top_resolver` 不能啟用（RA-28） |
+| 修改 | `policy_stage` | 增加 `side`（demand、control）、`mode` 的 `resolution`、`question`、迴避替代人、出缺替代人、`addable_roles`、`cross_company_required`（RA-21、RA-27、RA-28、RA-29、RB-16、RB-71） |
+| 新增 | `authority_matrix` | 核決權限表（版本、依據文件、生效日）（RA-37） |
+| 新增 | `governance_meeting` | 會議與決議（RB-71） |
+
+**申請與簽核**
+
+| 動作 | 實體 | 內容 |
+|---|---|---|
+| 修改 | `case` | 單號在送審時取號；增加 `drafted_by`、公司別、急件欄位、`contains_offline_decision`、迴避名單（機密）、套組；來源種類增加 `converted_from`、`resubmission_of`、`ratified`、`legacy_approval`（RA-06、RA-19、RA-25、RA-42、RA-47、RB-15） |
+| 新增 | `case_party`、`case_note`、`case_bundle`、`case_question`、`case_consult`、`offline_decision` | 當事人角色；不屬於內容版本的附註；職務套組；提問；徵詢；線下決定登錄 |
+| 修改 | `case_task` | 「裝置、MFA」改為引用 `decision_proof`；增加簽核身分（公司、職務）、`opened_at`、`basis_snapshot`、`display_snapshot`、被取代的原因、批次編號（RA-08、RA-29、RA-45） |
+| 修改 | `attachment` | 加密、掃描結果、變更說明、安全預覽（RB-24） |
+
+**執行、驗證、授權**
+
+| 動作 | 實體 | 內容 |
+|---|---|---|
+| 修改 | `fulfilment` | 交付信封（`content_hash`、冪等鍵、鑑別碼、期限）、每次嘗試、對方端點與指紋（RB-29、RB-33、C-09） |
+| 修改 | `verification_run` | 讀回的來源與提供者、觀察到的事實（RA-23） |
+| 修改 | `grant` | 增加 `origin`（approved、migrated、ratified、legacy_approval、emergency）、`external_state`、`last_used_at`、`row_hash`、`last_event_seq`、生效窗口、敏感事件、延後生效（RA-03、RA-41、RB-29、RB-32、RB-69、C-22） |
+| 修改 | `resource_system`（A16） | 增加 `authority`、涵蓋狀態、主要與備援管理人、`reconciler`、對帳間隔、交付金鑰；子表 `system_role`（角色目錄）、`export_mapping`（匯出檔對應）（RA-23、RB-29、RB-30、RA-40） |
+| 新增 | `reconciliation_exclusion`、`incident_hold`、`legal_hold`、`sensitive_event`、`roster_entry` | 對帳排除項；事故保留；法律保全；敏感事件與知悉名單 |
+| 修改 | `access_review_campaign`、`access_review_item` | 凍結的母體快照與雜湊、風險訊號、兩段決定、分組確認、活動簽核（RA-44） |
+
+**證據與通知**
+
+| 動作 | 實體 | 內容 |
+|---|---|---|
+| 修改 | `audit_event` | 改為骨架：增加 `outcome`、`channel`、`api_client_id`、資料庫連線角色與來源位址、`proof_hash`、公司別集合、`hash_version`、被雜湊的 bytes、`business_time`、hook 版本與函式雜湊、封套承諾；姓名、IP、裝置、意見移入封套（2.2、RA-08、C-01、C-31） |
+| 新增 | `event_envelope`、`case_key` | 加密封套；逐單資料金鑰（包裝後的金鑰、版本、銷毀時間） |
+| 新增 | `audit_checkpoint`、`anchor_sink`、`anchor_receipt`、`audit_segment_seal` | 檢查點、錨定位置、回執、段落封印 |
+| 新增 | `decision_log`、`access_log`、`log_block` | 判定紀錄、查閱紀錄、區塊承諾（RB-60） |
+| 新增 | `exception`、`audit_remark`、`audit_engagement`、`audit_sample`、`evidence_snapshot`、`export_record`、`external_archive` | 例外與稽核作業（2.4、RA-49、RA-42） |
+| 新增 | `environment`、`service_outage`、`release_install` | 環境身分與模式；服務中斷；發行版安裝紀錄 |
+| 修改 | `notification_outbox` | 通道、寄送狀態、每次嘗試（RB-20） |
+| 新增 | `webhook_delivery` | 投遞嘗試與對方確認（C-17） |
+| 修改 | `scheduler_run` | 唯一鍵（動作、對象、邏輯到期時間）、心跳（RB-58） |
+
+### 第 3 節 流程類型的選項
+
+| 動作 | 選項 | 意義 |
+|---|---|---|
+| 新增 | `allows_urgent` | 可標急件（只改時效） |
+| 新增 | `allows_emergency_path` | 可先執行後補核；必須同時宣告權限可收回 |
+| 取代 | `batch_kinds`（取代 `batch_renewal`） | 允許的批次種類：`renewal_identical`、`template_identical`（預設關閉） |
+| 新增 | `allows_recusal_list`、`allows_external_members`、`allows_effective_window` | 迴避名單、外部成員、生效窗口 |
+| 新增 | `company_from` | 申請單的公司別由哪個內容欄位決定 |
+| 新增 | `party_roles` | 這種流程有哪些當事人角色，哪些互斥 |
+| 新增 | `confirmation_parties`、`escalation_handback` | 誰可以確認；升級對象可否交回 |
+| 新增 | `authoritative_language`、`retention_class`、`notification_delay` | 以哪個語言為準；保存類別；通知延後（調查類） |
+
+### 第 4 節 狀態
+
+| 對象 | 修改 |
+|---|---|
+| `case.status` | 新增 `rejected`（終局）；`in_approval → rejected` |
+| `case_stage.status` | 新增 `halted`（解析不到人）、`awaiting_resolution`（等會議決議） |
+| `case_task.status` | 新增 `rejected`、`withdrawn`（決定被撤回）、`transferred`、`handed_back`；`superseded` 必帶原因（升級、組織異動、轉簽、迴避） |
+| `grant.status` | 新增 `suspended`（可恢復）；`active ⇄ suspended → revoked`；另有 `external_state`（synced、pending_reclaim）。有效性在讀取時以時間計算，不依賴排程把狀態改掉 |
+| 新增狀態機 | `exception.status`（open、in_progress、pending_review、closed、risk_accepted）；`environment.mode`（bootstrap、normal、maintenance、restore_pending、isolated、archive）；`employment.status`（pending_start、active、notice、on_leave、terminated）；`delegation.status`（active、suspended、expired）；`person_credential.status`（cooling、active、revoked） |
+
+### 第 5 節 核心規則
+
+**取代或修改**
+
+| 代碼 | 修改 |
+|---|---|
+| `K-MOBILE-MFA` | 由 `K-DECISION-PROOF` 取代：不分裝置，每個決定類動作都要達到最低等級的決定證明 |
+| `K-SETTING-ADMIN` | 由 `K-CONFIG-CHANGE` 取代：所有設定（含路徑）經 `sys_config_change` 變更 |
+| `K-AUDITOR-READONLY` | 改為「稽核唯讀，可查其範圍內的全部」 |
+| `K-SOD-DISTINCT` | 以自然人判斷；撞到時依序找迴避替代人、上一層主管、`top_resolver`，不得落到當事人的代理人或下屬；並行關卡的處理見 1.3 |
+| `K-SLA-ESCALATE` | 找不到上一層時用 `top_resolver`；流程類型可開啟交回 |
+| `K-RETURN` | 退回或擴大後重送一律用最新版路徑 |
+| `K-BATCH` | 依 2.6 重寫 |
+| `K-DELEGATE` | 增加範圍、期限、資格、不得回溯、人事異動時暫停 |
+| `K-CLAIM` | 放回群組須填原因並記錄期間檢視的內容；次數超過門檻列例外 |
+| `K-OVERLAP-BLOCK` | 完全涵蓋只在同一被授權者時成立；涵蓋近 90 天被駁回的單 |
+| `K-CONFIRM`、`K-EXPIRE-REMIND` | 依 `confirmation_parties`；提醒對象逐日擴大 |
+| `K-REVOKE` | 撤銷在平台立即生效並追蹤外部收回；增加資安的暫停 |
+| `K-OWNER-CONTINUITY` | 預告期即開始移交；agent 與服務帳號在負責人離任當天暫停；寬限期內列為例外 |
+| `K-AUDIT-CHAIN` | 鏈只算骨架；分段封印；外部錨定 |
+
+**新增**
+
+| 分類 | 代碼 |
+|---|---|
+| 身分與證明 | `K-ACTOR-PROVEN`、`K-DECISION-PROOF`、`K-DECISION-ELIGIBLE`、`K-CRED-COOLING` |
+| 職責分離 | `K-SOD-DRAFTER`、`K-SOD-BENEFICIARY`、`K-SOD-INTEREST`、`K-SOD-RECUSAL`、`K-SOD-FULFIL`、`K-SOD-PARTY`、`K-VERIFY-INDEPENDENT`、`K-REVIEW-SOD`、`K-AUDITOR-INDEPENDENT`、`K-ADMIN-SOD`、`K-STAGE-CONTROL-SIDE`、`K-AGENT-CEILING` |
+| 解析與簽核動作 | `K-RESOLVE-STAGE-START`、`K-RESOLVE-HALT`、`K-TOP-RESOLVER`、`K-ROLE-CONTINUITY`、`K-OWNER-FALLBACK`、`K-RESOLUTION`、`K-TRANSFER`、`K-ADDSIGN`、`K-CONSULT`、`K-QUESTION`、`K-REJECT`、`K-DECISION-WITHDRAW`、`K-APPLICANT-REDUCE`、`K-SLA-HANDBACK`、`K-URGENT` |
+| 存續 | `K-NO-BACKDATE`、`K-NO-REGRESS`、`K-VALIDITY-READTIME`、`K-SUSPEND`、`K-MEMBER-EXPAND`、`K-MEMBER-REDUCE`、`K-HR-*`（每種人事事件一條）、`K-LEGACY-TRANSITION`、`K-RATIFY`、`K-OFFLINE-DECISION`、`K-EMERGENCY`、`K-EMERGENCY-REVIEW`、`K-PRIV-REVIEW`、`K-EVENT-EXPIRE`、`K-WINDOW`、`K-ROSTER` |
+| 證據 | `K-AUDIT-ANCHOR`、`K-AUDIT-SEGMENT`、`K-AUDIT-DENIED`、`K-STATE-CONSISTENT`、`K-RESTORE-GAP`、`K-ENV-IDENTITY`、`K-CLOCK`、`K-RETENTION`、`K-LEGAL-HOLD`、`K-CASE-NUMBER`、`K-POPULATION` |
+| 設定與發行 | `K-CONFIG-CHANGE`、`K-CONFIG-LOOSEN`、`K-CONFIG-BOUNDS`、`K-CONFIG-EFFECTIVE`、`K-CONFIG-FASTTRACK`、`K-CONFIG-TRANSITION`、`K-BASELINE`、`K-RELEASE`、`K-LICENSE-NEVER-BLOCKS`、`K-DEGRADE` |
+| 例外與複查 | `K-EXCEPTION`、`K-REVIEW-FREEZE`、`K-REVIEW-NORESPONSE`、`K-DETECT-*`（每種偵測一條） |
+| 整合 | `K-FULFIL-ENVELOPE`、`K-RECON-FINDING`、`K-CLIENT-GOVERN` |
+
+### 第 6 節 流程包介面
+
+| 動作 | 內容 |
+|---|---|
+| 修改 | 登記時檢查 hook 的擁有者是 `sgn_pack_<代號>`（不再是 `sgn_owner`）；介面帶 `hook_api_version`，核心支援目前與前一主版本；登記時記函式雜湊，每次判斷寫入事件（RA-34、RA-08） |
+| 修改 | `classify_tier` 回傳 `{tier, reasons}`（RB-15） |
+| 新增 hook | `list_requestables`（需求導向的搜尋）、`describe_impact`（影響陳述）、`describe_expected_state`（對帳用的應有狀態）、`detect_interest`（可判定的利害關係）、`list_parties`（當事人角色） |
+| 新增登記項 | 流程包專屬的更正動作（`sys_correction` 使用）；批次的情境檢查（核心檢查之外的補充） |
+| 新增宣告能力 | 累計分級、組合規則、`company_from`、每關的 `question`、`side` |
+
+### 第 7 節 簽核人解析器
+
+| 動作 | 內容 |
+|---|---|
+| 刪除 | 「找不到上一層時，升級給系統管理員群組」 |
+| 新增 | resolver 種類 `authority_matrix`（依核決權限表）、`meeting`（搭配 `resolution` 模式）、`governance_role`（供 `top_resolver` 使用） |
+| 修改 | `applicant_manager` 增加參數 `line_kind` |
+| 新增規定 | 每關開始時解析，決定時重驗，人事事件到達時重派；出缺順序為代理主管、上一層單位主管、出缺替代人、`top_resolver`，都沒有就停住；持有稽核角色的人與技術維運永遠不會被解析出來；任何角色都不能逐張指定簽核人 |
+| 新增規定 | 每個工作記錄簽核身分（公司、職務）與 `basis_snapshot`；解析出的人在該公司沒有職權就不指派 |
+
+### 第 8 節 參數
+
+刪除：`approval.mobile_mfa_required`、`system.allow_fake_clock`、`audit.retention_years`。
+
+新增（預設值中標 ＊ 的沒有法規或實務依據，是產品判斷，見第 5 節第 10 點）：
+
+| key | 預設 | 界限 |
+|---|---|---|
+| `approval.proof_level` | 依動作目錄 | 只能調高 |
+| `authn.credential_cooling_hours` | 24＊ | 下限 1 |
+| `authn.idp_key_activation_hours` | 24＊ | 下限 1 |
+| `session.idle_minutes` | 15＊ | 上限 60 |
+| `audit.anchor_interval_minutes` | 60 | 上限 1440 |
+| `retention.years`（依流程類型與紀錄類別） | 5 | 下限 5 |
+| `decision_log.retention_years` | 3 | 下限 1 |
+| `approval.returned_expire_workdays` | 20＊ | — |
+| `approval.question_pause_max_workdays` | 3＊ | 上限 10 |
+| `approval.batch_max_items` | 20＊ | 上限 50 |
+| `renewal.max_gap_days` | 30＊ | 上限 120 |
+| `delegation.max_days` | 30＊ | 上限 90 |
+| `review.interval_months` | 6 | 1–12 |
+| `review.due_days` | 15 | — |
+| `review.recusal_months` | 0（關閉） | — |
+| `grant.inactive_days` | 90 | 只能調短 |
+| `privileged.max_hours` | 8＊ | 上限 72 |
+| `emergency.max_hours` | 4＊ | 上限 24 |
+| `emergency.preapproval_wait_minutes` | 15＊ | — |
+| `emergency.review_due_hours` | 72＊ | 上限 168 |
+| `migration.transition_days` | 第一波 30、整體 180＊ | 上限 180 |
+| `external.sponsor_confirm_days` | 90＊ | 上限 180 |
+| `overlap.rejected_lookback_days` | 90＊ | — |
+| `rollout.readiness_min_percent` | 95＊ | 下限 90 |
+| `grant.owner_grace_days` | 14＊（沿用） | — |
+
+`setting_definition` 的 `hard_floor`、`hard_ceiling` 就是上表的界限，只能由發行版變更。
+
+### 第 9 節 目錄結構
+
+新增 `db/testing/`（測試專用 migration）、`db/packs/governance/`、`tools/verify/`（不依賴平台程式碼的離線驗證工具）、`vault/`（機密內容服務，獨立部署）。
+
+### 第 10 節 前端的通用畫面
+
+| 動作 | 畫面 |
+|---|---|
+| 修改 | 設定：不再唯讀；所有修改產生設定變更單；含結構化流程編輯器、試跑、影響試算、白話摘要（RB-64、RA-31） |
+| 修改 | 待簽清單與簽核詳情：簽核身分、影響陳述、本關的問題、系統事實與申請人文字分區、追認與未核准期間的標示、批次的逐列勾選（2.6、2.8、RB-16） |
+| 修改 | 稽核查詢與證據頁：控制證據檢視、母體定義與截止點、抽樣、快照、重新判定、匯出用途（2.4、RA-49） |
+| 新增 | 稽核準備度與例外；複查活動；異動處理清單；我的決定、憑證、代理與助理；敏感事件與知悉名單；上線就緒與上線範圍；營運狀態（技術維運，不顯示內容） |
+| 修改 | 表單欄位型別增加 `company`、`counterparty`（結構化的交易對象） |
+
+### 第 11 節 對外整合介面
+
+| 能力 | 修改 |
+|---|---|
+| `check` | 情境帶 `on_behalf_of` 與委派鏈；讀取時驗證 `row_hash`；回應帶最長可快取時間；SDK 預設連不上就拒絕；每次判定寫 `decision_log` |
+| `grants` | 支援 `as_of` 與期間；查詢範圍以受管系統為單位；保密流程的授權只回代碼 |
+| `events` | `webhook_delivery` 記投遞與確認；撤銷與暫停未獲確認列例外 |
+| 對帳 | 接受現況檔與異動紀錄檔；發現分五類；回報由登記的 client 簽章；原檔封存；`authority` 決定哪些差異算未核准 |
+| 定期複查 | 凍結母體、兩段決定、風險訊號、活動簽核 |
+| 證據輸出 | 檢查點與封印；公司別的可驗證子集合；`security_feed`；匯出紀錄 |
+| 新增 | 建立草稿、待辦清單、交付信封的拉取與確認 |
+| `api_client` | 必有負責人、納入複查；寫入類範圍必須 `private_key_jwt`，由資料庫驗章；金鑰新舊並存的輪替 |
+| 版本 | 路徑帶主版本，同主版本只增不改，舊主版本至少再支援兩年 |
+
+### 第 12 節 模擬環境
+
+新增：SAML 身分來源（經 Keycloak 中介成 OIDC）；SCIM 與 CSV 的人資來源、請假與職務代理資料；髒資料與錯誤同步批次的種子；錨定位置（物件鎖定儲存、時戳服務）；金鑰服務與機密內容服務；Teams 與 LINE WORKS 通道；付款系統（冷卻期與暫停付款）；測試憑證機構；瀏覽器自動化用的虛擬 passkey。正式環境以端點指紋登記拒絕連到任何模擬端點。
+
+### 建議新增的章節
+
+骨幹目前沒有容納這些內容的位置，建議新增四節，把上面的實體、規則與狀態集中定義：第 13 節「身分與決定證明」、第 14 節「證據層」、第 15 節「例外與稽核作業」、第 16 節「環境、發行與運作模式」。
+
+## 4. 既有決策的檢討
+
+| # | 結論 | 修正 |
+|---|---|---|
+| D1 | 修正 | 「規則完全不變」在期初做不到：既有權限以有期限的轉換型態承接（D51）。資料授權規則需要確認的地方見 6.2 |
+| D2、D8 | 已取代 | 維持由 D12 取代；自由畫布仍不做，但提供結構化編輯器與試跑（D59） |
+| D3 | 取代 | 由 D48 取代：批次的條件由「內容無差異」擴大為內容、情境、類別三層 |
+| D4 | 補充 | 並行關卡完成後，後續關卡看得到各並行關的意見與時間（D38） |
+| D5 | 補充 | `sim/` 增加 SAML、SCIM、CSV、髒資料、錨定位置、金鑰與機密內容服務等（見第 3 節的模擬環境） |
+| D6、D11、D18、D22、D24 | 維持 | — |
+| D7 | 限縮 | 只適用開發期；客戶只安裝有簽章的發行版（D43） |
+| D9 | 維持 | 採用的標準依調查第 5 節；`check` 回應不簽章 |
+| D10 | 補充 | 例外是核心實體，並增加行為型偵測（D46、D38） |
+| D12 | 修正 | 範圍區分「權威來源的事實」與「平台設定」；核准人資格依控制類別與方向；「沿用送審時版本」只適用路徑與參數；增加快速路徑與銜接宣告（D41、D42） |
+| D13 | 修正 | 五種流程維持；緊急路徑拆成急件、緊急、暫停三種，緊急路徑只開放給可收回的權限（D49）。另增全宣告的治理範本包（D55） |
+| D14 | 補充 | 增加累計與組合兩種宣告；hook 帶版本並以受限角色執行（D44、D43） |
+| D15 | 補充 | 多公司延伸到證據層：單一主鏈加公司別 Merkle 根；跨部署聯盟不做（D31） |
+| D16 | 補充 | 增加徵詢、決定撤回、申請人縮小、線下決定登錄、轉為正確流程；駁回成為終局狀態（D39、D50、D53） |
+| D17 | 補充 | 語言包是資料；流程類型宣告以哪個語言為準（D59） |
+| D19、D21 | 補充 | 驗證改為讀回比對；對帳由獨立的 `reconciler` 提供；交付信封（D37） |
+| D20 | 修正 | 機密內容不經後端；金鑰保管改為角色與分持，稽核不持有；三種管理角色之外增加衝突矩陣（D54、D34） |
+| D23 | 補充 | 安全關鍵模組（職責分離、狀態機、雜湊鏈、驗章、授權檢查）除模型驗收外，須人工資安審查（D43） |
+
+## 5. 需要專案負責人知道的取捨
+
+1. **每位簽核人都要登記 passkey。** 決定證明讓冒名需要當事人的裝置，但上線前必須完成全員登記（就緒門檻 95%），新憑證有 24 小時冷卻期。SAML 的身分提供者要經身分中介。資料庫內驗章以 PL/pgSQL 實作，效能要先做技術驗證；不達標就要放寬工程規範「只用 `pgcrypto`」。
+2. **資料庫最高權限者擋不住，只能偵測。** 客戶必須提供至少兩個外部錨定位置，其中一個不由資訊維運管理，否則平台不會離開啟動模式。對外不能說「管理員完全改不了」。
+3. **預設保存年限由 10 年改為終局後 5 年**（硬下限 5 年）。調查找不到 10 年的依據。資料授權規則的「10 年（待稽核室確認）」先以流程包參數保留，請決定。
+4. **多一個要部署的元件。** 機密內容服務讓機密欄位不經過平台後端，D20 才真的成立；但小型公司多半只能同機部署，那時是一筆有期限的例外。
+5. **卡住的單不能靠管理員解。** 找不到簽核人時案件停住，只能由人資登記代理主管或以設定變更補上替代人；每個路徑上線前要先指定頂層的治理角色。這比「管理員改派」慢，換來的是沒有人能逐張挑簽核人。
+6. **客戶要指定「控制負責人」與「稽核治理人」。** 稽核不做任何決定之後，例外覆核、放寬設定的核准、銷毀核准、追認加關都落在第二線（內控、法遵、資安、個資窗口）。沒有第二線的小公司要以跨公司服務或有期限的例外處理。
+7. **資料授權沒有先給後審。** 資料看過就收不回。高階主管口頭先准的情境，只能用急件（以小時計）加手機核准，或事後做線下決定登錄（會列為例外）。預期會有反彈。
+8. **批次與複查都沒有「全選」。** 批次每批上限 20 張、逐列勾選；最高級別與敏感事件資源不可批次；複查改為分組確認。簽核人的點擊次數會增加。
+9. **第一版核心明顯變大**（新增約六十個實體、七十多條規則代碼（不含 `K-HR-*`、`K-DETECT-*` 兩個系列）、一個治理範本包）。明確不做的有：跨部署聯盟、依職務自動給權、主管機關通報流程、自由畫布設計器、原生 App、對日誌的行為分析、平台自驗 TOTP 與簡訊。調查結論中被推翻或限縮的有 R-N02（事故紀錄要做）、R-N09（可重現抽樣要做）、R-N13（SCIM 接收端要做）。
+10. **一批沒有依據的預設值是產品判斷**（第 3 節參數表中標＊者，含調查 U8 的待決項目：特權 8 小時、緊急 4 小時、事後覆核 72 小時、閒置登出 15 分鐘、負責人寬限 14 天）。不同意時直接指出參數即可。
+
+## 6. 需要同步的其他文件
+
+本次只改了本文件與 decision-log。以下在契約總修訂（pending-amendments A15）時處理。
+
+### 6.1 文字互相矛盾處
+
+| 文件 | 要改的地方 |
+|---|---|
+| `platform-vision.md` | 「多公司（多租戶）不在第一版範圍」與 D15 矛盾，應改為「雲端多租戶的資料隔離不在第一版」。「流程定義由流程包的升版腳本載入」「不提供拖拉式的流程設計器」與 D12、D59 不一致。「手機核准與 MFA」改為決定證明 |
+| `engineering-standards.md` | 架構測試「第一個參數是 `p_actor`」改為 `p_session`；「路徑只能透過 migration 變更」與 D12 矛盾；port 清單增加金鑰與機密內容、錨定位置、通道、翻譯、附件掃描、簽章、機密來源；「只用 `pgcrypto`」視 2.1 的技術驗證結果決定；增加受保護路徑與發行流程 |
+| `00-spine.md` | 本文件第 3 節全部 |
+| `pending-amendments.md` | A2、A3、A5、A7、A8、A10、A13、A18、A19、A20 的內容由本文件細化；A23 與本文件第 3 節的流程包介面修改一併處理 |
+| `ux-acceptance.md` | 增加任務：從零找到正確流程、看懂退回並修正、手機設代理、手機核准設定變更、流程管理者建流程、技術維運判讀狀態、第一天體驗、螢幕報讀走完關鍵任務 |
+| `audit/control-matrix.md` | 缺口欄依 1.3 更新；`K-MOBILE-MFA`、`K-SETTING-ADMIN` 的引用改為新代碼 |
+| `research/00-synthesis.md` | R-N02、R-N09、R-N13 加註被本裁決限縮 |
+
+### 6.2 流程包規則與裁決的出入（規則文件不得自行修改，請專案負責人決定）
+
+| 資料授權規則 | 裁決的做法 | 目前的處理 |
+|---|---|---|
+| 「升級後只有升級對象能簽」 | 升級對象可交回一次 | 做成選項，資料授權維持關閉 |
+| 「申請人確認」驗證結果，逾期自動撤銷 | 負責人或指定成員也可確認 | 做成選項，資料授權維持只有申請人 |
+| 「團隊解散時，相關授權自動撤銷」 | 改組時以過渡團隊承接，擴大的部分走續期 | 需確認「改組」是否算「解散」 |
+| 「不直接授權給個人」 | 期初匯入的個人權限以 `legacy_individual` 有期限承接 | 只限匯入，逾期撤銷 |
+| 「完全涵蓋：直接擋下」 | 只在同一被授權者時成立；既有授權快到期時改為部分重疊 | 需確認 |
+| 「專案本身不帶任何權限」，未規定成員異動 | 成員增加視為擴大，要重跑控制側關卡 | 規則缺漏，核心從嚴 |
+| 「負責人離職或調職」給寬限期 | agent 與服務帳號在負責人離任當天先暫停 | 核心從嚴 |
+| 「手機核准…MFA」 | 不分裝置都要決定證明 | 核心從嚴 |
+| 「只有 MIS 系統管理員能修改設定」 | 設定變更走簽核，核准人依控制類別 | 已由 D12、D19 處理，規則文字待更新 |
+| 「紀錄保存年限 10 年（待稽核室確認）」 | 核心預設 5 年 | 以流程包參數保留 10 年 |
+| 「上線範圍為全公司」 | 依資源分批上線 | 需確認 |
 
 
