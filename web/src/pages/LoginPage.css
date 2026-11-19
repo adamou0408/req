@@ -55,3 +55,11 @@
 .login__person-name {
   font-weight: 700;
 }
+
+.login__manual {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}

@@ -26,8 +26,8 @@ export function EmptyState({ title, description, action }: EmptyStateProps) {
 
 export interface ErrorStateProps {
   title?: string;
-  /** 直接顯示後端回傳的訊息；代碼給使用者回報問題時用。 */
-  error?: { code: string; message: string } | null;
+  /** 直接顯示後端回傳的訊息。錯誤代碼是系統內部用語，不顯示給使用者。 */
+  error?: { message: string } | null;
   onRetry?: () => void;
 }
 
@@ -42,12 +42,7 @@ export function ErrorState({
         <IconAlert size={28} />
       </span>
       <p className="state__title">{title}</p>
-      {error && (
-        <div className="state__desc">
-          <p>{error.message}</p>
-          <p className="mono">{t.state.errorCode(error.code)}</p>
-        </div>
-      )}
+      {error && <p className="state__desc">{error.message}</p>}
       {onRetry && (
         <div className="state__action">
           <Button onClick={onRetry}>{t.common.retry}</Button>

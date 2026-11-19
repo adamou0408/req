@@ -3,12 +3,7 @@ export type { ActionBarProps } from "./ActionBar";
 export { Alert } from "./Alert";
 export type { AlertProps, AlertTone } from "./Alert";
 export { Button, ButtonLink } from "./Button";
-export type {
-  ButtonLinkProps,
-  ButtonProps,
-  ButtonSize,
-  ButtonVariant,
-} from "./Button";
+export type { ButtonLinkProps, ButtonProps, ButtonVariant } from "./Button";
 export { Card } from "./Card";
 export type { CardProps } from "./Card";
 export { Checkbox, Segmented } from "./Choice";

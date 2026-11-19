@@ -24,7 +24,7 @@ export default function ApprovalDetailPage() {
       <PageHeader
         title={t.pages.approvalDetail.title}
         back={{
-          to: "/approvals",
+          to: PATHS.approvals,
           label: isMobile ? list.mobileTitle : list.title,
         }}
         meta={t.pages.approvalDetail.meta(id)}

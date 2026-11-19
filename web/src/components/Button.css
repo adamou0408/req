@@ -101,17 +101,3 @@
     transform: rotate(360deg);
   }
 }
-
-/* 桌面用滑鼠操作，可以比觸控目標矮一點；手機一律維持 44px。 */
-@media (min-width: 640px) {
-  .btn {
-    min-height: 40px;
-  }
-
-  .btn--sm {
-    min-height: 32px;
-    min-width: 0;
-    padding: 0 var(--space-3);
-    font-size: var(--text-sm);
-  }
-}
