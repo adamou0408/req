@@ -1,9 +1,9 @@
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { Link, Outlet, useLocation } from "react-router";
 import { useAuth } from "../auth/AuthContext";
 import { useMutation } from "../api/hooks";
 import type { CurrentUser } from "../api/endpoints";
-import { useToast } from "../components";
+import { Skeleton, useToast } from "../components";
 import { IconLogout } from "../components/icons";
 import { cx } from "../lib/cx";
 import { useIsMobile } from "../lib/useMediaQuery";
@@ -37,7 +37,7 @@ function NavLinks({ items, className }: { items: readonly NavItem[]; className: 
 function UserMenu({ user }: { user: CurrentUser }) {
   const auth = useAuth();
   const toast = useToast();
-  const logout = useMutation(() => auth.logout(), {
+  const logout = useMutation<void, void>(() => auth.logout(), {
     onError: (error) => toast.error(error.message),
   });
   return (
@@ -48,7 +48,7 @@ function UserMenu({ user }: { user: CurrentUser }) {
         className="topbar__logout"
         aria-label={t.common.logout}
         aria-busy={logout.loading || undefined}
-        onClick={() => void logout.mutate(undefined)}
+        onClick={() => void logout.mutate()}
       >
         <IconLogout size={20} />
         <span className="topbar__logout-text">{t.common.logout}</span>
@@ -90,7 +90,9 @@ export function AppLayout() {
         <UserMenu user={user} />
       </header>
       <main id="main" className="app__main" tabIndex={-1}>
-        <Outlet />
+        <Suspense fallback={<Skeleton count={4} />}>
+          <Outlet />
+        </Suspense>
       </main>
       {showBottomNav && <NavLinks items={items} className="bottomnav" />}
     </div>

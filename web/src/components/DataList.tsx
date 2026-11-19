@@ -1,7 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
-import { cx } from "../lib/cx";
 import { useIsMobile } from "../lib/useMediaQuery";
 import { t } from "../i18n/zh-Hant";
 import { EmptyState, Skeleton } from "./States";
