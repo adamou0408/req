@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 import type { Level, RequestStatus } from "../api/endpoints";
 import { formatLevel, formatStatus } from "../lib/format";
+import type { TagTone } from "../lib/tone";
 import "./Tag.css";
 
-export type TagTone = "neutral" | "info" | "ok" | "warn" | "danger" | "l3" | "l4";
+export type { TagTone };
 
 export interface TagProps {
   tone?: TagTone;

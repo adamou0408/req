@@ -34,3 +34,5 @@ export { Timeline } from "./Timeline";
 export type { TimelineItem, TimelineProps } from "./Timeline";
 export { ToastProvider, useToast } from "./Toast";
 export type { ToastApi, ToastTone } from "./Toast";
+export { Modal } from "./Modal";
+export type { ModalProps } from "./Modal";

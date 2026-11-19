@@ -3,7 +3,7 @@
  * 這裡不含任何業務判斷：只有安全檢查、身分、把請求轉給 SQL function。
  */
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { Config } from './config.ts';
 import type { Contract } from './contract/index.ts';
 import type { SystemCalls } from './contract/systemCalls.ts';
@@ -75,7 +75,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // 不採用用戶端給的 request id。
     requestIdHeader: false,
     genReqId: () => randomUUID(),
-    trustProxy: config.trustProxy,
+    // Fastify 的型別沒列出「跳數」，但執行時支援（proxy-addr）。
+    trustProxy: config.trustProxy as boolean | string,
     bodyLimit: config.bodyLimitBytes,
     routerOptions: { maxParamLength: 200 },
   });
@@ -140,7 +141,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   });
 
   // ── 健康檢查（含資料庫）───────────────────────────────────────
-  const health = async (_req: unknown, reply: import('fastify').FastifyReply): Promise<unknown> => {
+  const health = async (_req: FastifyRequest, reply: FastifyReply): Promise<unknown> => {
     try {
       await db.ping();
       return reply.code(200).send({ status: 'ok', db: 'ok' });

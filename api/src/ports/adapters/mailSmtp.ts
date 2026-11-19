@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type Transporter } from 'nodemailer';
 import type { SmtpConfig } from '../../config.ts';
 import type { MailMessage, MailPort } from '../mail.ts';
 
@@ -6,11 +6,12 @@ import type { MailMessage, MailPort } from '../mail.ts';
 export class SmtpMail implements MailPort {
   readonly mode = 'smtp' as const;
   private readonly from: string;
-  private readonly transport: nodemailer.Transporter;
+  private readonly transport: Transporter;
 
   constructor(config: SmtpConfig) {
     this.from = config.from;
-    this.transport = nodemailer.createTransport(config.url, {
+    this.transport = nodemailer.createTransport({
+      url: config.url,
       pool: true,
       connectionTimeout: 10_000,
       greetingTimeout: 10_000,

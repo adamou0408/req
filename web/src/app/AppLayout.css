@@ -1,0 +1,215 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+}
+
+.app__skip {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: var(--z-toast);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transform: translateY(-200%);
+}
+
+.app__skip:focus {
+  transform: none;
+}
+
+/* 還沒進到外框之前（確認登入狀態中）的版面。 */
+.app-gate {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-4);
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-nav);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--topbar-h);
+  padding: 0 var(--space-2) 0 var(--space-4);
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.topbar__brand {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-height: var(--tap);
+  color: var(--text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.topbar__user {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  margin-left: auto;
+}
+
+.topbar__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar__logout {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  min-width: var(--tap);
+  min-height: var(--tap);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.topbar__logout:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* 手機頂欄只留圖示，名稱留給螢幕閱讀器（aria-label）。 */
+.topbar__logout-text {
+  display: none;
+}
+
+.app__main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  min-width: 0;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+}
+
+.app__main:focus {
+  outline: none;
+}
+
+/* 有底部導覽時，主內容、Toast、ActionBar 都要讓出這段高度。 */
+html.has-bottomnav {
+  --bottomnav-h: 60px;
+}
+
+html.has-bottomnav .app__main {
+  padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom) + var(--space-6));
+}
+
+.bottomnav {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: var(--z-nav);
+  display: flex;
+  height: calc(var(--bottomnav-h) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.bottomnav__item {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  min-height: var(--tap);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  line-height: 1.2;
+  text-decoration: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bottomnav__item span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bottomnav__item--on {
+  color: var(--link);
+  font-weight: 700;
+}
+
+.bottomnav__item:focus-visible {
+  outline-offset: -3px;
+}
+
+.topnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.topnav__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: var(--text-md);
+  text-decoration: none;
+}
+
+.topnav__item .icon {
+  display: none;
+}
+
+.topnav__item:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.topnav__item--on {
+  background: var(--primary-soft);
+  color: var(--on-primary-soft);
+  font-weight: 600;
+}
+
+@media (min-width: 640px) {
+  .topbar {
+    gap: var(--space-5);
+    padding: 0 var(--space-6);
+  }
+
+  .topbar__logout-text {
+    display: inline;
+  }
+
+  .app__main {
+    gap: var(--space-5);
+    padding: var(--space-6);
+  }
+}

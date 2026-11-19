@@ -31,11 +31,12 @@ function MfaDialogContent(props: ContentProps) {
   const [code, setCode] = useState("");
   const complete = code.length === MFA_CODE_LENGTH;
 
+  // 後端拒絕驗證碼後（busy 結束且帶著錯誤），清空重填；連續兩次同樣的錯誤訊息也要清。
   useEffect(() => {
-    if (!error) return;
+    if (!error || busy) return;
     setCode("");
     document.getElementById(inputId)?.focus();
-  }, [error, inputId]);
+  }, [error, busy, inputId]);
 
   function submit(event: FormEvent) {
     event.preventDefault();
