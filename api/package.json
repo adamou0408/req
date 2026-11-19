@@ -1,0 +1,31 @@
+{
+  "name": "das-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "資料授權簽核網站 — 後端（只傳話：HTTP ↔ SQL function、對外工作）",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "dev": "node --watch --env-file-if-exists=.env src/server.ts",
+    "test": "vitest run",
+    "sync": "node --env-file-if-exists=.env dist/cli/sync.js"
+  },
+  "dependencies": {
+    "fastify": "5.12.8",
+    "nodemailer": "10.6.0",
+    "openid-client": "6.9.0",
+    "pg": "8.23.1"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "@types/nodemailer": "8.0.2",
+    "@types/pg": "8.23.1",
+    "typescript": "7.0.2",
+    "vitest": "5.1.1"
+  }
+}
