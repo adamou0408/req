@@ -80,9 +80,3 @@ export interface ErrorContract {
   /** SQLSTATE 前 2 碼（類別）；exact 沒對到才看這裡。 */
   classes: Record<string, ErrorRule>;
 }
-
-export interface Contract {
-  routes: RouteDef[];
-  errors: ErrorContract;
-  sqlNames: Record<string, string>;
-}

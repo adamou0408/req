@@ -11,6 +11,7 @@ export const CLIENT_ERROR = {
   network: "CLIENT_NETWORK_ERROR",
   badResponse: "CLIENT_BAD_RESPONSE",
   mfaCancelled: "CLIENT_MFA_CANCELLED",
+  unexpected: "CLIENT_UNEXPECTED",
 } as const;
 
 export class ApiError extends Error {
@@ -151,22 +152,119 @@ async function parseSuccess(response: Response, responseType: "json" | "blob"): 
   return body;
 }
 
-export function createClient(options: ClientOptions): ApiClient {
-  const doFetch = options.fetch ?? ((input, init) => fetch(input, init));
-  const maxMfaAttempts = options.maxMfaAttempts ?? DEFAULT_MAX_MFA_ATTEMPTS;
-  let onUnauthorized: (() => void) | null = null;
-  let mfaHandler: MfaHandler | null = null;
-  let mfaQueue: Promise<unknown> = Promise.resolve();
+class HttpClient implements ApiClient {
+  private readonly options: ClientOptions;
+  private onUnauthorized: (() => void) | null = null;
+  private mfaHandler: MfaHandler | null = null;
+  private mfaQueue: Promise<unknown> = Promise.resolve();
 
-  function buildInit(method: string, request: RequestOptions, extra: Record<string, string>): RequestInit {
-    const headers: Record<string, string> = { Accept: "application/json", ...request.headers, ...extra };
+  constructor(options: ClientOptions) {
+    this.options = options;
+  }
+
+  setUnauthorizedHandler(handler: (() => void) | null): void {
+    this.onUnauthorized = handler;
+  }
+
+  setMfaHandler(handler: MfaHandler | null): void {
+    this.mfaHandler = handler;
+  }
+
+  get<T>(path: string, options?: RequestOptions): Promise<T> {
+    return this.request("GET", path, options);
+  }
+
+  post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return this.request("POST", path, { ...options, body });
+  }
+
+  put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return this.request("PUT", path, { ...options, body });
+  }
+
+  patch<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+    return this.request("PATCH", path, { ...options, body });
+  }
+
+  delete<T>(path: string, options?: RequestOptions): Promise<T> {
+    return this.request("DELETE", path, options);
+  }
+
+  async request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+    const resend: Resend = (extra) => this.send(method.toUpperCase(), path, options, extra);
+    try {
+      return (await this.sendWithMfa(resend, options.mfa)) as T;
+    } catch (error) {
+      if (this.isSessionExpired(error)) this.onUnauthorized?.();
+      throw error;
+    }
+  }
+
+  /** 「需要 MFA」也可能用 401 回，那不代表登入過期。 */
+  private isSessionExpired(error: unknown): boolean {
+    if (!isApiError(error) || error.status !== 401) return false;
+    const { mfaRequiredCodes, mfaInvalidCodes } = this.options;
+    return !mfaRequiredCodes.includes(error.code) && !mfaInvalidCodes.includes(error.code);
+  }
+
+  private async sendWithMfa(resend: Resend, prompt?: MfaPrompt): Promise<unknown> {
+    try {
+      return await resend({});
+    } catch (error) {
+      const handler = this.mfaHandler;
+      const needsMfa = isApiError(error) && this.options.mfaRequiredCodes.includes(error.code);
+      if (!handler || !needsMfa) throw error;
+      return this.exclusive(() => this.retryWithMfa(handler, resend, prompt));
+    }
+  }
+
+  /** 同一時間只開一個 MFA 視窗；其他需要 MFA 的請求排隊。 */
+  private exclusive<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.mfaQueue.then(task, task);
+    this.mfaQueue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async retryWithMfa(handler: MfaHandler, resend: Resend, prompt?: MfaPrompt): Promise<unknown> {
+    const maxAttempts = this.options.maxMfaAttempts ?? DEFAULT_MAX_MFA_ATTEMPTS;
+    let rejected: ApiError | undefined;
+    try {
+      for (let attempt = 1; ; attempt += 1) {
+        const code = await handler.request({
+          attempt,
+          ...(rejected && { error: rejected }),
+          ...(prompt && { prompt }),
+        });
+        if (code === null) {
+          throw new ApiError(CLIENT_ERROR.mfaCancelled, t.errors.mfaCancelled, 0);
+        }
+        try {
+          return await resend(this.options.mfaHeaders(code));
+        } catch (error) {
+          const invalid = isApiError(error) && this.options.mfaInvalidCodes.includes(error.code);
+          if (!invalid || attempt >= maxAttempts) throw error;
+          rejected = error;
+        }
+      }
+    } finally {
+      handler.settle();
+    }
+  }
+
+  private buildInit(method: string, request: RequestOptions, extra: Record<string, string>): RequestInit {
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+      ...request.headers,
+      ...extra,
+    };
     if (!SAFE_METHODS.has(method)) {
-      headers[options.unsafeMethodHeader.name] = options.unsafeMethodHeader.value;
+      const { name, value } = this.options.unsafeMethodHeader;
+      headers[name] = value;
     }
     const init: RequestInit = {
       method,
       headers,
-      credentials: options.credentials ?? "same-origin",
+      credentials: this.options.credentials ?? "same-origin",
       signal: request.signal ?? null,
     };
     if (request.body !== undefined) {
@@ -176,11 +274,12 @@ export function createClient(options: ClientOptions): ApiClient {
     return init;
   }
 
-  async function send(method: string, path: string, request: RequestOptions, extra: Record<string, string>): Promise<unknown> {
-    const url = buildUrl(options.baseUrl ?? "", path, request.query);
+  private async send(method: string, path: string, request: RequestOptions, extra: Record<string, string>): Promise<unknown> {
+    const doFetch = this.options.fetch ?? fetch;
+    const url = buildUrl(this.options.baseUrl ?? "", path, request.query);
     let response: Response;
     try {
-      response = await doFetch(url, buildInit(method, request, extra));
+      response = await doFetch(url, this.buildInit(method, request, extra));
     } catch (cause) {
       if (isAbortError(cause)) throw cause;
       throw new ApiError(CLIENT_ERROR.network, t.errors.network, 0, cause);
@@ -188,64 +287,10 @@ export function createClient(options: ClientOptions): ApiClient {
     if (!response.ok) throw toApiError(response.status, await readBody(response));
     return parseSuccess(response, request.responseType ?? "json");
   }
+}
 
-  /** 同一時間只開一個 MFA 視窗；其他需要 MFA 的請求排隊。 */
-  function exclusive<T>(task: () => Promise<T>): Promise<T> {
-    const run = mfaQueue.then(task, task);
-    mfaQueue = run.catch(() => undefined);
-    return run;
-  }
+type Resend = (extraHeaders: Record<string, string>) => Promise<unknown>;
 
-  async function retryWithMfa(handler: MfaHandler, first: ApiError, resend: (extra: Record<string, string>) => Promise<unknown>, prompt?: MfaPrompt): Promise<unknown> {
-    let rejected: ApiError | undefined;
-    try {
-      for (let attempt = 1; ; attempt += 1) {
-        const challenge: MfaChallenge = { attempt, ...(rejected && { error: rejected }), ...(prompt && { prompt }) };
-        const code = await handler.request(challenge);
-        if (code === null) {
-          throw new ApiError(CLIENT_ERROR.mfaCancelled, t.errors.mfaCancelled, first.status);
-        }
-        try {
-          return await resend(options.mfaHeaders(code));
-        } catch (error) {
-          const invalid = isApiError(error) && options.mfaInvalidCodes.includes(error.code);
-          if (!invalid || attempt >= maxMfaAttempts) throw error;
-          rejected = error;
-        }
-      }
-    } finally {
-      handler.settle();
-    }
-  }
-
-  async function request<T>(method: string, path: string, requestOptions: RequestOptions = {}): Promise<T> {
-    const verb = method.toUpperCase();
-    const resend = (extra: Record<string, string>) => send(verb, path, requestOptions, extra);
-    try {
-      return (await resend({})) as T;
-    } catch (error) {
-      if (!isApiError(error)) throw error;
-      const handler = mfaHandler;
-      if (handler && options.mfaRequiredCodes.includes(error.code)) {
-        return (await exclusive(() => retryWithMfa(handler, error, resend, requestOptions.mfa))) as T;
-      }
-      if (error.status === 401) onUnauthorized?.();
-      throw error;
-    }
-  }
-
-  return {
-    request,
-    get: (path, requestOptions) => request("GET", path, requestOptions),
-    post: (path, body, requestOptions) => request("POST", path, { ...requestOptions, body }),
-    put: (path, body, requestOptions) => request("PUT", path, { ...requestOptions, body }),
-    patch: (path, body, requestOptions) => request("PATCH", path, { ...requestOptions, body }),
-    delete: (path, requestOptions) => request("DELETE", path, requestOptions),
-    setUnauthorizedHandler: (handler) => {
-      onUnauthorized = handler;
-    },
-    setMfaHandler: (handler) => {
-      mfaHandler = handler;
-    },
-  };
+export function createClient(options: ClientOptions): ApiClient {
+  return new HttpClient(options);
 }

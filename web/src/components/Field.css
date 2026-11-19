@@ -1,0 +1,67 @@
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.field__label {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.field__required {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+/* 字級維持 16px：小於 16px 時 iOS 會在聚焦欄位時自動放大畫面。 */
+.field__control {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-base);
+  line-height: 1.5;
+}
+
+textarea.field__control {
+  resize: vertical;
+}
+
+.field__control::placeholder {
+  color: var(--text-muted);
+}
+
+.field__control:disabled {
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.field__control--changed {
+  border-color: var(--tone-warn-fg);
+  background: var(--tone-warn-bg);
+  color: var(--tone-warn-fg);
+}
+
+.field--error .field__control {
+  border-color: var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.field__hint {
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.field__error {
+  color: var(--danger);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
