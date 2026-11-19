@@ -14,10 +14,10 @@
 ## 1. 重點結論
 
 1. 查到的產品裡，沒有一個同時回答四個稽核問題；「核准綁定內容版本」與「執行後驗證」兩項，在所有查到的官方文件中都沒有對應功能。[7][34][35][36]
-2. 申請時的職責分離大多是可關閉、可繞過的設定：SailPoint 在簽核人就是申請人時可自動核准，Zluri 只提示不擋，Snowflake Multi-party Approval 預設把申請人自己的核准算進門檻，Okta 文件自承多張申請同時送出時檢查會漏。[10][19][31][37]
+2. 申請時的職責分離大多是可關閉、可繞過的設定：SailPoint 在簽核人就是申請人時可自動核准，Zluri 只提示不擋，Snowflake Multi-party Approval 預設把申請人自己的核准算進門檻，Okta 文件自承多張申請同時送出時檢查會漏，且指定特定使用者為核准人時允許自我核准。[10][19][31][37][61]
 3. 核准後內容可以被改而不重簽：Microsoft Entra 的 access package 可「隨時」增減資源，已核准的人自動取得新權限；Snowflake 的核准人可以授予和申請不同的角色。[7][35]
 4. 紀錄防竄改幾乎沒有產品在文件中說明機制：Entra 稽核紀錄預設只留 30 天、Immuta 預設 7 天，都要自行匯出；只查到 EmpowerID（2026-08 白皮書）與 BeyondTrust Entitle 宣稱有雜湊鏈或簽章紀錄。[5][33][45][57]
-5. 資料平台原生的申請核准功能很薄：Databricks 是單步、沒有授權期限、平台外的核准不會匯回；Snowflake 的核准流程只到 listing 與角色層級；查到支援欄位層級申請的只有 Immuta（masking exception）。[32][34][35][36]
+5. 資料平台原生的申請核准功能很薄：Databricks 是單步、文件未提授權期限、平台外的核准不會匯回，且至查閱日仍為 Public Preview；Snowflake 的核准流程只到 listing 與角色層級；查到支援欄位層級申請的只有 Immuta（masking exception）。[32][34][35][36]
 6. 公開標價的只有 Microsoft（Entra ID Governance 每人每月 7 美元，另需 P1）、Okta（套裝每人每月 6／14／17 美元，年約最低 1,500 美元）與 ManageEngine（每網域每年 595 美元起）；SailPoint、Saviynt、One Identity、C1、Lumos、Zluri、Opal、Immuta 都要詢價。[4][18][24][28][31][54]
 7. 需要地端部署的中型企業選擇正在變少：Microsoft Identity Manager 2016 支援到 2029-01-09 為止，新一代產品（C1、Lumos、Zluri、Okta、Entra）都是雲端服務；查到文件寫明可自架的是 One Identity Manager、SailPoint IdentityIQ、Opal（含 airgapped）、Teleport、Immuta；midPoint 為開源軟體。[23][26][33][43][55][56]
 8. 使用者最痛的是人工作業與整合：84% 的組織主要靠人工做存取複查與開通（Zilla，2025，n=300），83% 說與既有 IGA 整合困難是自動化的最大障礙；近 60% 認為現有 IGA 的總持有成本過高（Omada，2025，n>500）。[46][47]
@@ -34,7 +34,7 @@
 
 | 產品 | 定位與客群 | 部署 | 公開價格 | 繁體中文／台灣 |
 |---|---|---|---|---|
-| Microsoft Entra ID Governance | 【事實】Entra ID P1／P2 客戶的進階治理加購；含 entitlement management、access reviews、PIM、lifecycle workflows [3] | 【事實】雲端服務；地端應用程式靠 provisioning agent 連回 Entra 租戶 [3][60]。【推論】完全離線的環境無法使用 | 【事實】Entra ID Governance 每人每月 7.00 美元（年繳）；P1 7.00、P2 10.00、Entra Suite 12.00；Governance 需租戶內另有含 P1 或 P2 的訂閱 [3][4]。訪客另以每月活躍使用者計費 [3] | 【查不到】本次未取得 My Access 的語言清單 |
+| Microsoft Entra ID Governance | 【事實】Entra ID P1／P2 客戶的進階治理加購；含 entitlement management、access reviews、PIM、lifecycle workflows [3] | 【事實】雲端服務；地端應用程式靠 provisioning agent 連回 Entra 租戶 [3][60]。【推論】完全離線的環境無法使用 | 【事實】Entra ID Governance 每人每月 7.00 美元（年繳）；P1 7.00、P2 10.00、Entra Suite 12.00；Governance 需租戶內另有含 `AAD_PREMIUM` 或 `AAD_PREMIUM_P2` 服務方案的訂閱（例如 P1、M365 E3）[3]。訪客另以每月活躍使用者計費 [3]。【事實】Microsoft 表示 P2 不會再新增任何 IGA 功能，新功能只進 Governance [3] | 【查不到】本次未取得 My Access 的語言清單 |
 | SailPoint Identity Security Cloud（2026 起文件稱 Human Fabric） | 【事實】企業級 IGA [11] | 【事實】雲端服務（官方文件歸在 SaaS 文件集）[10] | 【查不到】無公開標價 | 【事實】支援 22 種語言，含 `Chinese (Traditional) \| 'zh-TW'` [13]；台灣合作夥伴：中飛科技（代理）、頤合資訊、凱信資訊、凌羣電腦 [14] |
 | SailPoint IdentityIQ | 【事實】地端版 IGA；SailPoint 有 IdentityIQ 的 End of Life Policy 與往雲端遷移的工具 [17] | 地端 | 【查不到】 | 同上合作夥伴 [14]；【查不到】IdentityIQ 的確切終止支援日期（政策放在客戶入口網站，未公開）[17] |
 | Saviynt Identity Cloud | 【事實】IGA 加應用程式層 SoD（SAP、Oracle、Workday 等內建規則集）[22] | 【事實】AWS Marketplace 列為 SaaS [22]。【查不到】是否仍有純地端版 | 【查不到】無公開標價；第三方文章舉例 5,000 人年約 12 萬美元（約每人每年 24 美元），未經證實 [22] | 【查不到】 |
@@ -50,9 +50,9 @@
 
 | 產品 | 核准流程 | 申請人能否簽自己的單 | 職責分離（SoD） |
 |---|---|---|---|
-| Entra | 【事實】最多三階；每階「只要其中一位」核准；逾期自動拒絕；可設替代簽核人，但逾時至少要 4 天才能轉送 [1] | 【事實】「Approvers aren't able to approve their own access package requests.」[1] | 【事實】在 access package 上標記不相容的 access package 或群組；有衝突時使用者不能申請，「nor can an administrator make a new assignment that would be incompatible」。關係是單向的，要兩邊各設一次 [6]。【推論】粒度是整包權限，不是單一 entitlement；例外要另建一個合併的 access package [6] |
+| Entra | 【事實】最多三階；每階「只要其中一位」核准；逾期自動拒絕；可設替代簽核人，但逾時至少要 4 天才能轉送 [1]。【事實】文件只「建議」各階與替代簽核人列不同的人（「Ensure that you list different sets of people」），不是系統強制 [1] | 【事實】「Approvers aren't able to approve their own access package requests.」[1] | 【事實】在 access package 上標記不相容的 access package 或群組；有衝突時使用者不能申請，「nor can an administrator make a new assignment that would be incompatible」。關係是單向的，要兩邊各設一次 [6]。【推論】粒度是整包權限，不是單一 entitlement；例外要另建一個合併的 access package [6] |
 | SailPoint ISC | 【事實】依序升級的簽核鏈；預設 90 天無動作逾時（上限 90 天）；簽核人可轉派 [10] | 【事實】簽核鏈上若有人就是申請人，「that step may be automatically approved if the `autoApprove` field is set to do so」[10] | 【事實】兩個全域開關可讓系統「automatically cancel access requests with SoD conflicts」，也可逐條政策設定 [11]；違規清單與報表 [11] |
-| Okta | 【查不到】本次未取得核准階數的文件 | 【查不到】 | 【事實】規則可設為允許、附條件允許、或封鎖；分 entitlement 規則與 group 規則 [19]。【事實】限制：衝突只在送出當下比對既有權限，短時間送多張或有多張未結申請時，「warnings won't appear to requesters or prevent them from requesting access to conflicting entitlements」，文件建議簽核前人工檢查 [19] |
+| Okta | 【事實】approval sequence 由依序的核准任務組成；文件未寫階數上限 [61] | 【事實】依核准人類型而不同：核准人是群組、群組擁有者、主管或代理人時，系統不會把任務指派給申請人本人，任務改為「unassigned」；但若管理員把某個特定使用者設為核准人，而他剛好就是申請人，「self-attestation is allowed」[61]。在 sequence 中則自動轉給下一位核准人，沒有人可轉時留待人工指派 [61] | 【事實】規則可設為允許、附條件允許、或封鎖；分 entitlement 規則與 group 規則 [19]。【事實】限制：衝突只在送出當下比對既有權限，短時間送多張或有多張未結申請時，「warnings won't appear to requesters or prevent them from requesting access to conflicting entitlements」，文件建議簽核前人工檢查 [19] |
 | Saviynt | 【事實】可依風險自動拒絕、標記或加簽（廠商資料）[22] | 【查不到】 | 【事實】申請時做預防式 SoD 分析（廠商資料）[22]。【事實】2023 年社群討論：設定「高風險需填補償控制」後簽核人仍可不填就核准，版主確認為已知問題；現況未核實（論壇性質）[22] |
 | One Identity Manager | 【事實】簽核流程可加入「compliance check」關卡，結果寫入簽核歷程；違規的申請只能走例外核准，由規則指定的例外核准人決定 [23] | 【事實】以參數 `QER \| ITShop \| PersonOrderedNoDecide`、`PersonInsertedNoDecide` 禁止下單人或建立人核准自己的申請；可逐流程設例外，且不適用於中央核准人群組 [23] | 【事實】合規規則加例外核准；可設定例外核准人不得核准自己的申請 [23] |
 | C1 | 【事實】政策由依序步驟組成；簽核人可以是使用者、群組、主管、擁有者、CEL 運算式、webhook 或 AI agent [25] | 【事實】每個步驟有選項控制「a reviewer can complete a review that they are the subject of」；另有「Require distinct approvers」，啟用後前面簽過的人「cannot approve this step」[25] | 【事實】C1 Comply 列有 SoD [24]。【查不到】申請時是擋還是提示 |
@@ -84,7 +84,7 @@
 | C1 | 【事實】工作項有 audit log，API 可列出某工作的 audit trail 事件；政策規則可匯出 CSV [25]。【查不到】防竄改機制 | 【事實】REST API、Terraform [25] |
 | Opal | 【事實】可把事件串流到 DataDog、SumoLogic 等；官網稱每個存取變更與管理動作都可匯出到 SIEM 或 S3 [26][27]。【查不到】防竄改機制 | 【事實】REST API、Terraform、MCP server [26] |
 | Veza | 【查不到】資料表未描述稽核紀錄機制 [29] | 【查不到】 |
-| EmpowerID（補充：唯一查到宣稱雜湊鏈的 IGA 廠商） | 【事實】2026-08 白皮書：「Alterations break hash chains; truncation fails checkpoints」「Exported records verify against published keys without trusting the vendor console」；同頁聲明核准與存取複查程序「remain the customer's」[57]。屬廠商宣稱，未獨立驗證 | 【查不到】 |
+| EmpowerID（補充：唯一查到宣稱雜湊鏈的 IGA 廠商） | 【事實】2026-08 白皮書：「Alterations break hash chains; truncation fails checkpoints — when the verifier is actually run」（白皮書自己註明：要有人實際執行驗證才有效）「Exported records verify against published keys without trusting the vendor console」；同頁聲明核准與存取複查程序「remain the customer's」[57]。屬廠商宣稱，未獨立驗證 | 【查不到】 |
 
 【推論】查到的 IGA 產品都是把核准結果「寫進」目標系統（開通帳號、加入群組），沒有查到任何一個提供「其他系統即時來問：這個主體現在能不能做這件事」的判定介面。這是本平台第 11 節 `check` 與現有產品在結構上的差別。
 
@@ -92,8 +92,8 @@
 
 | 產品 | 申請的粒度 | 核准方式 | 期限 | 核准與實際設定的關係 | 紀錄 | 部署與現況 |
 |---|---|---|---|---|---|---|
-| Immuta（Request app） | 【事實】資料庫、schema、資料表、整個 data product，或「a masking exception to view unmasked data within specific columns」[32] | 【事實】審核流程可分支；人工審核可設 Any 或 All；審核人來自指定使用者、群組、屬性、權限或目錄擁有者（目錄擁有者目前只支援 Atlan）[32]。【查不到】是否禁止自己核准自己 | 【事實】可要求核准的存取必須是暫時的並設最長期間；多位審核人選不同期間時取最短 [32] | 【事實】核准後自動開通或解除該欄位的遮罩 [32]。【事實】判定用的是當下的資格，之後資格被移除不會撤銷已給的存取 [32] | 【事實】稽核紀錄預設 7 天過期，可定期匯出到 S3 或 ADLS Gen2（搜尋摘要）[33]。【查不到】防竄改機制 | 【事實】SaaS（北美與歐洲區域）與自架（Kubernetes 1.29–1.35、PostgreSQL 15+；版本 2026.1）（搜尋摘要）[33]。部分文件頁註明 Marketplace app 為 private preview [33] |
-| Databricks Unity Catalog — Request for Access | 【事實】Unity Catalog 物件上的權限（如 SELECT），可替自己、服務主體、他人或群組申請；文件未提列或欄層級 [34] | 【事實】申請送到設定的目的地（email、Slack 等，各上限 5 個）；審核者接受時是把主體加入群組或直接授權；「any user who opens the review link and signs in to the workspace can decline it」[34]。【事實】狀態 Public Preview（搜尋摘要）[34] | 【事實】文件未提授權期限；未處理的申請 7 天過期 [34] | 【事實】審核者手動授權，授出的內容不受申請內容約束 [34]。【事實】在 Databricks 外完成的核准不會匯入，顯示為「Managed externally」[34] | 【事實】申請保留 365 天；事件寫入 audit log [34] | 雲端（平台原生功能） |
+| Immuta（Request app） | 【事實】資料庫、schema、資料表、整個 data product，或「a masking exception to view unmasked data within specific columns」[32] | 【事實】審核流程可分支；人工審核可設 Any 或 All；審核人來自指定使用者、群組、屬性、權限或目錄擁有者（目錄擁有者目前只支援 Atlan）[32]。【查不到】是否禁止自己核准自己 | 【事實】可要求核准的存取必須是暫時的並設最長期間；多位審核人選不同期間時取最短 [32] | 【事實】核准後自動開通或解除該欄位的遮罩 [32]。【事實】判定用的是當下的資格，之後資格被移除不會撤銷已給的存取 [32] | 【事實】「By default, Immuta audit logs expire after 7 days」；事件存在客戶設定的 Elasticsearch 或 OpenSearch，供客戶自行匯出 [33]。【未查證】匯出到 S3 或 ADLS Gen2 的細節（UAM 頁未寫，原稿依搜尋摘要）。【查不到】防竄改機制 | 【事實】SaaS（北美與歐洲區域）與自架（Kubernetes 1.29–1.35、PostgreSQL 15+；版本 2026.1）（搜尋摘要）[33]。部分文件頁註明 Marketplace app 為 private preview [33] |
+| Databricks Unity Catalog — Request for Access | 【事實】Unity Catalog 物件上的權限（如 SELECT），可替自己、服務主體、他人或群組申請；文件未提列或欄層級 [34] | 【事實】申請送到設定的目的地（email、Slack 等，各上限 5 個）；審核者接受時是把主體加入群組或直接授權；「any user who opens the review link and signs in to the workspace can decline it」[34]。【事實】核准時會檢查審核者權限 [34]。【事實】2025-08-20 以 Public Preview 發表；Azure Databricks 文件頁仍標 Public Preview，未查到 GA 公告 [34] | 【事實】文件未提授權期限；未處理的申請 7 天過期，email 目的地在第 3 天提醒 [34] | 【事實】審核者選擇「加入群組」或「直接授權」[34]。【已更正】原稿寫「授出的內容不受申請內容約束」，文件並未這樣寫，只是沒有說明授出內容必須等於申請內容；改列【推論】：文件未描述兩者的一致性檢查。【事實】在 Databricks 外完成的核准不會匯入，顯示為「Managed externally」[34] | 【事實】申請保留 365 天；事件寫入 audit log [34] | 雲端（平台原生功能） |
 | Snowflake — organizational listing 的 request approval workflow | 【事實】listing 層級，綁角色；「cannot be used to grant access to roles and users」；文件未提列或欄 [35] | 【事實】單一決定（Grant 或 Deny）；核准人須對該 listing 有 OWNERSHIP 或 MODIFY [35]。2025-05-30 GA [35] | 【事實】文件未提期限 [35] | 【事實】核准人可以授予和申請不同的角色 [35]。【事實】走外部流程時，Snowflake 不會把外部工單系統的核准同步回來（搜尋摘要）[35] | 【事實】Provider Studio 的 Resolved requests；`OBJECT_ACCESS_REQUEST_HISTORY` 可查（搜尋摘要）[35] | 雲端 |
 | Snowflake — Request Access in Workspaces | 【事實】由 SQL 權限錯誤觸發；只能申請 account role，建議的角色僅供參考 [36] | 【事實】由 ACCOUNTADMIN 或 SECURITYADMIN 審核 [36] | 【事實】可設結束時間，但只適用「角色授予使用者」；授予既有角色時不能帶期限，且會讓持有該角色的所有人都得到權限 [36] | 【事實】審核者自行決定授什麼 [36] | 【事實】History 檢視；文件未描述稽核紀錄 [36] | 雲端 |
 | Snowflake — Multi-party Approval（管理操作，不是資料存取） | 【事實】停用 MFA、授予或撤銷管理角色、變更網路或驗證政策等 [37] | 【事實】最低核准數預設 2（1–20）；申請人自己的核准是否計入門檻，預設為 true [37] | 【事實】申請有效 1–14 天（預設 3）；核准後 3 天內可執行一次 [37] | 【事實】核准的操作只能執行一次 [37] | 【事實】`MULTI_PARTY_APPROVAL_REQUESTS` 等檢視 [37] | 【事實】需 Business Critical 以上版本 [37] |
@@ -149,7 +149,7 @@
 |---|---|---|---|---|
 | Microsoft Entra ID Governance | **部分**：申請人不能核准自己的申請 [1]；不相容關係連管理員直接指派也擋 [6]；但每階任一人即可、未見「各階不同人」規則 [1]；複查可設「使用者審自己」[8] | **沒有**：access package 的資源可隨時變更，「Any identity with existing assignments ... will automatically become members」，不需重簽 [7] | **部分**：到期、延長須核准、複查 [2][8]；非經核准的指派要靠活頁簿報表 [6]；未見執行後驗證 | **沒有**：稽核紀錄預設 30 天，須自行匯出 [5]；未查到完整性驗證 |
 | SailPoint Identity Security Cloud | **部分**：可全域封鎖 SoD 衝突的申請 [11]；但簽核人即申請人時可設自動核准 [10] | **未查到** | **部分**：native change detection 可偵測並自動撤銷平台外的變更 [12]；未見執行後驗證 | **未查到** |
-| Okta Identity Governance | **部分**：SoD 可封鎖，但多張申請並行時檢查會漏 [19]；自我核准未查到 | **未查到** | **部分**：certification 可處理衝突 [19]；期限未查到 | **未查到** |
+| Okta Identity Governance | **部分**：SoD 可封鎖，但多張申請並行時檢查會漏 [19]；群組、主管、代理人型核准人不會被指派給申請人本人，但指定特定使用者為核准人時允許自我核准 [61] | **未查到** | **部分**：certification 可處理衝突 [19]；期限未查到 | **未查到** |
 | Saviynt | **部分**：預防式 SoD（廠商資料）；論壇回報補償控制可被略過（2023）[22] | **未查到** | **未查到** | **未查到** |
 | One Identity Manager | **部分**：以參數禁止下單人核准自己的申請，並有合規檢查關卡與例外核准人；但屬可設定項，可逐流程設例外 [23] | **未查到** | **部分**：attestation 涵蓋權限、申請、例外核准 [23] | **未查到** |
 | C1（ConductorOne） | **部分**：有「Require distinct approvers」與自我審核開關，皆為選項 [25] | **未查到** | **部分**：授權期間上限、複查 [24][25] | **未查到**：有 audit trail API，未見完整性機制 [25] |
@@ -158,7 +158,7 @@
 | Veza | **部分**：多方多階核准 [29]；自我核准與申請時的 SoD 未查到 | **未查到** | **部分**：強制自動到期 [29] | **未查到** |
 | Zluri | **部分**：SoD 只提示，簽核人可照樣核准 [31] | **未查到** | **部分**：授權層級的期限、多階複查（廠商部落格）[31] | **未查到** |
 | Immuta | **部分**：Any 或 All 審核；未查到禁止自我核准 [32] | **部分**：核准後由同一系統自動套用 [32]；申請內容版本未查到 | **部分**：暫時核准與最長期間；但資格事後被移除不會撤銷 [32] | **沒有**：稽核紀錄預設 7 天過期，須匯出 [33] |
-| Databricks Unity Catalog RFA | **沒有**：單步；任何開啟連結並登入的人都能拒絕；核准人就是通知目的地的收件者 [34] | **沒有**：審核者手動授權，內容不受申請約束；平台外的核准不匯入 [34] | **沒有**：文件未提授權期限 [34] | **未查到**：申請保留 365 天、有 audit log [34] |
+| Databricks Unity Catalog RFA | **沒有**：單步；任何開啟連結並登入的人都能拒絕；核准人就是通知目的地的收件者 [34] | **未查到（不利跡象）**：平台外的核准不匯入 [34]；授出內容是否須等於申請內容，文件未說明（原稿標「沒有」，查證後降級） | **沒有**：文件未提授權期限 [34] | **未查到**：申請保留 365 天、有 audit log [34] |
 | Snowflake（listing 核准流程與 Workspaces 申請） | **部分**：須有特定權限才能核准；單一決定 [35][36] | **沒有**：核准人可授予不同角色；建議角色僅供參考 [35][36] | **部分**：只有「角色授予使用者」可帶期限 [36] | **未查到** |
 | Satori | **未查到** | **未查到** | **部分**：JIT、自動失效（廠商資料）[38] | **未查到** |
 | ALTR | **未查到** | **部分**：核准即自動建立政策 [42] | **未查到** | **未查到** [42] |
@@ -169,7 +169,7 @@
 
 **跨產品觀察**
 
-- 【事實】Q2 這一欄沒有任何產品被標為「有」；查到的反例有三個（Entra、Snowflake、Databricks）[7][34][35]。
+- 【事實】Q2 這一欄沒有任何產品被標為「有」；文件明確顯示反例的有兩個（Entra 的 access package 變更自動套用到既有指派、Snowflake 核准人可改授不同角色）[7][35]；Databricks 只確認平台外的核准不會匯入 [34]。
 - 【事實】Q3 的「執行後驗證」（核准後實際測一次設定是否與核准相符）在所有查到的文件中都沒有出現。最接近的是 SailPoint 的 native change detection（事後偵測平台外的變更）[12] 與 Entra 的活頁簿報表 [6]。
 - 【事實】Q4 沒有任何主流 IGA 或資料治理產品在公開文件中說明雜湊鏈或可獨立驗證的匯出；只有 EmpowerID 的白皮書與 BeyondTrust Entitle 的產品頁有這類宣稱 [45][57]。
 - 【推論】市場把這四件事拆給不同產品：IGA 管「誰能申請、誰核准、多久複查」，資料平台管「怎麼授權」，SIEM 或儲存體管「紀錄保存」。稽核要的是把四件事串成同一條證據鏈，這段銜接目前要使用者自己做。
@@ -197,7 +197,7 @@
 | 人工作業 | 84% 主要靠人工做存取複查與開通；不到 6% 完全自動化 | Zilla Security《2025 State of IGA》，300 位身分管理主管，廠商調查 [46] |
 | 整合困難 | 83% 說與既有 IGA 系統整合困難是自動化的最大障礙 | 同上 [46] |
 | 角色難維護 | 90% 無法準確定義與維護角色 | 同上 [46] |
-| 過度授權 | 過半組織表示稽核時複查的權限有超過 11% 是多餘、無主或過量的 | 同上 [46] |
+| 過度授權 | 超過 52% 的組織表示稽核時複查的權限有超過 11% 是多餘、無主或過量的 | 同上 [46] |
 | 成本 | 近 60% 認為現有 IGA 的主要缺點是總持有成本過高；超過一半把耗時的人工流程列為投資 IGA 的第一或第二原因；近四成尚未導入 SaaS 型 IGA | Omada《State of IGA 2025》，500 多位 IT 與業務主管，廠商調查 [47] |
 | 複查沒有業務單位參與 | 81% 以人工做存取複查；41% 由 IT 自己做、沒有業務使用者參與 | Netwrix，590 位 IT 人員，2022 年（資料較舊）[49] |
 | 管理層看到的與實際不符 | 儀表板顯示複查準時完成、稽核發現已處理，但身分問題仍出現在事故調查與稽核報告中 | Omada《State of Identity Governance 2026》，近 600 位受訪者；IDSA 部落格轉述，沒有對應的百分比 [48] |
@@ -205,6 +205,8 @@
 
 【事實】Gartner 2026-03 的研究摘要把「light IGA」描述為部署快、負擔低，但缺少完整治理能力，建議先盤點所有合規與治理需求再選 [59]。
 【推論】中型且需地端的公司處在一個空檔：完整的 IGA（One Identity、IdentityIQ）對這個規模偏重且價格不透明，輕量的新產品又幾乎都是雲端。這些公司的現況多半是簽核系統加上試算表，正是 platform-vision.md 開頭描述的問題。
+
+【事實】台灣在地監理動向：金管會 2025-12-30 發布「金融資安韌性發展藍圖」，為期 4 年、4 大構面 29 項措施，零信任架構列在「全域防護」構面 [62]。經濟日報報導零信任預計約 4 年逐步落地為「自律規範，並非強制規定」[62]；iThome 另以「從鼓勵轉為必備」形容，並列出系統維運管理、應用系統管理等六個優先導入場域（搜尋摘要，原頁回應 403，未逐頁核對）[62]。兩家媒體說法有落差，以「監理方向明確、尚無強制時程」理解較穩妥。【推論】零信任的「最小權限、持續驗證」會讓金融業客戶更常被問到「權限是否經核准、是否仍需要」，對本平台是需求面的順風，但不能當作法規強制依據寫進銷售文件。
 
 【查不到】台灣中型企業身分治理現況的公開數據。SailPoint 有一份台灣調查（2023-12-27 發布，調查台灣千大企業中 200 家大型企業的資安部門），但公開頁面沒有揭露數字，要下載報告，且對象是大型企業 [15]。
 
@@ -275,7 +277,7 @@
 
 **不確定**
 
-1. Okta 套裝價格（6／14／17 美元）、Agent 365 價格（15 美元）、Databricks RFA 的 Public Preview 狀態、Immuta 稽核紀錄 7 天、Teleport 的計價方式，都只取得搜尋摘要，未逐頁核對。
+1. Okta 套裝價格（6／14／17 美元）、Agent 365 價格（15 美元）、Teleport 的計價方式，都只取得搜尋摘要，未逐頁核對。（Databricks RFA 的 Public Preview 狀態與 Immuta 稽核紀錄 7 天已於查證時以原頁確認，見第 6 節。）
 2. 第 5 節標為「搜尋摘要」的來源，其引句可能經過改寫，引用前應回到原頁確認。
 3. 2.5 表中「未查到」多數出於文件未涵蓋，而非產品確定沒有；用於對外比較前，應向廠商查證或實測。
 4. 廠商調查（Zilla、Omada、Palo Alto Networks、CSA 與 Oasis）的樣本以北美與歐洲大型組織為主，未必代表台灣中型企業。
@@ -345,7 +347,7 @@
 | 53 | NIST NCCoE〈Accelerating the Adoption of Software and AI Agent Identity and Authorization〉概念文件（2026-02-05）；專案頁 | https://csrc.nist.gov/pubs/other/2026/02/05/accelerating-the-adoption-of-software-and-ai-agent/ipd ；https://www.nccoe.nist.gov/projects/software-and-ai-agent-identity-and-authorization | 搜尋摘要 |
 | 54 | ManageEngine ADManager Plus — Pricing details | https://www.manageengine.com/products/ad-manager/pricing-details.html | 直接開啟 |
 | 55 | Evolveum midPoint 產品頁與 4.10 datasheet；KuppingerCole Executive View（midPoint 4.8）；Fitgap 與 G2 的價格說明（第三方） | https://www.evolveum.com/midpoint ；https://evolveum.com/wp-content/uploads/midPoint-4-10-datasheet.pdf ；https://evolveum.com/wp-content/uploads/kuppingercole-evolveum-midpoint-4-8-executive-view.pdf ；https://us.fitgap.com/products/020205/midpoint-identity-and-access-management-system | 搜尋摘要 |
-| 56 | Microsoft Learn — Microsoft Identity Manager 2016：Deprecated features and planning for the future | https://learn.microsoft.com/en-us/microsoft-identity-manager/microsoft-identity-manager-2016-deprecated-features | 搜尋摘要 |
+| 56 | Microsoft Learn — Microsoft Identity Manager（MIM 2016 news，更新 2026-11-17；寫明「extended from January 13, 2026 to January 9, 2029」）；Deprecated features and planning for the future | https://learn.microsoft.com/en-us/microsoft-identity-manager/microsoft-identity-manager-2016 ；https://learn.microsoft.com/en-us/microsoft-identity-manager/microsoft-identity-manager-2016-deprecated-features | 第一頁直接開啟（查證時）；第二頁直接開啟，但該頁未載終止日期 |
 | 57 | EmpowerID 白皮書〈Continuous Evidence〉（2026-08；廠商宣稱） | https://empowerid.com/resources/white-papers/continuous-evidence | 直接開啟 |
 | 58 | Zluri 部落格〈SailPoint alternatives〉系列（競品廠商行銷文章，僅作痛點佐證） | https://www.zluri.com/eye-on-identity/sailpoint-saviynt-alternatives-modern-iga-platform-switch ；https://www.zluri.com/eye-on-identity/lightweight-iga-mid-market-saas-alternative-sailpoint | 搜尋摘要 |
 | 59 | Gartner 研究摘要頁：2026 Market Guide for Identity Governance and Administration（2026-08-28）；light IGA 相關研究（2026-03）。搜尋結果列出多個 Gartner 文件編號，哪一個編號對應哪一份未逐一確認 | https://www.gartner.com/en/documents/8321653 | 搜尋摘要（僅摘要，內文需付費） |

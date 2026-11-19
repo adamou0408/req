@@ -60,7 +60,8 @@
 - 回應的 `context`「can convey additional information that can be used by the PEP as part of the decision enforcement process」，規格列的例子包含決定的理由、Advices、Obligations、畫面提示、升級驗證指示（§5.5）[1]。
 - Resource Search「returns all resources of a given type that are permitted according to the provided Action」；搜尋結果拿去做 Access Evaluation「SHOULD result in a decision true」但不保證（§8.1、§8.5）。分頁用不透明的 `next_token`（§8.2）[1]。
 - `X-Request-ID` 為選用；PEP 送了，PDP 必須原值回傳（§10.1.3）[1]。
-- 安全：連線必須保護（例如 TLS，§11.1）；PDP 應驗證呼叫方，列出的做法是 mutual TLS、OAuth、API key，並建議 OAuth 2.0（§2、§11.2）；模型假設 PDP 信任 PEP（§11.4）[1]。
+- 安全：連線必須保護（例如 TLS，§11.1）；§2 說 API 本身的驗證不在規格範圍，但 RECOMMENDED 用 OAuth 2.0；§11.2 說 PDP SHOULD 驗證呼叫方，列出 mutual TLS、OAuth、API key 三種、不在其中指定；模型假設 PDP 信任 PEP：「The architecture of this model assumes the PDP must trust the PEP」（§11.4）[1]。
+- 判定結果簽章：§11.6「The PDP MAY choose to sign its authorization response」，並說明 TLS 在有代理或閘道的路徑上無法保證端到端完整性、簽章可提供不可否認性；但規格**沒有**定義簽章格式 [1]。（查證更正：原文寫「只有 metadata 可簽章」，與 §11.6 不符。）
 - 規格**沒有**定義判定結果的有效時間或快取規則；唯一的快取指引是 metadata（§11.9）[1]。
 
 誰已支援：
@@ -69,9 +70,9 @@
 |---|---|---|
 | 2024-05 互通測試通過者 | 3Edges、Aserto、Axiomatics、Cerbos、Permit.io、Rock Solid Knowledge、SGNL、Strata Identity、Thales，共 9 家 | [8] |
 | 2025-12 Gartner IAM Summit 展示 | 判定平台：Axiomatics、EmpowerID、Cerbos、SGNL、WSO2、Topaz；身分提供者：EmpowerID、Gluu、Curity、Thales。文中另稱互通計畫還有 9 個判定點與 9 個身分提供者（未列名） | [6] |
-| OpenFGA | 實驗性，要用 `--experimentals=authzen` 開啟；支援 evaluation、evaluations、三種 search 與 metadata。限制：不支援分頁、成功回應不填 `context`、不回傳 `X-Request-ID`、contextual tuples 沒有對應 | [9] |
+| OpenFGA | 實驗性，要用 `--experimentals=authzen` 開啟；支援 evaluation、evaluations、三種 search 與 metadata，路徑都掛在 store 底下（`/stores/{store_id}/access/v1/...`、`/.well-known/authzen-configuration/{store_id}`），不是規格的預設路徑。限制：不支援分頁（`page` 收下但忽略）、成功回應不填 `context`、回應有 `X-Request-ID` 但不回傳呼叫方送來的值、contextual tuples 沒有對應、不提供 `signed_metadata` | [9] |
 | Keycloak | 26.7.0 起實驗性支援，作為 PDP 提供 Evaluation、Evaluations 與 metadata；呼叫方用 OAuth2 client credentials 取得 token（2026-05-20 公告） | [10] |
-| OPA | 查不到官方支援聲明（見第 4 節） | — |
+| OPA | 查不到官方支援聲明；只有社群外掛（opa-authzen-plugin），作者稱 OPA 社群傾向先做外掛、不進核心，批次端點仍在開發中（搜尋摘要，見第 4 節） | [84] |
 
 工作組仍在發展的草案（都還不是定稿）[3]：
 
@@ -85,12 +86,12 @@ ARAP 草案把「被拒絕 → 提出申請 → 等待核准 → 重新判定」
 
 1. PEP 送 Access Evaluation。
 2. PDP 回 `decision=false`，並在 `context.access_request` 告知可以申請（含 `endpoint`、`template`、`expires_at`）。
-3. PEP 向 Access Request Service 送出申請（必填 `subject`、`resource`、`action`、`denial`；選填 `requested_access.requested_until`、`emergency`、`callback`）。
-4. 服務回傳工作代號（`id`、`status`、`status_endpoint`）。狀態值：`pending`、`approved`、`denied`、`expired`、`cancelled`、`failed`。
+3. PEP 向 Access Request Service 送出申請（必填 `subject`、`resource`、`action`、`denial`；`denial` 內必填 `expires_at`，並須帶 `evaluation_id` 或 `binding_token` 其中之一；選填 `requested_access.requested_until`、`emergency`、`callback`）。
+4. 服務回傳工作代號（`id`、`status`、`status_endpoint`）。狀態值：`pending`、`approved`、`denied`、`expired`、`cancelled`、`failed`；批次工作另有 `partial`（由 BULK 配套規格定義）；實作可自行增加狀態值。
 5. PEP 輪詢或收回呼。
 6. PEP 重新送 Access Evaluation。
 
-草案的不變條件：「A denied decision remains a denial and MUST NOT be treated as access.」、「Approval does not by itself grant access.」；核准結果以 `result.mode: "reevaluate"` 與 `approval`（`id`、`approved_at`、`approved_until`）表達 [4]。
+草案的不變條件：摘要寫「a denied decision remains a denial and MUST NOT be treated as access」，§1.2「A requestable denial is still a denial.」，§7.2「Approval does not by itself grant access」；核准結果以 `result.mode: "reevaluate"`（基本規格唯一的模式）與 `approval` 表達，`approval` 必填 `id`、`approved_until`，`approved_at`、`state` 選填；PEP 重新判定時把它放在 `context.approval` [4]。
 
 **推論：** ARAP 描述的 Access Request Service 就是本平台在做的事（收申請、跑簽核、產生有期限的核准）。它才發布 13 天、只有一位作者 [4]，查不到任何實作紀錄，現在不能依賴；但本平台的 `check` 拒絕回應與申請單狀態若一開始就留出對應欄位，之後接上的成本很低。
 
@@ -148,7 +149,7 @@ ARAP 草案把「被拒絕 → 提出申請 → 等待核准 → 重新判定」
 
 | 規格 | 版本與狀態 | 內容 | 來源 |
 |---|---|---|---|
-| OpenID Shared Signals Framework（SSF） | 1.0 Final，文件日期 2025-08-29，2025-09-16 新聞稿公告 | 事件的包裝、串流管理 API、傳遞方式、發送方 metadata | [19][22][23] |
+| OpenID Shared Signals Framework（SSF） | 1.0 Final，文件日期 2025-08-29；工作組頁面記載「Three Shared Signals Final Specifications Approved」為 2025-09-02 [75]，2025-09-16 新聞稿公告 | 事件的包裝、串流管理 API、傳遞方式、發送方 metadata | [19][22][23] |
 | OpenID Continuous Access Evaluation Profile（CAEP） | 1.0 Final，2025-08-29 | 工作階段與存取層級的 8 種事件 | [20] |
 | OpenID RISC Profile | 1.0 Final，2025-08-29 | 帳號層級的風險事件 | [21] |
 | CAEP Interoperability Profile | 1.0 Implementer's Draft | 互通測試用的最小子集 | [23] |
@@ -199,7 +200,7 @@ RFC 8936（輪詢）§2.2：「Once a SET has been acknowledged, the SET Transmi
 | 層次 | SSF／SET | Standard Webhooks | CloudEvents | 一般 webhook |
 |---|---|---|---|---|
 | 事件包裝 | JWT，`events` 以 URI 為鍵 [28] | 建議 `type`、`timestamp`、`data` 三個欄位 [31] | 必填 `id`、`source`、`specversion`、`type`；選填 `time`、`subject`、`datacontenttype`、`dataschema` [33] | 各家自訂 |
-| 簽章 | JWS，公鑰由 `jwks_uri` 發布 [19] | 標頭 `webhook-id`、`webhook-timestamp`、`webhook-signature`；`v1` 為 HMAC-SHA256，簽 `msg_id.timestamp.payload`；非對稱用 ed25519（`v2a`） [31] | 核心規格不定義簽章 [33] | 各家自訂 |
+| 簽章 | JWS，公鑰由 `jwks_uri` 發布 [19] | 標頭 `webhook-id`、`webhook-timestamp`、`webhook-signature`；`v1` 為 HMAC-SHA256，簽 `msg_id.timestamp.payload`；非對稱用 ed25519（`v2a`，簽章內容前面多加端點代號；舊的 `v1a` 已標為淘汰，「Producers should send `v2a` instead」） [31] | 核心規格不定義簽章 [33] | 各家自訂 |
 | 重放防護 | `jti` 唯一 [28] | 驗證時間戳在容許範圍內「to prevent replay attacks」（規格未給具體秒數）；「Use the `webhook-id` header as an idempotency key」 [31] | 「Producers MUST ensure that `source` + `id` is unique for each distinct event」 [33] | 各家自訂 |
 | 重試 | 規格未定 | 建議數天的指數退避；範例排程 5 秒、5 分、30 分、2 小時…到 24 小時；收到 `410 Gone` 停用端點 [31] | 不在範圍 | 各家自訂 |
 | 訂閱管理 | 有標準 API [19] | 無 | 無 | 各家自訂 |
@@ -295,7 +296,7 @@ Crosby 與 Wallach（USENIX Security 2009）對防竄改紀錄的定義是：不
 
 PostgreSQL 文件的相關事實：
 
-- 「Superusers and roles with the `BYPASSRLS` attribute always bypass the row security system when accessing a table. Table owners normally bypass row security as well」[56]。
+- 「Superusers and roles with the `BYPASSRLS` attribute always bypass the row security system when accessing a table. Table owners normally bypass row security as well」，但擁有者可用 `ALTER TABLE … FORCE ROW LEVEL SECURITY` 讓自己也受列安全限制 [56]。superuser 與 `BYPASSRLS` 角色則無法用此方式限制。（文件頁面的 current 已是 PostgreSQL 19，頁面公告 19 版於 2026-11-19 發布 [56]。）
 - `ALTER TABLE … DISABLE TRIGGER`：「A disabled trigger is still known to the system, but is not executed when its triggering event occurs」；執行 `ALTER TABLE` 的條件是「You must own the table」[57]。
 - trigger 是否觸發還受 `session_replication_role` 影響；設為 `ENABLE ALWAYS` 的 trigger 不受它影響 [57]。
 
@@ -326,7 +327,7 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 
 | 框架 | 條文 | 原文重點 |
 |---|---|---|
-| PCI DSS v4.0.1（2024-06）[58] | 10.3.1 | 「Read access to audit logs files is limited to those with a job-related need.」 |
+| PCI DSS v4.0.1（2024-06；截至 2026-11 仍是現行版本，PCI SSC 於 2026-06-03 至 07-20 對 v4.0.1 開放意見徵詢，作為下一版的依據，尚未公布新版日期（搜尋摘要）[80]）[58] | 10.3.1 | 「Read access to audit logs files is limited to those with a job-related need.」 |
 | | 10.3.2 | 「Audit log files are protected to prevent modifications by individuals.」測試程序：以存取控制、實體隔離或網路隔離保護 |
 | | 10.3.3 | 「…promptly backed up to a secure, central, internal log server(s) or other media that is difficult to modify.」 |
 | | 10.3.4 | 「File integrity monitoring or change-detection mechanisms is used on audit logs to ensure that existing log data cannot be changed without generating alerts.」 |
@@ -345,6 +346,17 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 | | (f)(2)(iv) | 「Have the capacity to readily download and transfer copies of a record and its audit trail」，須同時提供人可讀格式與合理可用的電子格式 |
 | PCAOB AS 1105 修正（適用於 2025-12-15 以後開始的會計年度）[61] | 新增 .10A | 查核人員評估公司以電子形式提供的外部資訊是否可靠時，要了解資訊來源與公司接收、保存、處理的流程，並且「testing the information to determine whether it has been modified by the company」或測試相關控制；必要時包含資訊科技一般控制與自動化應用控制 |
 
+台灣在地參考（查證時補充）：
+
+| 來源 | 條文 | 內容 |
+|---|---|---|
+| 電子簽章法（2024-05-15 修正；第 22 條「本法自公布日施行」）[81] | 第 4 條 | 「電子文件及電子簽章，符合本法規定者，在功能上等同於實體文件及簽章，不得僅因其電子形式而否認其法律效力。」 |
+| | 第 2 條第 3 款 | 數位簽章「屬於電子簽章之一種」，以簽署人私密金鑰加密、可用公開金鑰驗證，「並具憑證機構簽發之憑證者」 |
+| | 第 6 條 | 以數位簽章簽署、憑證由主管機關核定或許可的憑證機構簽發且在有效期間與使用範圍內者，「推定為本人親自簽名或蓋章」 |
+| 上市上櫃公司資通安全管控指引（證交所；2024-09 修正對照表）（搜尋摘要）[82] | 第 23 條 | 建立監控措施，含身分驗證存取紀錄、重要資料異動、管理者行為等，「並針對日誌建立適當之保護機制」；查不到指引中存取權限覆核頻率或日誌保存年限的條文 |
+
+**推論（台灣）：** 平台內的簽核（帳密＋MFA）屬於電子簽章法的「電子簽章」，有第 4 條的不得否認效力，但**不是**第 6 條有推定效力的「數位簽章」（需憑證機構簽發的憑證）。若客戶要求簽核具推定本人簽名的效力，要另外支援以憑證（例如工商憑證、自然人憑證）簽署，這不在本文件的互通標準範圍，建議交由法規調查文件確認是否需要。
+
 **推論：**
 
 - 沒有一個框架點名雜湊鏈、Merkle tree 或區塊鏈。稽核人員驗的是：誰能改（權限與職責分離）、改了會不會被發現（變更偵測與告警）、有沒有另一份放在改不到的地方（集中備份或 WORM）、留多久、能不能匯出給他們重做。
@@ -356,7 +368,7 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 
 | 格式 | 性質與現況 | 優點（推論） | 缺點 | 來源 |
 |---|---|---|---|---|
-| OCSF | 開放結構描述；最新 1.9.0（2026-08-03），前一版 1.8.0（2026-03）。Identity & Access Management 類別有 3001 Account Change、3002 Authentication、3003 Authorize Session、3004 Entity Management、3005 User Access Management、3006 Group Management、3007 User Management、3008 Role Management（3001 與 3005 在 1.9.0 瀏覽器上標示「D」） | 欄位語意固定，跨廠商；Amazon Security Lake 要求自訂來源「must adhere to the OCSF schema and an Apache Parquet format」 | 版本更新快（一年三版）；沒有「簽核決定」的現成類別（推論，見第 4 節） | [63][64][65] |
+| OCSF | 開放結構描述；最新 1.9.0（2026-08-03），前一版 1.8.0（2026-03）。Identity & Access Management 類別有 3001 Account Change、3002 Authentication、3003 Authorize Session、3004 Entity Management、3005 User Access Management、3006 Group Management、3007 User Management、3008 Role Management。**3001 Account Change 與 3005 User Access Management 在 1.9.0 標為「DEPRECATED since v1.9.0」，改用 `user_management` 類別** [77]（查證更正：原文寫「標示 D、意義不明」） | 欄位語意固定，跨廠商；Amazon Security Lake 要求自訂來源「must adhere to the OCSF schema and an Apache Parquet format」 | 版本更新快（1.5.0 2025-04、1.6.0 2025-08、1.7.0 2025-11、1.8.0 2026-03、1.9.0 2026-08 [64]），而且會淘汰類別；沒有「簽核決定」的現成類別（推論，見第 4 節） | [63][64][65][77] |
 | CEF | ArcSight 的文字格式，走 syslog；標頭欄位含 Device Vendor、Device Product、Device Version、DeviceEventClassID、Name、Severity，後接鍵值延伸欄位。Microsoft Sentinel 以 CommonSecurityLog 表接收 | 老牌 SIEM 普遍能收 | 欄位為網路安全設備設計，自訂資料只能塞進 `cs1`–`cs6` 等自訂欄位，巢狀結構會遺失 | [66] |
 | syslog（RFC 5424） | Standards Track（2009-03）；HEADER ＋ STRUCTURED-DATA ＋ MSG；實作必須支援 TLS 傳輸（RFC 5425） | 到處都有 | 「The syslog protocol does not provide acknowledgment of message delivery.」；協定本身沒有機密性與重放偵測；訊息可能遺失 | [67] |
 | JSON Lines | 每行一個 JSON 值、UTF-8、以 `\n` 結尾；副檔名 `.jsonl`；媒體型別「may be `application/jsonl`, but this is not yet standardized」 | 最簡單，任何工具都能讀；可逐行驗證雜湊 | 不是正式標準；沒有欄位語意 | [68] |
@@ -439,7 +451,7 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 | M10 | 稽核紀錄的鏈頭定期寫到平台資料庫管理者無法修改的外部位置（至少支援 WORM 物件儲存） | 結論 7、8；2.5.3 |
 | M11 | 提供獨立於平台的驗證工具與公開的雜湊演算法說明；輸入為匯出檔與錨定值 | 結論 7；2.5.4（AS 1105 .10A） |
 | M12 | 排程驗證整條鏈與錨定值，不符即告警並留紀錄 | PCI DSS 10.3.4；NIST AU-9 b |
-| M13 | 稽核紀錄資料表的擁有者角色與應用程式角色分離；防改寫的 trigger 設為不受 `session_replication_role` 影響；停用 trigger 或變更擁有者屬於要被記錄與複查的特權操作 | 結論 8；2.5.3 |
+| M13 | 稽核紀錄資料表的擁有者角色與應用程式角色分離；有列安全政策的表設 `FORCE ROW LEVEL SECURITY`；防改寫的 trigger 設為不受 `session_replication_role` 影響；停用 trigger 或變更擁有者屬於要被記錄與複查的特權操作 | 結論 8；2.5.3 |
 | M14 | 證據匯出為 JSON Lines（每行含序號、前一筆雜湊、本筆雜湊）加清單檔（範圍、筆數、鏈頭、錨定值）；同時提供人可讀版本 | 2.6；SEC 17a-4(f)(2)(iv) |
 | M15 | `audit_feed` 以游標式拉取 API 提供，內容與匯出檔相同 | 2.6 |
 | M16 | 定期複查：逐項與批次決定、撤銷需即時生效並發事件、核准可要求填理由、沒人回應的處理（升級或撤銷）可設定、整份活動完成時由負責人簽核、可下載歷史 | 結論 10；2.7；PCI DSS 7.2.4 |
@@ -477,7 +489,7 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 | N7 | immudb、Trillian、Tessera、Rekor、公有區塊鏈 | 結論 9；2.5.2 |
 | N8 | 內建 CEF 或 syslog 輸出 | 2.6；有損且無送達確認，可由客戶的收集器轉換 |
 | N9 | AuthZEN Obligations、COAZ | 2.1.1；仍是草案，第一版沒有對應需求 |
-| N10 | 判定結果的簽章（簽章 JWT 形式的 decision） | 本次讀到的 AuthZEN 1.0 內容只有 metadata 可簽章，沒有判定結果簽章的定義 [1]；TLS 加呼叫紀錄已足夠（推論） |
+| N10 | 判定結果的簽章（簽章 JWT 形式的 decision） | AuthZEN 1.0 §11.6 允許 PDP「MAY」簽章判定回應，但沒有定義格式 [1]，做了也沒有互通對象；第一版以 TLS 加呼叫紀錄為準，若客戶的 PEP 與平台之間有代理或閘道再評估（推論）。（查證更正：原文寫「規格只有 metadata 可簽章」） |
 
 ---
 
@@ -485,8 +497,8 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 
 | # | 事項 | 狀況 |
 |---|---|---|
-| U1 | OPA 是否官方支援 AuthZEN | 查不到官方聲明。只有一篇個人文章稱 2026-04 時單筆判定情境通過、批次端點未實作，未採信 |
-| U2 | AuthZEN 的一致性認證計畫 | 2026-07 的文章提到「conformance certification program」，但查不到已通過認證的名單或計畫細節 [6][7] |
+| U1 | OPA 是否官方支援 AuthZEN | 查不到官方聲明。只有社群外掛與個人文章稱 2026-04 時單筆判定情境通過、批次端點未實作，未採信 [84] |
+| U2 | AuthZEN 的一致性認證計畫 | 2026-07 的文章提到「conformance certification program」[7]；工作組簡報稱已定義 PDP 的一致性認證設定檔，且認證只驗協定一致、不驗判定正確（搜尋摘要）[83]。查不到已通過認證的名單 |
 | U3 | AuthZEN 互通計畫 2026 年的完整參與名單 | 查不到；Keycloak 文章稱「over a dozen independently-developed PDPs」，是廠商說法 [10] |
 | U4 | Microsoft Entra 是否對第三方提供 SSF 串流、支援哪些事件 | 查不到 Microsoft 官方文件 |
 | U5 | Okta 作為 SSF 接收方支援的事件清單、發送方的傳遞方式與發布狀態 | 文件未寫 [24] |
@@ -494,12 +506,12 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 | U7 | `draft-ietf-scim-roles-entitlements` 在 -01（2026-04-19 到期）之後的狀態 | 查不到更新版本或 RFC；另有個人草案 `draft-poreddy-scim-role-assignment` 僅見標題 |
 | U8 | Standard Webhooks 建議的時間戳容許秒數 | 規格原文沒有具體數字 [31]；次級來源說 300 秒，未採信 |
 | U9 | CEF 規格原文（標頭格式行、跳脫規則） | OpenText／Micro Focus 的文件回 403，未能讀到原文；2.6 的欄位名稱來自 Microsoft 的對應表 [66] |
-| U10 | OCSF 1.9.0 中 3001、3005 的「D」是否代表已淘汰，以及簽核決定、授權生效／撤銷應對應哪個類別 | 結構描述瀏覽器沒有解釋「D」；對應要在實作時逐一比對，可能要用擴充 |
-| U11 | OCSF 的治理與標準化進度 | 搜尋摘要稱 2024-11 加入 Linux Foundation、預計 2026-06 成為 ITU 標準；未讀到原文，是否已通過不明 |
+| U10 | 簽核決定、授權生效／撤銷應對應 OCSF 哪個類別 | 「D」已查明是淘汰（見 2.6）[77]；對應仍要在實作時逐一比對，可能要用擴充 |
+| U11 | OCSF 的治理與標準化進度 | 2024-11 加入 Linux Foundation；AWS 部落格稱 2025-12 ITU 成員國支持送批、目標 2026-06 正式通過；但 ITU 2026-08-25 的文件仍稱 X.icd-schemas 為「new draft」，是否已通過查不到（搜尋摘要）[78][79] |
 | U12 | PCAOB AS 1105 第 .08、.10、.10A 段的逐字條文 | PCAOB 網站回 403；2.5.4 的內容來自 SEC 在聯邦公報的公告前言 [61]。另有搜尋摘要稱審計品質中心曾請求延後 .10A 生效，結果不明 |
 | U13 | ISO/IEC 27001:2022 附錄 A（例如 8.15 記錄、5.18 存取權限）的條文 | 付費標準，未取得原文，本文件不引用 |
 | U14 | SOC 2（AICPA Trust Services Criteria）對紀錄完整性與存取複查的原文 | 本次未查 |
-| U15 | 台灣的法規與主管機關對稽核紀錄防竄改、時間戳記、存取複查的具體要求 | 不在本主題範圍，本文件未涵蓋；eIDAS 的引用僅供參考，不適用於台灣 |
+| U15 | 台灣的法規與主管機關對稽核紀錄防竄改、時間戳記、存取複查的具體要求 | 查證時補了電子簽章法與上市櫃資安管控指引第 23 條（2.5.4）；指引中的存取權限覆核頻率、日誌保存年限，以及金管會對金融業的具體條文，本次查不到原文；eIDAS 的引用僅供參考，不適用於台灣 |
 | U16 | 「稽核人員實際接受什麼」的實證資料（調查、訪談） | 查不到有方法說明的調查；2.5.4 的結論是從條文推論，不是稽核人員的說法 |
 | U17 | Amazon QLDB 終止、XACML 3.0 與 ACAL 的日期、OPA 與 OpenFGA 的 CNCF 日期、OIDC 的 ISO 編號、eIDAS 第 41 條、SailPoint 與 Okta 的 API 路徑 | 只在搜尋結果摘要看到，未打開原文逐字核對（文中已標示） |
 | U18 | Cedar 加入 CNCF 的官方公告內容 | AWS 部落格頁面只讀到導覽列；日期與採用者來自 InfoQ 的報導 [16] |

@@ -7,17 +7,17 @@
   - 標「【推論】」的是本文作者的判斷，不是來源的說法。
   - 標「【未核對原文】」的是只拿到二手摘要、沒有拿到標準原文的內容。
   - 查不到的事項集中在第 4 節。
-- 取材限制：ISO 與 AICPA 的原文需付費或登入，本文對這兩者只能引二手來源，已逐處標明。調查後段網頁搜尋額度用完，之後只用直接抓取已知網址補足（見第 4 節）。
+- 取材限制：ISO 與 AICPA 的原文需付費或登入，本文對這兩者只能引二手來源，已逐處標明。初稿後段網頁搜尋額度用完；2026-11-19 已由獨立查證者重新搜尋並逐項核對原文（見第 6 節）。
 
 ## 1. 重點結論
 
 1. 各框架對存取治理的要求可以收斂成同一組控制目標：授予前經核准、最小權限、職責分離、異動與離職即時收回、定期複查、特權另管、紀錄可歸責且受保護；差別只在頻率與強度 [S2][S10][S14][S16][S19][S21]。
 2. 稽核人員不只看「有沒有核准紀錄」，還要先證明拿來當證據的報表本身完整且正確（IPE）；PCAOB 2021、2022 兩個檢查年度各有約 17% 的 comment form 含這類缺失 [S2][S3]。
-3. 存取權管理是 SOX 範圍內持續上升的缺失來源：揭露重大缺失的公司中，涉及「IT、軟體、安全與存取」的比例從 2021 年的 31% 升到 2025 年的 58%；2026 年 2 月 KPMG 對 2,900 多位稽核與風險主管的調查，存取權複查缺失排 IT 範疇第一（36%） [S4][S6]。
-4. 定期複查已經有寫明數字的強制頻率：PCI DSS 7.2.4 至少每六個月；DORA 的 RTS 第 21 條至少每年、支援關鍵或重要功能的系統至少每 6 個月；ISO、NIST、NIS2、SOC 2、SOX 則是「定期」或「組織自訂」 [S16][S21][S10][S19]。
+3. 存取權管理是 SOX 範圍內持續上升的缺失來源：KPMG 統計的重大缺失根因中，涉及「IT、軟體、安全與存取」的比例從 2021 年的 31% 升到 2025 年的 58%（原圖附註寫分母是 2021–2025 合計 1,176 份報告，各年比例怎麼算原文沒有說明）；2026 年 2 月 KPMG 對 2,900 多位稽核與風險主管的調查，存取權複查缺失排 IT 範疇第一（36%） [S4][S6]。
+4. 定期複查已經有寫明數字的強制頻率：PCI DSS 7.2.4 至少每六個月；DORA 的 RTS 第 21 條 (e)(iv) 要求存取權「update」至少每年、支援關鍵或重要功能的系統至少每 6 個月（原文用「更新」而非「複查」，複查角色另見 (e)(i)）；ISO、NIST、NIS2、SOC 2、SOX 則是「定期」或「組織自訂」 [S16][S21][S10][S19]。
 5. 複查要留下的不是「做過」，而是「管理階層確認仍適當」加上「不適當的已處理」這兩項證據 [S16][S19][S10]。
 6. 服務帳號與系統帳號已被納入和人員同等的治理：PCI DSS 7.2.5、7.2.5.1、8.6.1 自 2025-03-31 起強制；DORA 的 RTS 第 20 條把「natural persons and systems」並列 [S16][S21]。
-7. AI agent 目前沒有查到任何強制法條直接規定「每個 agent 要有負責人、權限要經核准」；但新加坡 IMDA、NIST NCCoE、OWASP 的指引方向一致，EU AI Act 第 14、26 條只對高風險 AI 系統要求指派有權限的自然人監督，且適用日已延到 2027-12-02 [S33][S27][S30][S31][S22][S23]。
+7. AI agent 目前沒有查到任何強制法條直接規定「每個 agent 要有負責人、權限要經核准」；但新加坡 IMDA、NIST NCCoE、OWASP 的指引方向一致，EU AI Act 第 14、26 條只對高風險 AI 系統要求指派有權限的自然人監督，且依 2026-07-24 刊登公報的 Regulation (EU) 2026/1744，Annex III 類高風險系統的適用日已延到 2027-12-02；台灣金管會 2026-10-13 發布的代理 AI 文件仍在 30 天徵詢階段 [S33][S27][S30][S31][S22][S40][S42]。
 8. 防竄改紀錄的規範已從「只能 WORM」放寬為「WORM 或完整的時間戳稽核軌跡」（SEC 17a-4，2023-05-03 起）；NIST、PCI DSS、DORA 都要求防修改並能偵測修改 [S34][S35][S10][S16][S21]。
 9. NIST 的零信任架構把「做決定」和「執行決定」拆成兩個元件，並要求每次存取前都強制判定；SP 800-53 的 AC-24 明文允許決策與執行由不同實體負責，這是平台對外提供判定介面的規範依據 [S12][S10]。
 10. 「能證明」本身是法定義務：GDPR 第 5(2) 條要求控管者能證明合規，NIS2 第 20(1) 條要求管理階層核准資安措施並可被追究責任 [S17][S18]。
@@ -55,7 +55,7 @@ SOX 法條本身沒有列出存取控制或職責分離的要求；這些要求�
 | 證據強度（AS 2201.50） | 由弱到強：「inquiry, observation, inspection of relevant documentation, and re-performance of a control」；且「Inquiry alone does not provide sufficient evidence」 | 稽核會要求重新執行：拿同一筆輸入，看結果是否相同。規則、參數、流程版本都要保留 |
 | 風險與證據量（AS 2201.46–.47） | 控制的風險越高，要取得的證據越多；風險因素包含控制是否依賴 ITGC、是人工還是自動 | 自動化控制在 ITGC 有效時風險較低 |
 | 自動化控制的基準測試（AS 2201.B28–.B29） | 全自動的應用控制「generally not subject to breakdowns due to human failure」；若程式變更、程式存取、電腦作業三項一般控制有效，且控制自上次測試後沒有變更，稽核人員可以不重做前一年的測試 | 把職責分離做成引擎強制，並能證明規則沒被改過，可以減少每年的測試量 |
-| 抽樣（AS 2315.32） | 「Sampling generally is not applicable to tests of controls that depend primarily on appropriate segregation of duties」 | 職責分離不是抽幾張單來看，而是看系統設定與規則 |
+| 抽樣（AS 2315.32） | 「For many tests of controls, sampling does not apply」；「Sampling generally is not applicable to tests of controls that depend primarily on appropriate segregation of duties or that otherwise provide no documentary evidence of performance」 | 【推論】職責分離的測試不靠抽單，稽核會改用觀察、詢問或檢查設定；平台要讓「規則設定與版本」本身可以被檢查 |
 
 【推論】上表合起來的意思是：把職責分離、版本綁定這類規則做成「設定繞不過去」的自動化控制，稽核成本最低；但前提是平台要能證明規則本身的變更受控（對應 AS 2201.B29 的 program changes）。
 
@@ -74,7 +74,7 @@ SOX 法條本身沒有列出存取控制或職責分離的要求；這些要求�
 | 數字 | 內容 | 來源與年份 |
 |---|---|---|
 | 7%（238 / 3,307） | FY'25 年報中揭露重大缺失的公司比例 | KPMG 2025 study，資料來自 Audit Analytics，截至 2025-06-30 [S4] |
-| 31% → 40% → 52% → 54% → 58% | 揭露重大缺失的公司中，根因涉及「IT, software, security, and access issues」的比例，2021 至 2025 | 同上 [S4] |
+| 31% → 40% → 52% → 54% → 58% | 根因涉及「IT, software, security, and access issues」的比例，2021 至 2025。原圖附註：「Percentages are calculated by dividing the number of companies with MWs in a category by total number of reports between 2021 and 2025 (1,176)」；逐年比例的分母原文沒有另外說明 | 同上 [S4] |
 | 37%（前一年 30%） | 2025 年重大缺失落在「Systems」流程領域的比例 | 同上 [S4] |
 | 原文描述 | Systems 領域「A vast majority reported issues in managing user access, including inappropriate access rights, failure to timely manage terminated users, and inadequate access reviews」，另有「lack of enforcement of proper SOD」 | 同上 [S4] |
 | 36% | IT 範疇的 SOX 問題中選「User access review deficiencies」的比例，排第一；第二是「Key report/IPE deficiencies」28% | KPMG 2026 年 2 月網路研討會即時調查，受訪者 2,900 多位稽核與風險主管 [S6] |
@@ -177,6 +177,8 @@ SP 800-53 對複查頻率、保存期間都留給組織定義，沒有固定數�
 
 #### PCI DSS v4.0.1（2024 年 6 月）
 
+版本狀態：v4.0.1 仍是現行版本。PCI SSC 在 2026-06-03 至 2026-07-20 對 v4.0.1 辦了公開徵詢，目的寫的是「help determine whether to revise, and what type of revisions are needed」；查閱日沒有看到下一版的發布日期 [S41]。【推論】條號在可見的將來不會變，但 2027 年後可能改版，控制對照表要記下引用的版本。
+
 以下都是 Defined Approach Requirements 的原文 [S16]。標「2025-03-31 起強制」的是原文註記「This requirement is a best practice until 31 March 2025, after which it will be required」的要求。
 
 | 要求 | 原文 | 備註 |
@@ -250,7 +252,7 @@ DORA 自 2025-01-17 起適用 [S20]。
 | RTS 第 21 條 (b) | 職責分離要「prevent unjustified access to critical data or to prevent the allocation of combinations of access rights that may be used to circumvent controls」 | [S21] |
 | RTS 第 21 條 (c) | 盡量限制通用與共用帳號，並確保「users are identifiable for the actions performed in the ICT systems at all times」 | [S21] |
 | RTS 第 21 條 (e)(i)–(iii) | 指定授予、複查、撤銷存取權的角色與責任；特權、緊急、管理者存取採「need-to-use or an ad-hoc basis」；離職或不再需要時「without undue delay」收回 | [S21] |
-| RTS 第 21 條 (e)(iv) | 存取權的更新「at least once a year for all ICT systems, other than ICT systems supporting critical or important functions and at least every 6 months for ICT systems supporting critical or important functions」 | [S21] |
+| RTS 第 21 條 (e)(iv) | 「update of access rights where changes are necessary and at least once a year for all ICT systems, other than ICT systems supporting critical or important functions and at least every 6 months for ICT systems supporting critical or important functions」。注意：原文是「update」（更新），條文本身沒有出現「review」；把它當成複查頻率是一般解讀，屬【推論】。(e) 的對象是「user and generic accounts, including generic administrator accounts」 | [S21] |
 | RTS 第 12(2) 條 | 紀錄要涵蓋「logical and physical access control… and identity management」與變更管理；(d)「measures to protect logging systems and log information against tampering, deletion, and unauthorised access at rest, in transit, and, where relevant, in use」；(e) 偵測紀錄系統失效；(f) 各系統時鐘對「a documented reliable reference time source」同步 | [S21] |
 
 ### 2.6 AI agent 與非人類身分的治理
@@ -261,14 +263,16 @@ DORA 自 2025-01-17 起適用 [S20]。
 | DORA RTS 第 20(1) 條 | 歐盟法規，對金融業強制 | 「natural persons and systems」都要有唯一識別與驗證 [S21] |
 | NIS2 執行規則 11.1.2(b) | 歐盟法規，對特定數位業者強制 | 存取控制政策要涵蓋系統對系統的存取 [S19] |
 | NIST SP 800-53 的 AC-2、AC-6、IA-9 | 美國聯邦標準 | 帳號類型含 service；最小權限適用於代表使用者行動的程序；服務要唯一識別與驗證 [S10] |
-| EU AI Act（Regulation (EU) 2024/1689）第 12、14、19、26 條 | 歐盟法規；只適用高風險 AI 系統；獨立類高風險系統的適用日已由 2026-08-02 延到 2027-12-02，嵌入產品類延到 2028-08-02 [S23][S24][S25] | 第 12(1) 條：高風險系統要能自動記錄事件。第 14(4) 條：監督者要能 (d) 決定不使用或推翻輸出、(e) 中止系統。第 26(2) 條：「Deployers shall assign human oversight to natural persons who have the necessary competence, training and authority」。第 26(6) 條：部署者保存系統自動產生的紀錄「at least six months」 [S22] |
+| EU AI Act（Regulation (EU) 2024/1689）第 12、14、19、26 條 | 歐盟法規；只適用高風險 AI 系統。Regulation (EU) 2026/1744（Digital Omnibus on AI，2026-07-08 簽署、2026-07-24 刊登公報、刊登後第三日生效）把第三章第 1–3 節的適用日改為：Annex III 類 2027-12-02、Article 6(1)／Annex I 類 2028-08-02 [S40]。該修正案的修正點清單沒有第 12、14、19、26 條，下列引文仍是現行文字 [S40] | 第 12(1) 條：高風險系統要能自動記錄事件。第 14(4) 條：監督者要能 (d) 決定不使用或推翻輸出、(e) 中止系統。第 26(2) 條：「Deployers shall assign human oversight to natural persons who have the necessary competence, training and authority」。第 26(6) 條：部署者保存系統自動產生的紀錄「at least six months」 [S22] |
 | NIST AI RMF 1.0（2023 年 1 月） | 自願性框架 | GOVERN 1.6：有機制盤點 AI 系統。GOVERN 2.1：角色、責任與溝通管道要有文件。GOVERN 3.2：要有政策界定「roles and responsibilities for human-AI configurations and oversight of AI systems」。MANAGE 2.4：要有機制並指派責任來「supersede, disengage, or deactivate AI systems」 [S26] |
-| NIST NCCoE《Accelerating the Adoption of Software and AI Agent Identity and Authorization》 | 概念文件草案，2026 年 2 月；徵求意見至 2026-04-02；收到 600 多份回應；後續規劃專案說明 [S27][S28] | 探討範圍包含：讓存取管理系統能「distinguish between agent and human identities」；「Link specific user identities to AI agents or software systems to support effective delegation controls and maintain accountability」；徵詢的問題包含「How do we bind agent identity with human identity to support "human-in-the-loop" authorizations?」與「How can we ensure that agents log their actions and intent in a tamper-proof and verifiable manner?」 [S27] |
-| NIST SP 800-53 的 AI 控制覆蓋專案（COSAiS，專案頁顯示 2026-10-20 更名為 COSIS） | 規劃中；列有單一 agent 與多 agent 兩個使用情境；本次查閱未見這兩份覆蓋文件發布 [S29] | 尚無可引用的控制條文 |
+| NIST NCCoE《Accelerating the Adoption of Software and AI Agent Identity and Authorization》 | 概念文件草案，2026 年 2 月；徵求意見至 2026-04-02；意見彙整頁寫「over 600 responses」（圖說 614 份）；下一步是發布專案說明草案，第一階段做企業情境，未給日期 [S27][S28] | 探討範圍包含：讓存取管理系統能「distinguish between agent and human identities」；「Link specific user identities to AI agents or software systems to support effective delegation controls and maintain accountability」；徵詢的問題包含「How do we bind agent identity with human identity to support "human-in-the-loop" authorizations?」與「How can we ensure that agents log their actions and intent in a tamper-proof and verifiable manner?」 [S27] |
+| NIST SP 800-53 的 AI 控制覆蓋專案（COSAiS，專案頁顯示 2026-10-20 更名為 COSIS） | 規劃中；列有單一 agent 與多 agent 兩個使用情境。專案頁寫明 2026-10-20 依 2026-09-29 的行政命令更名，「Previously issued documents and publications have not been altered」。已發布的只有 2025-08-14 概念文件與 2026-01-08 預測式 AI 的註解大綱；agent 兩份未見草案 [S29] | 尚無可引用的控制條文 |
 | OWASP Non-Human Identities Top 10（2025） | 社群指引 | NHI1 Improper Offboarding：服務帳號與金鑰不再需要時沒有停用或移除。NHI5 Overprivileged NHI。NHI7 Long-Lived Secrets。NHI10 Human Use of NHI：造成「lack of auditing and accountability due to indistinguishable activity between humans and automation」 [S30] |
 | OWASP Top 10 for Agentic Applications 2026（2025-12-09 發布） | 社群指引 | ASI03 Identity & Privilege Abuse；ASI09 Human-Agent Trust Exploitation；ASI10 Rogue Agents [S31] |
 | OWASP LLM06:2025 Excessive Agency | 社群指引 | 緩解措施：「Utilise human-in-the-loop control to require a human to approve high-impact actions before they are taken」；「Implement authorization in downstream systems rather than relying on an LLM to decide if an action is allowed or not」；記錄並監控延伸功能與下游系統的活動 [S32] |
 | 新加坡 IMDA《Model AI Governance Framework for Agentic AI》v1.5（2026-05-20，2026-06-05 更新） | 政府發布的自願性框架 | Agent 的身分應該「tied to a supervising agent, a human user, or an organisational department for accountability and tracking」；以何種身分行動（自主或代表某人）要記錄以供稽核；「all agent identities (and their attendant permissions) should be issued from and tracked by a centralised system」；授權應「scoped, time- or session-bound, non-transferable, and follow the principle of least privilege by default」；「the human user should not be able to set permissions for the agent greater than what the human user is himself authorised to do」；「Such delegations of authority should be clearly recorded」；「As deployers, organisations and humans remain accountable for the decisions and actions of agents」 [S33] |
+
+| 台灣金管會《金融業運用代理AI安全諮詢文件》 | 2026-10-13 發布，徵詢 30 天；諮詢文件，不是法規 [S42] | 依「資料敏感度、動作影響與能力邊界」對應用場景分級；要確認代理 AI 可取得的資料、可用的工具與可執行的行為範圍；失靈時要能停止或轉人工；保留軌跡供事後查證；金管會說法是把代理 AI「視為數位員工」來規範資料取得與系統權限 [S42]【新聞轉述，未取得文件原文】。台灣法規的條文另見 [01-regulation-taiwan.md](01-regulation-taiwan.md) |
 
 結論：
 
@@ -313,7 +317,7 @@ DORA 自 2025-01-17 起適用 [S20]。
 |---|---|---|---|
 | PCI DSS v4.0.1 | 7.2.4 | 至少每六個月 | 管理階層確認仍適當；不當存取已處理 [S16] |
 | PCI DSS v4.0.1 | 7.2.5.1（系統與應用程式帳號） | 依目標式風險分析（12.3.1）決定 | 同上 [S16] |
-| DORA RTS | 第 21 條 (e)(iv) | 至少每年；支援關鍵或重要功能的系統至少每 6 個月 | 第 21 條 (e)(i) 要求指定複查的角色與責任 [S21] |
+| DORA RTS | 第 21 條 (e)(iv) | 存取權「update」至少每年；支援關鍵或重要功能的系統至少每 6 個月（原文用「更新」，當作複查頻率是【推論】） | 第 21 條 (e)(i) 要求指定「granting, reviewing, and revoking」的角色與責任 [S21] |
 | NIS2 執行規則 | 11.2.3、11.3.3 | 「at planned intervals」，並隨組織變動調整 | 「document the results of the review including the necessary changes of access rights」 [S19] |
 | NIST SP 800-53 | AC-2(j)、AC-6(7) | 組織定義 | AC-6(7)(b)：必要時重新指派或移除權限 [S10] |
 | ISO/IEC 27002:2022 | 5.18、8.2 | 定期，無固定數字 | 【未核對原文】[S9] |
@@ -405,7 +409,7 @@ DORA 自 2025-01-17 起適用 [S20]。
 |---|---|---|
 | N1 | 硬體 WORM 或專用的不可覆寫儲存 | SEC 自 2023-05-03 起接受稽核軌跡替代方案；NIST AU-9(1) 是選用的增強項 [S34][S35][S10]。需要時由部署環境的儲存層提供 |
 | N2 | 平台自己攔截流量、擔任執行點 | SP 800-207 的執行點在資源一側；AC-24 允許決策與執行分離 [S12][S10]。spine 第 11 節已定「實際擋下存取的仍是各系統自己」 |
-| N3 | EU AI Act 高風險系統的合規功能（技術文件、符合性評鑑、系統運作紀錄） | 平台不是 AI 系統的提供者；高風險義務已延到 2027-12-02 之後 [S22][S23]。平台只需記錄 agent 的負責人與核准 |
+| N3 | EU AI Act 高風險系統的合規功能（技術文件、符合性評鑑、系統運作紀錄） | 平台不是 AI 系統的提供者；高風險義務已依 Regulation (EU) 2026/1744 延到 2027-12-02（Annex III 類）與 2028-08-02（Annex I 類） [S22][S40]。平台只需記錄 agent 的負責人與核准 |
 | N4 | 紀錄的即時異常偵測與關聯分析 | PCI 10.4、NIS2 IR 3.2.4 要求檢視紀錄，但這是 SIEM 的職責 [S16][S19]。平台把事件送出即可 |
 | N5 | 公開區塊鏈或分散式帳本 | 本次查到的所有條文都只要求「防修改、可偵測、可驗證」，沒有任何一條要求分散式帳本 [S10][S16][S21][S34] |
 | N6 | 內建抽樣工具與固定樣本數 | 查不到準則規定固定樣本數（見第 4 節）；AS 2315.32 指出職責分離類控制不適用抽樣 [S2]。提供完整母體的匯出即可 |
@@ -420,7 +424,10 @@ DORA 自 2025-01-17 起適用 [S20]。
 | AICPA Trust Services Criteria 原文與 2022 年 points of focus 原文 | 需登入，未取得。CC6.1–6.3、CC8.1 的文字來自第三方轉錄 [S14]；points of focus 只有二手摘要 [S15] |
 | PCAOB 網站的準則頁面 | 回應 403。改用 PCAOB 官方彙編 PDF（適用於 2024-12-15 以後開始的會計年度）[S2]。AS 2201 另有標示 2025-12-15 生效的版本，未比對差異；AS 1105.10A（外部電子資訊，2025-12-15 起）未取得原文 |
 | PCI DSS v4.0.1 | PCI SSC 官方下載需同意授權條款；本文使用大學網站上的副本，文件內標示為 PCI SSC 2024 年 6 月版 [S16] |
-| EU AI Act 數位綜合修正案 | 理事會通過日為 2026-06-29 [S23]；律師事務所文章稱已刊登公報並生效 [S24]。正式法規編號、公報刊登日、生效日未取得一手來源。第 12、14、26 條文字是否被修正未核對；本文引文是 2024 年公報原始版本 [S22] |
+| EU AI Act 數位綜合修正案 | 已解決（2026-11-19 查證）：正式編號 Regulation (EU) 2026/1744，2026-07-24 刊登公報，刊登後第三日生效；修正點清單不含第 12、14、19、26 條 [S40] |
+| NIS2 的修正提案 | 搜尋結果顯示執委會 2026-01-20 提出 NIS2 簡化與對齊 Cybersecurity Act 的指令提案 COM(2026) 13，律師事務所評論認為主要改監理架構、不改實質資安義務；是否改動執行規則 2024/2690 未找到說明。只看過搜尋摘要，未開原文，正文未採用 |
+| PCAOB 2025 年檢查結果（2026-10-22 Spotlight） | 搜尋摘要顯示整體缺失率下降，但未看到 ITGC 或使用者存取的分項，未開原文 |
+| 台灣金管會代理 AI 諮詢文件原文 | 只取得新聞轉述 [S42]；L1–L4 等級定義與覆核門檻未核對 |
 | eIDAS 第 41、42 條 | 引文為 2014 年原始版本；2024 年修正（Regulation (EU) 2024/1183）是否改動這兩條未核對 |
 | GDPR、NIS2、DORA 及其下位規則 | 引文為公報原始版本，未比對合併版。NIS2 各會員國的轉置狀態未查 |
 | NIST SP 800-53 的版本差異 | 引文來自 2020-12-10 更新版 PDF；Release 5.1.1 與 5.2.0 的完整變更清單未逐條比對，只看了 5.2.0 的公告摘要 [S11] |
@@ -432,7 +439,7 @@ DORA 自 2025-01-17 起適用 [S20]。
 | ISO/IEC 42001、Cloud Security Alliance 的 agent 身分框架、NIST SP 800-63-4 | 未查 |
 | HIPAA、FINRA Rule 4511、CFTC Rule 1.31、新加坡 MAS、香港 HKMA 等其他監理要求 | 未查。SEC 17a-4 只適用證券經紀自營商，其他行業是否有等同的不可竄改要求未確認 |
 | 各框架的官方對照表（例如 NIST 發布的 800-53 與 ISO 27001 對照） | 未取得官方版本；2.2 的對照來自第三方 [S8] |
-| 網頁搜尋 | 調查後段搜尋額度用完。之後的補充（SOX 法條、SOC 2 文字、SP 800-53 版本公告、KPMG 調查）都是直接抓取已知網址，沒有再做新的搜尋；可能有更新或更好的來源沒有找到 |
+| 網頁搜尋 | 初稿後段搜尋額度用完。獨立查證時（2026-11-19）已重新搜尋 12 次，結果見第 6 節 |
 
 ## 5. 來源
 
@@ -479,3 +486,59 @@ DORA 自 2025-01-17 起適用 [S20]。
 | S37 | Regulation (EU) No 910/2014（eIDAS，2014 年原始版本），第 3、41、42 條 | https://publications.europa.eu/resource/celex/32014R0910 | 一手 |
 | S38 | RFC 3161, Internet X.509 Public Key Infrastructure Time-Stamp Protocol (TSP)（2001 年 8 月） | https://www.rfc-editor.org/rfc/rfc3161.txt | 一手 |
 | S39 | Microsoft Learn, Configure identity access controls to meet FedRAMP High Impact level | https://learn.microsoft.com/en-us/entra/standards/fedramp-access-controls | 二手；只見於搜尋摘要，未開啟原文，正文未採用 |
+| S40 | Regulation (EU) 2026/1744（Digital Omnibus on AI），OJ L 2026/1744，2026-07-24 | https://publications.europa.eu/resource/celex/32026R1744 | 一手 |
+| S41 | PCI SSC, RFC Instructions: RFC for Currently Published PCI DSS v4.0.1（2026-06-03 至 07-20） | https://www.pcisecuritystandards.org/rfc_instructions_pci-dss-v4-0-1-june2026/ | 一手 |
+| S42 | 中央社，盯新興風險 金管會發布金融業運用代理AI諮詢文件（2026-10-13） | https://cna.com.tw/news/afe/202610130306.aspx | 二手（新聞） |
+
+## 6. 查證紀錄
+
+- 查證日期：2026-11-19；查證者未參與初稿撰寫。
+- 方法：直接開原文。PCI DSS、KPMG 兩份、PCAOB 準則彙編與 Spotlight、IMDA、NIST SP 800-53 是下載 PDF 後轉文字逐字比對；DORA RTS、NIS2 執行規則、AI Act 與 2026/1744 是由歐盟出版局取得 XHTML 全文比對；SEC 17a-4 由 eCFR API 取得。
+
+### 逐項結果
+
+| # | 論點 | 結果 |
+|---|---|---|
+| 1 | PCI DSS 7.2.4 至少每六個月、四項要素（含管理階層確認） | 已確認；文件封面為 v4.0.1、2024 年 6 月 [S16] |
+| 2 | PCI 7.2.4、7.2.5、7.2.5.1、8.6.1 於 2025-03-31 前為 best practice | 已確認，四條的 Applicability Notes 都有此註記 [S16] |
+| 3 | PCI 8.2.6 90 天、10.5.1 保存 12 個月（近 3 個月立即可用） | 已確認 [S16] |
+| 4 | PCI DSS v4.0.1 仍是現行版本 | 已確認，另補 2026 年 RFC [S41] |
+| 5 | DORA RTS 第 20(1) 條「natural persons and systems」 | 已確認 [S21] |
+| 6 | DORA RTS 第 21 條 (e)(iv) 是「複查」頻率 | 已更正：原文是「update of access rights where changes are necessary and at least once a year…」，沒有「review」字樣；改寫為「更新」並把「當作複查頻率」標為【推論】（結論 4、2.5、2.8 三處） |
+| 7 | DORA RTS 第 21 條 (b)、(c) 與第 12(2)(d) 條引文 | 已確認 [S21] |
+| 8 | NIS2 執行規則 11.1.2(b)、11.2.2(a)–(f)、11.2.3 | 已確認 [S19] |
+| 9 | KPMG：238／3,307（7%）、31%→58%、Systems 37%（前一年 30%） | 已確認數字；補上原圖附註的分母說明（1,176 份合計報告），結論 3 的「揭露重大缺失的公司中」改為較中性的寫法 [S4] |
+| 10 | KPMG 2026 年 2 月調查：2,900 多位、使用者存取複查 36% 第一、IPE 28% 第二 | 已確認；原文稱 webcast [S6] |
+| 11 | PCAOB：2021、2022 檢查年度各約 17% comment form 有 IPE 缺失 | 已確認 [S3] |
+| 12 | AS 2315.32 職責分離不適用抽樣 | 已確認，補上完整句子；原表「看系統設定與規則」改標【推論】 [S2] |
+| 13 | AS 2201.B28 自動化控制、AS 2201.50「Inquiry alone…」、AS 2110.B4 引文 | 已確認 [S2] |
+| 14 | EU AI Act 第 26(2)、26(6) 條；高風險適用日延到 2027-12-02／2028-08-02 | 已確認，並由律師事務所二手來源升級為公報一手來源；確認第 12、14、19、26 條未被修正 [S22][S40] |
+| 15 | SEC 17a-4(f)(2)(i)(A)/(B) 擇一、(iv) 兩種格式、遵循日 2023-05-03 | 已確認 [S34]；遵循日另與搜尋到的 SEC FAQ 一致 |
+| 16 | NIST AC-24「it is not required」、AU-9(1)、AC-2 帳號類型；Release 5.2.0 為 2025-08-27 | 已確認 [S10][S11]；出版頁未提到更新的版本 |
+| 17 | IMDA Agentic AI 框架 v1.5（2026-05-20，06-05 更新）與各引文 | 已確認，引文逐句在 PDF 中找到 [S33] |
+| 18 | OWASP Agentic Top 10 發布日 2025-12-09、ASI03/09/10 名稱 | 已確認 [S31] |
+| 19 | NIST COSAiS 更名 COSIS（2026-10-20）、agent 覆蓋文件未發布 | 已確認，補上更名依據與已發布文件清單 [S29] |
+| 20 | NCCoE 概念文件收到 600 多份回應 | 已確認（614 份），補上下一步 [S28] |
+
+統計：確認 19 項、更正 1 項（DORA RTS 21(e)(iv) 的用語），降級為【推論】1 處（AS 2315.32 的解讀），刪除 0 項。
+
+### 補充搜尋（12 次）
+
+| 角度 | 結果 | 處理 |
+|---|---|---|
+| 最新消息：AI Act 修正案正式刊登 | 找到並核對公報全文 | 補 [S40]，更新結論 7、2.6、N3、第 4 節 |
+| 最新消息：PCI DSS 下一版 | 2026 年 RFC，無下一版日期 | 補 [S41] 於 2.4 |
+| 最新消息：NIST agent 相關專案 | COSIS、NCCoE 進度 | 更新 2.6 |
+| 台灣在地：金管會代理 AI 諮詢文件 | 2026-10-13 發布，僅取得新聞 | 補 2.6 一列，標二手 |
+| 台灣在地：上市櫃公司資通安全管控指引 | 只確認 2024 年 9 月修訂、未取得存取覆核條文 | 不補；台灣條文由 01 號文件處理 |
+| 反面證據：SOC 2 是否規定複查頻率 | 搜尋結果一致表示 AICPA 沒有固定頻率，「每季」來自廠商與實務 | 與 2.4、2.8 的寫法一致，不改 |
+| 反面證據：NIS2 是否將被修改 | 有 2026 年修正提案，主要改監理架構 | 記入第 4 節，正文未採用 |
+| 反面證據：PCAOB 2025 檢查結果是否改善 | 整體缺失率下降，未見 ITGC 分項 | 記入第 4 節 |
+
+### 對產品最重要的結論
+
+1. 「至少每 6 個月」是可直接寫進產品下限的強制數字（PCI 7.2.4 已強制；DORA 關鍵系統每 6 個月，但原文是「更新」）。
+2. 複查證據要有「管理階層確認仍適當」與「不當存取已處理」兩項，PCI 原文逐字確認。
+3. 稽核最大痛點仍是使用者存取複查與 IPE（KPMG 36%、28%；PCAOB 約 17%），匯出清單必須附產生條件與完整性證明。
+4. AI agent 至今沒有強制法條要求負責人與核准；EU AI Act 高風險義務正式延到 2027-12-02，台灣金管會文件仍在徵詢。產品以「非人類帳號」的既有強制要求（PCI 7.2.5、DORA RTS 20）說明必要性即可。
+5. SEC 17a-4 正式接受「完整時間戳稽核軌跡」替代 WORM，且要能重建原始紀錄並以人可讀與機器可用格式交付；不需要硬體 WORM 或區塊鏈。
