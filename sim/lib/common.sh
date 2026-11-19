@@ -66,7 +66,9 @@ sim_pid_alive() {
     [[ "$pid" =~ ^[0-9]+$ ]] || return 1
     kill -0 "$pid" 2>/dev/null || return 1
     if [[ -r "/proc/${pid}/environ" ]]; then
-        tr '\0' '\n' <"/proc/${pid}/environ" | grep -qx "SIM_SERVICE=${name}" || return 1
+        # 直接讓 grep 讀檔（-z：以 NUL 分隔）。不能接管線：grep -q 一找到就結束，
+        # 前一段會收到 SIGPIPE，在 pipefail 下整條管線算失敗，活著的行程會被誤判成不在。
+        grep -qzx "SIM_SERVICE=${name}" "/proc/${pid}/environ" 2>/dev/null || return 1
     fi
     return 0
 }

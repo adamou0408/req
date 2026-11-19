@@ -83,7 +83,7 @@ export function openSession(
     return null;
   }
   if (nowSec >= data.exp) return null;
-
+  if (nowSec - data.seen > idleSec) return null;
   return data as SessionData;
 }
 

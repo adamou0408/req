@@ -45,9 +45,9 @@ _sim_visit() {
     local name="$1" via="$2" dep
     case "${_sim_visit_state[$name]:-}" in
         visited) return 0 ;;
-        visiting) sim_die "相依關係形成循環：${via} → ${name}" ;;
+        visiting) sim_die "depends_on 形成循環：${via} → ${name}" ;;
     esac
-    sim_is_service "$name" || sim_die "找不到服務 ${name}（${via} 的相依）"
+    sim_is_service "$name" || sim_die "找不到服務 ${name}${via:+（${via} 的 depends_on 提到它）}"
     _sim_visit_state[$name]=visiting
     while IFS= read -r dep; do
         _sim_visit "$dep" "$name"
@@ -62,7 +62,7 @@ sim_order_for() {
     _sim_visit_state=()
     _sim_order=()
     for name in "$@"; do
-        _sim_visit "$name" "指令列"
+        _sim_visit "$name" ""
     done
     [[ "${#_sim_order[@]}" -eq 0 ]] || printf '%s\n' "${_sim_order[@]}"
 }
