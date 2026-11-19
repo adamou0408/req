@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>申請人－單據詳情</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.btn.dan{color:#B42318;border-color:#E4A6A0}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:13px;padding:10px 12px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EAECEF;vertical-align:top}
+.alert{border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.6}
+.alert.warn{background:#FFF8EC;border:1px solid #F0C98A;color:#6B3A00}
+.alert.info{background:#F0F6FD;border:1px solid #B6D0EE;color:#0B3D73}
+.steps{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}
+.step{flex:1 1 120px;padding:10px 12px;border-radius:8px;border:1px solid #D0D7DE;font-size:13px;background:#fff}
+.step.done{background:#E3F4E8;border-color:#A6D8B5;color:#17663A}
+.step.now{background:#FFF1DB;border-color:#F0C98A;color:#6B3A00;font-weight:600}
+.kv{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px 16px;font-size:14px;margin:0}
+.kv dt{color:#57606A}
+.kv dd{margin:0}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role on" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">林怡君｜業務分析部</div>
+</header>
+<main class="wrap">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<a href="Main.dc.html" style="font-size: 14px">← 我的申請</a>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between">
+<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap"><h1 class="h1">DA-2026-0142</h1><span class="tag l3">L3</span><span class="tag warn">驗證中・待你確認</span></div>
+<button class="btn dan" type="button">撤銷申請</button>
+</div>
+</div>
+
+<ol class="steps" aria-label="流程進度">
+<li class="step done">送審<br>11-10</li>
+<li class="step done">主管<br>陳建宏・11-11</li>
+<li class="step done">資料擁有者<br>張美玲、周文傑・11-13</li>
+<li class="step done">MIS<br>李志偉・11-14</li>
+<li class="step done">DC 已套用<br>11-14</li>
+<li class="step now">驗證確認<br>等你確認</li>
+<li class="step">生效</li>
+</ol>
+
+<section class="card" aria-labelledby="v-h" style="border-color: #F0C98A">
+<h2 class="h2" id="v-h">請確認驗證結果</h2>
+<p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6">系統已用被授權者的身分到 DC 試查。請你也用平常的工具實際查一次，確認結果符合預期。兩者都通過，這張單才會生效。</p>
+<div class="tbl" style="margin-bottom: 16px">
+<table>
+<thead><tr><th>測試</th><th>預期</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>客戶主檔・客戶名稱，區域＝北區</td><td>查得到</td><td><span class="tag ok">通過</span></td></tr>
+<tr><td>客戶主檔・客戶名稱，區域＝南區</td><td>查不到</td><td><span class="tag ok">通過</span></td></tr>
+<tr><td>客戶主檔・統一編號（未申請的欄位）</td><td>查不到</td><td><span class="tag ok">通過</span></td></tr>
+<tr><td>銷售訂單・訂單金額，訂單日期在 2023 年（資料期間外）</td><td>查不到</td><td><span class="tag ok">通過</span></td></tr>
+</tbody>
+</table>
+</div>
+<div class="alert warn" style="margin-bottom: 16px">剩 3 個工作天（2026-11-21 前）確認。逾期沒有確認，這張單會自動撤銷。</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<a class="btn pri" href="Main.dc.html">確認無誤，結案生效</a>
+<button class="btn" type="button">有問題，回報 MIS</button>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section class="card" aria-labelledby="c-h" style="flex: 999 1 560px; min-width: 0">
+<h2 class="h2" id="c-h">核准內容</h2>
+<div class="alert info" style="margin-bottom: 16px">主管陳建宏在 11-11 把授權迄日從 2027-05-31 縮短為 2027-04-30。縮短不需要重簽，只會通知你。</div>
+<dl class="kv">
+<dt>被授權者</dt><dd>專案：北區客戶流失分析（負責人 林怡君）</dd>
+<dt>資料範圍</dt><dd>客戶主檔：客戶編號、客戶名稱、合約到期日<br>銷售訂單：訂單編號、客戶編號、訂單金額、訂單日期</dd>
+<dt>列條件</dt><dd>區域 屬於 北區</dd>
+<dt>資料期間</dt><dd>2024-01-01～2025-12-31</dd>
+<dt>授權起迄</dt><dd>2026-12-01～2027-04-30</dd>
+<dt>使用情境</dt><dd>報表與分析：分析北區客戶續約率下降的原因，每季產出報告給業務主管會議。</dd>
+<dt>可否匯出</dt><dd>只能查詢</dd>
+<dt>重疊說明</dt><dd>前案只有 2024 年訂單，這次要加上 2025 年訂單和客戶主檔，才能比對續約狀況。</dd>
+</dl>
+</section>
+
+<section class="card" aria-labelledby="t-h" style="flex: 1 1 320px; min-width: 0">
+<h2 class="h2" id="t-h">紀錄</h2>
+<ol style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.7; display: flex; flex-direction: column; gap: 8px">
+<li><strong>11-14 16:20</strong> 系統：自動驗證 4／4 通過</li>
+<li><strong>11-14 16:05</strong> 李志偉：標記 DC 已套用</li>
+<li><strong>11-14 10:40</strong> 李志偉（MIS）：合規檢查通過、核准</li>
+<li><strong>11-13 09:15</strong> 周文傑（資料擁有者）：核准</li>
+<li><strong>11-12 18:02</strong> 張美玲（資料擁有者）：核准，手機＋MFA</li>
+<li><strong>11-11 14:05</strong> 陳建宏（主管）：縮短授權迄日後核准</li>
+<li><strong>11-10 09:30</strong> 林怡君：送審（沿用 DA-2026-0098）</li>
+</ol>
+</section>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1300}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

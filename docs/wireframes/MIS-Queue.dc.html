@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>MIS－認領佇列</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.tab{padding:10px 14px;font-size:14px;text-decoration:none;color:#57606A;border-bottom:2px solid transparent}
+.tab.on{color:#1F2328;font-weight:600;border-bottom-color:#0B5CAD}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.l4{background:#FBE9E7;color:#9F2A1B}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.dan{background:#FEE4E2;color:#9F1F12}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:13px;padding:10px 12px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EAECEF;vertical-align:top}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role on" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">李志偉｜MIS</div>
+</header>
+<main class="wrap">
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between">
+<h1 class="h1">MIS 佇列</h1>
+<a class="btn" href="MIS-Settings.dc.html">系統設定</a>
+</div>
+
+<nav style="display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid #D0D7DE" aria-label="佇列分類">
+<a class="tab on" href="MIS-Queue.dc.html">待認領（3）</a>
+<a class="tab" href="MIS-Queue.dc.html">我認領的（2）</a>
+<a class="tab" href="MIS-Queue.dc.html">待 DC 套用（1）</a>
+<a class="tab" href="MIS-Queue.dc.html">驗證失敗（1）</a>
+</nav>
+
+<section class="card" style="padding: 0">
+<div class="tbl">
+<table>
+<thead><tr><th>單號</th><th>級別</th><th>被授權者</th><th>資料範圍</th><th>前面的關卡</th><th>已等待</th><th></th></tr></thead>
+<tbody>
+<tr>
+<td><a href="MIS-Check.dc.html">DA-2026-0142</a></td><td><span class="tag l3">L3</span></td><td>專案：北區客戶流失分析</td><td>客戶主檔、銷售訂單｜北區｜2024–2025</td>
+<td>主管、資料擁有者 2 位已核准</td><td>當天</td><td><a class="btn pri" href="MIS-Check.dc.html">認領</a></td>
+</tr>
+<tr>
+<td>DA-2026-0133</td><td><span class="tag l4">L4</span></td><td>agent：hr-headcount-bot</td><td>員工薪資｜全公司｜2026</td>
+<td>主管、資料擁有者、資安長已核准</td><td><span class="tag warn">已催辦</span><div class="muted">3 個工作天</div></td><td><a class="btn pri" href="MIS-Check.dc.html">認領</a></td>
+</tr>
+<tr>
+<td>DA-2026-0139</td><td><span class="tag l3">L3</span></td><td>團隊：業務分析部</td><td>客戶主檔｜全區｜2025</td>
+<td>主管、資料擁有者已核准（無差異續期）</td><td>當天</td><td><a class="btn pri" href="MIS-Check.dc.html">認領</a></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p class="muted" style="margin: 0; padding: 12px 20px">認領後由你負責到結案，認領紀錄會寫進稽核紀錄。若你在前面的關卡簽過這張單，系統不會讓你認領。</p>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

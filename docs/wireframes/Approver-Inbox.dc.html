@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>簽核人－待簽清單</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.tab{padding:10px 14px;font-size:14px;text-decoration:none;color:#57606A;border-bottom:2px solid transparent}
+.tab.on{color:#1F2328;font-weight:600;border-bottom-color:#0B5CAD}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.l4{background:#FBE9E7;color:#9F2A1B}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.tag.dan{background:#FEE4E2;color:#9F1F12}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:13px;padding:10px 12px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EAECEF;vertical-align:top}
+td input{width:18px;height:18px;margin:2px 0 0}
+.alert{border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.6}
+.alert.info{background:#F0F6FD;border:1px solid #B6D0EE;color:#0B3D73}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role" href="Main.dc.html">申請人</a>
+<a class="role on" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">陳建宏｜業務分析部 經理</div>
+</header>
+<main class="wrap">
+<h1 class="h1">待簽清單</h1>
+
+<nav style="display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid #D0D7DE" aria-label="清單分類">
+<a class="tab on" href="Approver-Inbox.dc.html">待我簽（6）</a>
+<a class="tab" href="Approver-Inbox.dc.html">我已簽</a>
+<a class="tab" href="Approver-Inbox.dc.html">職務代理</a>
+</nav>
+
+<div class="alert info">只有「無差異續期」可以批次核准。新申請、擴大範圍或期間、有重疊警示的單，要逐張打開簽。批次核准時，每張單仍會各自留一筆核准紀錄。</div>
+
+<section class="card" style="padding: 0">
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid #D0D7DE; background: #F6F8FA; border-radius: 8px 8px 0 0">
+<div style="font-size: 14px"><strong>已選 2 張</strong>（都是無差異續期）</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button class="btn" type="button">取消選取</button>
+<button class="btn pri" type="button">批次核准 2 張</button>
+</div>
+</div>
+<div class="tbl">
+<table>
+<thead><tr><th><span style="position: absolute; left: -9999px">選取</span></th><th>單號</th><th>級別</th><th>你的角色</th><th>申請人</th><th>被授權者／範圍</th><th>類型</th><th>已等待</th><th>批次</th></tr></thead>
+<tbody>
+<tr>
+<td><input type="checkbox" disabled="{{ yes }}" aria-label="DA-2026-0135 不能批次"></td>
+<td><a href="Approver-Review.dc.html">DA-2026-0135</a></td><td><span class="tag l3">L3</span></td><td>主管<div class="muted">升級給你</div></td><td>何宗翰</td>
+<td>團隊：通路業務組<div class="muted">經銷商主檔｜全區</div></td><td>新申請</td>
+<td><span class="tag dan">逾時升級</span><div class="muted">原簽核人劉俊傑 5 個工作天未簽</div></td><td class="muted">新申請不能批次</td>
+</tr>
+<tr>
+<td><input type="checkbox" disabled="{{ yes }}" aria-label="DA-2026-0142 不能批次"></td>
+<td><a href="Approver-Review.dc.html">DA-2026-0142</a></td><td><span class="tag l3">L3</span></td><td>主管</td><td>林怡君</td>
+<td>專案：北區客戶流失分析<div class="muted">客戶主檔、銷售訂單｜北區｜2024–2025</div></td><td>新申請<div><span class="tag warn">部分重疊</span></div></td>
+<td>1 個工作天</td><td class="muted">新申請、重疊警示</td>
+</tr>
+<tr>
+<td><input type="checkbox" disabled="{{ yes }}" aria-label="DA-2026-0151 不能批次"></td>
+<td><a href="Approver-Review.dc.html">DA-2026-0151</a></td><td><span class="tag l4">L4</span></td><td>主管</td><td>蔡佩珊</td>
+<td>agent：sales-forecast-bot<div class="muted">產品成本明細｜全區｜2025</div></td><td>新申請</td>
+<td><span class="tag warn">已催辦</span><div class="muted">3 個工作天，再 2 天升級</div></td><td class="muted">新申請不能批次</td>
+</tr>
+<tr>
+<td><input type="checkbox" disabled="{{ yes }}" aria-label="DA-2026-0138 不能批次"></td>
+<td><a href="Approver-Review.dc.html">DA-2026-0138</a></td><td><span class="tag l3">L3</span></td><td>主管</td><td>王志明</td>
+<td>團隊：業務分析部<div class="muted">銷售訂單｜全區｜2025</div></td><td>續期<div><span class="tag warn">期間延長</span></div></td>
+<td>2 個工作天</td><td class="muted">有擴大不能批次</td>
+</tr>
+<tr>
+<td><input type="checkbox" checked="{{ yes }}" aria-label="選取 DA-2026-0139"></td>
+<td><a href="Approver-Review.dc.html">DA-2026-0139</a></td><td><span class="tag l3">L3</span></td><td>主管</td><td>王志明</td>
+<td>團隊：業務分析部<div class="muted">客戶主檔｜全區｜2025</div></td><td>續期<div><span class="tag ok">與前案無差異</span></div></td>
+<td>1 個工作天</td><td>可批次</td>
+</tr>
+<tr>
+<td><input type="checkbox" checked="{{ yes }}" aria-label="選取 DA-2026-0140"></td>
+<td><a href="Approver-Review.dc.html">DA-2026-0140</a></td><td><span class="tag l3">L3</span></td><td>主管</td><td>蔡佩珊</td>
+<td>專案：季度業績看板<div class="muted">銷售訂單｜全區｜2026</div></td><td>續期<div><span class="tag ok">與前案無差異</span></div></td>
+<td>當天</td><td>可批次</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<p class="muted" style="margin: 0">簽核人和申請人一定是不同的人；系統分派時已經排除你自己送的單。</p>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return { yes: true };
+}
+}
+</script>
+</body>
+</html>

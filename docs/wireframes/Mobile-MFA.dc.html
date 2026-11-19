@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>手機－MFA 確認核准</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 16px;border-radius:10px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:16px;text-decoration:none;cursor:pointer}
+.btn:hover{color:#1F2328}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff;font-weight:600}
+.btn.pri:hover{color:#fff;background:#084A8C}
+.code{font:inherit;font-size:28px;letter-spacing:12px;text-align:center;padding:12px;border:1px solid #C3CAD3;border-radius:10px;min-height:60px;box-sizing:border-box;width:100%;color:#1F2328;background:#fff}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F4F5F7; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 12px; background: #fff; border-bottom: 1px solid #D0D7DE">
+<a href="Mobile-Review.dc.html" style="font-size: 14px; min-height: 32px; display: inline-flex; align-items: center">← 回到單據</a>
+</header>
+<div style="flex: 1; padding: 24px 20px; display: flex; flex-direction: column; gap: 20px">
+<div style="display: flex; flex-direction: column; gap: 6px">
+<h1 style="margin: 0; font-size: 22px">確認核准</h1>
+<p style="margin: 0; font-size: 15px; line-height: 1.6">DA-2026-0142｜銷售訂單 4 個欄位<br>授權給 專案：北區客戶流失分析<br>2026-12-01～2027-04-30</p>
+</div>
+<div style="background: #fff; border: 1px solid #D0D7DE; border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<label for="otp" style="font-size: 15px; font-weight: 600">輸入驗證器 App 上的 6 位數驗證碼</label>
+<input class="code" id="otp" value="482 9" inputmode="numeric" autocomplete="one-time-code">
+<a href="Mobile-MFA.dc.html" style="font-size: 14px; min-height: 44px; display: inline-flex; align-items: center">改用推播通知確認</a>
+</div>
+<p class="muted" style="margin: 0; line-height: 1.6">核准紀錄會記下：時間、你的帳號、裝置（手機）、IP，以及這次 MFA 驗證通過。紀錄只增不改。</p>
+</div>
+<div style="padding: 12px 16px 24px; background: #fff; border-top: 1px solid #D0D7DE; display: flex; gap: 12px">
+<a class="btn" href="Mobile-Review.dc.html" style="flex: 1">取消</a>
+<a class="btn pri" href="Mobile-Inbox.dc.html" style="flex: 2">確認核准</a>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

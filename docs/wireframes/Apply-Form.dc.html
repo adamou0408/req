@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>申請人－新申請</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l1{background:#EEF0F3;color:#57606A}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.l4{background:#FBE9E7;color:#9F2A1B}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.alert{border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.6}
+.alert.warn{background:#FFF8EC;border:1px solid #F0C98A;color:#6B3A00}
+.alert.info{background:#F0F6FD;border:1px solid #B6D0EE;color:#0B3D73}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lbl{font-size:13px;font-weight:600;color:#3D444D}
+.in{font:inherit;font-size:14px;padding:8px 10px;border:1px solid #C3CAD3;border-radius:6px;background:#fff;min-height:40px;box-sizing:border-box;width:100%;color:#1F2328}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px;min-height:32px}
+.chk input{width:18px;height:18px;margin:0}
+.seg{display:flex;flex-wrap:wrap;gap:8px}
+.opt{display:flex;gap:8px;align-items:center;padding:10px 14px;border:1px solid #C3CAD3;border-radius:8px;font-size:14px;cursor:pointer}
+.opt.on{border-color:#0B5CAD;background:#F0F6FD}
+.num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#1F2328;color:#fff;font-size:13px;font-weight:700;flex-shrink:0}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role on" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">林怡君｜業務分析部</div>
+</header>
+<main class="wrap">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<a href="Main.dc.html" style="font-size: 14px">← 我的申請</a>
+<h1 class="h1">新申請 DA-2026-0142</h1>
+</div>
+
+<section class="card" aria-labelledby="start-h">
+<h2 class="h2" id="start-h">從哪裡開始</h2>
+<div class="seg">
+<label class="opt"><input type="radio" name="start"> 空白</label>
+<label class="opt on"><input type="radio" name="start" checked="{{ yes }}"> 沿用前案：DA-2026-0098</label>
+<label class="opt"><input type="radio" name="start"> 範本</label>
+</div>
+<p class="muted" style="margin: 12px 0 0">已帶入前案的被授權者、資料範圍和使用情境，可以直接修改。</p>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+
+<section class="card" aria-labelledby="s1">
+<h2 class="h2" id="s1" style="display: flex; gap: 8px; align-items: center"><span class="num">1</span>被授權者</h2>
+<p class="muted" style="margin: 0 0 12px">只能授權給團隊、專案或 agent，不能直接授權給個人。</p>
+<div class="seg" style="margin-bottom: 16px">
+<label class="opt"><input type="radio" name="gt"> 團隊</label>
+<label class="opt on"><input type="radio" name="gt" checked="{{ yes }}"> 專案</label>
+<label class="opt"><input type="radio" name="gt"> agent／服務帳號</label>
+</div>
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px">
+<div class="field"><label class="lbl" for="proj">專案</label><select class="in" id="proj"><option>北區客戶流失分析</option><option>＋ 建立新專案</option></select></div>
+<div class="field"><span class="lbl">負責人</span><div style="font-size: 14px; min-height: 40px; display: flex; align-items: center">林怡君（在職）</div></div>
+<div class="field"><span class="lbl">專案結束日</span><div style="font-size: 14px; min-height: 40px; display: flex; align-items: center">2027-06-30</div></div>
+</div>
+</section>
+
+<section class="card" aria-labelledby="s2">
+<h2 class="h2" id="s2" style="display: flex; gap: 8px; align-items: center"><span class="num">2</span>資料範圍</h2>
+<div class="field" style="margin-bottom: 16px"><label class="lbl" for="pk">搜尋主題包</label><input class="in" id="pk" placeholder="輸入主題包或欄位名稱"></div>
+
+<div style="border: 1px solid #D0D7DE; border-radius: 8px; margin-bottom: 12px">
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 12px 16px; background: #F6F8FA; border-bottom: 1px solid #D0D7DE; border-radius: 8px 8px 0 0">
+<div style="display: flex; gap: 8px; align-items: center"><strong>客戶主檔</strong><span class="tag l3">L3</span></div>
+<span class="muted">資料擁有者：周文傑（業務管理部）</span>
+</div>
+<div style="padding: 8px 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 16px">
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 客戶編號 <span class="tag l3">L3</span></label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 客戶名稱 <span class="tag l3">L3</span></label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 合約到期日 <span class="tag l3">L3</span></label>
+<label class="chk"><input type="checkbox"> 統一編號 <span class="tag l4">L4</span></label>
+<label class="chk"><input type="checkbox"> 聯絡人電話 <span class="tag l4">L4</span></label>
+<label class="chk" style="color: #57606A"><input type="checkbox" disabled="{{ yes }}"> 產業別 <span class="tag l1">L1 自動給</span></label>
+</div>
+</div>
+
+<div style="border: 1px solid #D0D7DE; border-radius: 8px; margin-bottom: 12px">
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; padding: 12px 16px; background: #F6F8FA; border-bottom: 1px solid #D0D7DE; border-radius: 8px 8px 0 0">
+<div style="display: flex; gap: 8px; align-items: center"><strong>銷售訂單</strong><span class="tag l3">L3</span></div>
+<span class="muted">資料擁有者：張美玲（財務部）</span>
+</div>
+<div style="padding: 8px 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0 16px">
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單編號 <span class="tag l3">L3</span></label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 客戶編號 <span class="tag l3">L3</span></label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單金額 <span class="tag l3">L3</span></label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單日期 <span class="tag l3">L3</span></label>
+<label class="chk"><input type="checkbox"> 毛利 <span class="tag l4">L4</span></label>
+</div>
+</div>
+
+<div class="alert info" style="margin-bottom: 20px">「產業別」是 L1 欄位，不需要申請，已自動從這張單移除。</div>
+
+<h3 style="font-size: 14px; margin: 0 0 8px">列條件</h3>
+<p class="muted" style="margin: 0 0 8px">只能從清單選，不開放自由輸入條件。</p>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; margin-bottom: 8px">
+<div class="field" style="flex: 1 1 160px"><label class="lbl" for="c1f">欄位</label><select class="in" id="c1f"><option>區域</option></select></div>
+<div class="field" style="flex: 0 1 120px"><label class="lbl" for="c1o">條件</label><select class="in" id="c1o"><option>屬於</option></select></div>
+<div class="field" style="flex: 2 1 220px"><label class="lbl" for="c1v">值</label><select class="in" id="c1v"><option>北區</option></select></div>
+<button class="btn" type="button" aria-label="移除這條條件">移除</button>
+</div>
+<button class="btn" type="button" style="margin-bottom: 20px">＋ 新增條件</button>
+
+<h3 style="font-size: 14px; margin: 0 0 8px">資料期間</h3>
+<p class="muted" style="margin: 0 0 8px">資料本身的時間範圍，例如只能看哪幾年的訂單。和下方的授權起迄是兩回事。</p>
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div class="field" style="flex: 1 1 200px"><label class="lbl" for="dp1">從</label><input class="in" id="dp1" value="2024-01-01"></div>
+<div class="field" style="flex: 1 1 200px"><label class="lbl" for="dp2">到</label><input class="in" id="dp2" value="2025-12-31"></div>
+</div>
+</section>
+
+<section class="card" aria-labelledby="s3">
+<h2 class="h2" id="s3" style="display: flex; gap: 8px; align-items: center"><span class="num">3</span>授權起迄</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div class="field" style="flex: 1 1 200px"><label class="lbl" for="g1">起</label><input class="in" id="g1" value="2026-12-01"></div>
+<div class="field" style="flex: 1 1 200px"><label class="lbl" for="g2">迄</label><input class="in" id="g2" value="2027-05-31"></div>
+</div>
+<p class="muted" style="margin: 8px 0 0">L3 上限一年、L4 上限半年。簽核人可以縮短，不能延長。</p>
+</section>
+
+<section class="card" aria-labelledby="s4">
+<h2 class="h2" id="s4" style="display: flex; gap: 8px; align-items: center"><span class="num">4</span>使用情境</h2>
+<div style="display: flex; flex-direction: column; gap: 16px">
+<div class="field"><label class="lbl" for="uc">分類</label><select class="in" id="uc"><option>報表與分析</option><option>系統開發或測試</option><option>AI 模型訓練或推論</option><option>稽核或法遵查核</option><option>客戶服務或營運作業</option><option>其他（需說明）</option></select></div>
+<div class="field"><label class="lbl" for="ud">說明</label><textarea class="in" id="ud" rows="3" style="min-height: 88px" value="分析北區客戶續約率下降的原因，每季產出報告給業務主管會議。"></textarea></div>
+</div>
+</section>
+
+<section class="card" aria-labelledby="s5">
+<h2 class="h2" id="s5" style="display: flex; gap: 8px; align-items: center"><span class="num">5</span>可否匯出</h2>
+<div class="seg">
+<label class="opt on"><input type="radio" name="ex" checked="{{ yes }}"> 只能查詢</label>
+<label class="opt"><input type="radio" name="ex"> 可以匯出成檔案</label>
+</div>
+<p class="muted" style="margin: 8px 0 0">L4 預設只能查詢。</p>
+</section>
+</div>
+
+<aside style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px" aria-label="送審前檢查">
+<section class="card">
+<h2 class="h2">級別與簽核路徑</h2>
+<div style="display: flex; gap: 8px; align-items: center; margin-bottom: 12px"><span class="tag l3" style="font-size: 14px">L3</span><span class="muted">依所選欄位的最高級別判定</span></div>
+<ol style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 2">
+<li>申請人主管：陳建宏</li>
+<li>資料擁有者（並行）：周文傑、張美玲</li>
+<li>MIS（群組認領）</li>
+</ol>
+<p class="muted" style="margin: 8px 0 0">若勾選 L4 欄位，整張單改走 L4，會多一關資安長。</p>
+</section>
+
+<section class="card">
+<h2 class="h2">重複檢查</h2>
+<div class="alert warn" style="margin-bottom: 12px"><strong>部分重疊</strong><br>同一個專案已有生效中的 DA-2026-0098，涵蓋「銷售訂單：訂單編號、訂單金額｜北區｜2024」。</div>
+<div class="field"><label class="lbl" for="why">為什麼還需要這次申請（必填）</label><textarea class="in" id="why" rows="3" style="min-height: 88px" value="前案只有 2024 年訂單，這次要加上 2025 年訂單和客戶主檔，才能比對續約狀況。"></textarea></div>
+</section>
+
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button class="btn" type="button" style="flex: 1 1 auto">儲存草稿</button>
+<a class="btn pri" href="Request-Detail.dc.html" style="flex: 1 1 auto">送審</a>
+</div>
+</aside>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1500}}'>
+class Component extends DCLogic {
+renderVals() {
+return { yes: true };
+}
+}
+</script>
+</body>
+</html>

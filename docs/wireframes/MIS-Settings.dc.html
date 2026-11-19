@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>MIS－系統設定</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:13px;padding:10px 12px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid #EAECEF;vertical-align:middle}
+.in{font:inherit;font-size:14px;padding:8px 10px;border:1px solid #C3CAD3;border-radius:6px;background:#fff;min-height:40px;box-sizing:border-box;width:100%;color:#1F2328}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lbl{font-size:13px;font-weight:600;color:#3D444D}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid #D0D7DE;border-radius:999px;font-size:14px;background:#fff}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role on" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">李志偉｜MIS（系統管理員）</div>
+</header>
+<main class="wrap">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<a href="MIS-Queue.dc.html" style="font-size: 14px">← MIS 佇列</a>
+<h1 class="h1">系統設定</h1>
+<p class="muted" style="margin: 0">修改任何設定都要填原因，並寫進稽核紀錄。新的時限只套用在之後才進入該關卡的單。</p>
+</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section class="card" aria-labelledby="t-h" style="flex: 999 1 560px; min-width: 0">
+<h2 class="h2" id="t-h">時限與上限</h2>
+<div class="tbl">
+<table>
+<thead><tr><th>項目</th><th style="width: 140px">值</th><th>單位</th></tr></thead>
+<tbody>
+<tr><td><label for="t1">未簽多久催辦</label></td><td><input class="in" id="t1" value="3"></td><td>工作天</td></tr>
+<tr><td><label for="t2">催辦後多久升級給上一層主管</label></td><td><input class="in" id="t2" value="2"></td><td>工作天</td></tr>
+<tr><td><label for="t3">L3 授權期間上限</label></td><td><input class="in" id="t3" value="12"></td><td>個月</td></tr>
+<tr><td><label for="t4">L4 授權期間上限</label></td><td><input class="in" id="t4" value="6"></td><td>個月</td></tr>
+<tr><td><label for="t5">到期前提醒</label></td><td><input class="in" id="t5" value="14"></td><td>天</td></tr>
+<tr><td><label for="t6">負責人異動寬限期</label></td><td><input class="in" id="t6" value="14"></td><td>天</td></tr>
+<tr><td><label for="t7">申請人確認驗證結果時限</label></td><td><input class="in" id="t7" value="5"></td><td>工作天</td></tr>
+<tr><td><label for="t8">紀錄保存年限</label> <span class="tag warn">待稽核室確認</span></td><td><input class="in" id="t8" value="10"></td><td>年</td></tr>
+</tbody>
+</table>
+</div>
+<div style="margin-top: 16px"><button class="btn pri" type="button">儲存（需填原因）</button></div>
+</section>
+
+<div style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+<section class="card" aria-labelledby="p-h">
+<h2 class="h2" id="p-h">簽核路徑</h2>
+<div style="font-size: 14px; line-height: 1.8">
+<div><strong>L3</strong>：主管 → 資料擁有者（並行）→ MIS</div>
+<div><strong>L4</strong>：主管 → 資料擁有者（並行）→ 資安長 → MIS</div>
+</div>
+<p class="muted" style="margin: 8px 0 0">路徑屬於控管規則，不開放在這裡修改。</p>
+</section>
+
+<section class="card" aria-labelledby="c-h">
+<h2 class="h2" id="c-h">資安長</h2>
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div class="field"><label class="lbl" for="ciso">資安長</label><select class="in" id="ciso"><option>賴政達（資訊安全室）</option></select></div>
+<div class="field"><label class="lbl" for="dep">代理人</label><select class="in" id="dep"><option>許文豪（資訊安全室）</option></select></div>
+</div>
+</section>
+</div>
+</div>
+
+<section class="card" aria-labelledby="u-h">
+<h2 class="h2" id="u-h">使用情境分類</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px">
+<span class="pill">報表與分析</span>
+<span class="pill">系統開發或測試</span>
+<span class="pill">AI 模型訓練或推論</span>
+<span class="pill">稽核或法遵查核</span>
+<span class="pill">客戶服務或營運作業</span>
+<span class="pill">其他（需說明）</span>
+</div>
+<button class="btn" type="button">＋ 新增分類</button>
+</section>
+
+<section class="card" aria-labelledby="i-h">
+<h2 class="h2" id="i-h">整合介面</h2>
+<p class="muted" style="margin: 0 0 12px">每一項都是可替換的介面，換來源時不影響簽核規則。</p>
+<div class="tbl">
+<table>
+<thead><tr><th>介面</th><th>目前來源</th><th>狀態</th></tr></thead>
+<tbody>
+<tr><td>人員與組織（含主管層級）</td><td>AD 群組＋HR 組織樹</td><td><span class="tag warn">待確認 M6</span></td></tr>
+<tr><td>資料目錄（主題包、欄位、分級、擁有者）</td><td>匯入檔案</td><td><span class="tag warn">待確認 M1</span></td></tr>
+<tr><td>規則交付給 DC</td><td>MIS 手動套用</td><td><span class="tag warn">待確認 M2</span></td></tr>
+<tr><td>自動驗證（DC 測試查詢）</td><td>DC 測試介面</td><td><span class="tag warn">待確認 M3</span></td></tr>
+<tr><td>登入（SSO）</td><td>公司 AD</td><td><span class="tag warn">待確認 M8</span></td></tr>
+<tr><td>mail 通知</td><td>公司 mail server</td><td><span class="tag warn">待確認 M8</span></td></tr>
+<tr><td>現有簽核系統</td><td>不整合</td><td><span class="tag warn">待確認 M10</span></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1300}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

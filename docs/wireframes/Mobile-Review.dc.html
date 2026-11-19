@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>手機－簽核</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.muted{color:#57606A;font-size:13px}
+.box{background:#fff;border:1px solid #D0D7DE;border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;font-size:14px;line-height:1.6}
+.chk{display:flex;gap:10px;align-items:center;min-height:44px;font-size:15px}
+.chk input{width:20px;height:20px;margin:0}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 16px;border-radius:10px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:16px;text-decoration:none;cursor:pointer}
+.btn:hover{color:#1F2328}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff;font-weight:600}
+.btn.pri:hover{color:#fff;background:#084A8C}
+.btn.dan{color:#B42318;border-color:#E4A6A0}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F4F5F7; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 16px 20px 12px; background: #fff; border-bottom: 1px solid #D0D7DE; display: flex; flex-direction: column; gap: 4px">
+<a href="Mobile-Inbox.dc.html" style="font-size: 14px; min-height: 32px; display: inline-flex; align-items: center">← 待我簽</a>
+<div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap"><h1 style="margin: 0; font-size: 20px">DA-2026-0142</h1><span class="tag l3">L3</span><span class="tag warn">部分重疊</span></div>
+<div class="muted">申請人 林怡君｜你的角色：資料擁有者（銷售訂單）</div>
+</header>
+<div style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<div class="box">
+<div class="muted">簽核進度</div>
+<div>主管 陳建宏 <span class="tag ok">已核准</span></div>
+<div>資料擁有者：你、周文傑（並行）</div>
+<div class="muted">之後：MIS</div>
+</div>
+<div class="box">
+<div class="muted">被授權者</div>
+<div>專案：北區客戶流失分析（負責人 林怡君）</div>
+<div class="muted">使用情境</div>
+<div>報表與分析：分析北區客戶續約率下降的原因，每季產出報告。</div>
+</div>
+<div class="box">
+<div class="muted">你負責的欄位：銷售訂單（可取消勾選來縮小）</div>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單編號</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 客戶編號</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單金額</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單日期</label>
+<div class="muted">列條件：區域 屬於 北區｜資料期間 2024–2025｜只能查詢</div>
+</div>
+<div class="box">
+<div class="muted">授權起迄</div>
+<div>2026-12-01～2027-04-30</div>
+<div class="muted">主管已從 2027-05-31 縮短。你只能再縮短。</div>
+<a href="Mobile-Review.dc.html" style="min-height: 44px; display: inline-flex; align-items: center">縮短期間</a>
+</div>
+<div class="box" style="background: #FFF8EC; border-color: #F0C98A; color: #6B3A00">
+<strong>部分重疊</strong>
+<div>DA-2026-0098 已涵蓋 2024 年北區的訂單編號、訂單金額。申請人說明：要加上 2025 年和客戶主檔，才能比對續約狀況。</div>
+</div>
+</div>
+<div style="padding: 12px 16px 24px; background: #fff; border-top: 1px solid #D0D7DE; display: flex; gap: 12px">
+<button class="btn dan" type="button" style="flex: 1">退回</button>
+<a class="btn pri" href="Mobile-MFA.dc.html" style="flex: 2">核准</a>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return { yes: true };
+}
+}
+</script>
+</body>
+</html>

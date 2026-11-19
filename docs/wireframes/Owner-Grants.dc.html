@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>資料擁有者－授權總覽</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.btn.dan{color:#B42318;border-color:#E4A6A0}
+.tab{padding:10px 14px;font-size:14px;text-decoration:none;color:#57606A;border-bottom:2px solid transparent}
+.tab.on{color:#1F2328;font-weight:600;border-bottom-color:#0B5CAD}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.l4{background:#FBE9E7;color:#9F2A1B}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.tag.dan{background:#FEE4E2;color:#9F1F12}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:13px;padding:10px 12px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EAECEF;vertical-align:top}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lbl{font-size:13px;font-weight:600;color:#3D444D}
+.in{font:inherit;font-size:14px;padding:8px 10px;border:1px solid #C3CAD3;border-radius:6px;background:#fff;min-height:40px;box-sizing:border-box;width:100%;color:#1F2328}
+.stat{flex:1 1 180px;background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:16px 20px}
+.stat b{display:block;font-size:28px;line-height:1.2}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role on" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">張美玲｜財務部 經理</div>
+</header>
+<main class="wrap">
+<h1 class="h1">授權總覽</h1>
+
+<section class="card" aria-labelledby="ho-h" style="border-color: #F0C98A">
+<h2 class="h2" id="ho-h">負責人異動・待你處理（主管）</h2>
+<p style="margin: 0 0 16px; font-size: 14px; line-height: 1.6">你的部屬<strong>吳家豪</strong>已於 11-12 調職到稽核室。他負責的 agent 還有授權在生效中，請在寬限期內改指派負責人，否則這些授權會自動撤銷。</p>
+<div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end">
+<div style="flex: 1 1 260px; font-size: 14px; line-height: 1.7">
+<div><strong>agent：ap-recon-bot</strong></div>
+<div class="muted">2 張有效授權（DA-2026-0121、DA-2026-0126）</div>
+<div><span class="tag warn">寬限期剩 9 天</span>　11-26 自動撤銷</div>
+</div>
+<div class="field" style="flex: 1 1 240px"><label class="lbl" for="nh">新負責人</label><select class="in" id="nh"><option>選擇財務部在職人員</option><option>鄭雅文</option><option>邱冠廷</option></select></div>
+<button class="btn pri" type="button">指派</button>
+<button class="btn dan" type="button">直接撤銷這些授權</button>
+</div>
+</section>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div class="stat"><span class="muted">我擁有的主題包</span><b>2</b></div>
+<div class="stat"><span class="muted">生效中的授權</span><b>5</b></div>
+<div class="stat"><span class="muted">30 天內到期</span><b>1</b></div>
+<div class="stat"><span class="muted">待我簽（資料擁有者）</span><b>1</b></div>
+</div>
+
+<section class="card" style="padding: 0">
+<nav style="display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px; border-bottom: 1px solid #D0D7DE" aria-label="主題包">
+<a class="tab on" href="Owner-Grants.dc.html">全部</a>
+<a class="tab" href="Owner-Grants.dc.html">銷售訂單 L3</a>
+<a class="tab" href="Owner-Grants.dc.html">產品成本明細 L4</a>
+</nav>
+<div class="tbl">
+<table>
+<thead><tr><th>單號</th><th>主題包</th><th>被授權者</th><th>負責人</th><th>欄位／列條件／資料期間</th><th>授權迄</th><th></th></tr></thead>
+<tbody>
+<tr><td>DA-2026-0077</td><td>銷售訂單 <span class="tag l3">L3</span></td><td>團隊：業務分析部</td><td>陳建宏</td><td>4 個欄位｜全區｜2025</td><td>2026-12-03<div><span class="tag warn">14 天後到期</span></div></td><td><button class="btn dan" type="button">撤銷</button></td></tr>
+<tr><td>DA-2026-0098</td><td>銷售訂單 <span class="tag l3">L3</span></td><td>專案：北區客戶流失分析</td><td>林怡君</td><td>訂單編號、訂單金額｜北區｜2024</td><td>2027-01-31</td><td><button class="btn dan" type="button">撤銷</button></td></tr>
+<tr><td>DA-2026-0140</td><td>銷售訂單 <span class="tag l3">L3</span></td><td>專案：季度業績看板</td><td>蔡佩珊</td><td>3 個欄位｜全區｜2026</td><td>2027-02-28</td><td><button class="btn dan" type="button">撤銷</button></td></tr>
+<tr><td>DA-2026-0121</td><td>產品成本明細 <span class="tag l4">L4</span></td><td>agent：ap-recon-bot</td><td>吳家豪 <span class="tag dan">已調職</span></td><td>5 個欄位｜全區｜2025｜只能查詢</td><td>2027-03-31</td><td><button class="btn dan" type="button">撤銷</button></td></tr>
+<tr><td>DA-2026-0126</td><td>產品成本明細 <span class="tag l4">L4</span></td><td>agent：ap-recon-bot</td><td>吳家豪 <span class="tag dan">已調職</span></td><td>2 個欄位｜全區｜2026｜只能查詢</td><td>2027-04-30</td><td><button class="btn dan" type="button">撤銷</button></td></tr>
+</tbody>
+</table>
+</div>
+<p class="muted" style="margin: 0; padding: 12px 20px">撤銷不需要簽核，但必須填原因，並寫進稽核紀錄。撤銷後會通知申請人和負責人。</p>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1100}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

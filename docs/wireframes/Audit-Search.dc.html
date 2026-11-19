@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>稽核－查詢與匯出</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.l4{background:#FBE9E7;color:#9F2A1B}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.tag.dan{background:#FEE4E2;color:#9F1F12}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:13px;padding:10px 12px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EAECEF;vertical-align:top}
+td input{width:18px;height:18px;margin:2px 0 0}
+.alert{border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.6}
+.alert.ok{background:#EEF8F1;border:1px solid #A6D8B5;color:#145A32}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lbl{font-size:13px;font-weight:600;color:#3D444D}
+.in{font:inherit;font-size:14px;padding:8px 10px;border:1px solid #C3CAD3;border-radius:6px;background:#fff;min-height:40px;box-sizing:border-box;width:100%;color:#1F2328}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role" href="MIS-Queue.dc.html">MIS</a>
+<a class="role on" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">黃淑芬｜稽核室（唯讀）</div>
+</header>
+<main class="wrap">
+<h1 class="h1">稽核查詢</h1>
+
+<div class="alert ok"><strong>紀錄完整性：驗證通過。</strong>雜湊鏈上全部 18,402 筆事件都沒有被修改或刪除的跡象。最後檢查：2026-11-19 02:00。</div>
+
+<section class="card" aria-label="查詢條件">
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px">
+<div class="field"><label class="lbl" for="f1">送審日期・從</label><input class="in" id="f1" value="2026-10-01"></div>
+<div class="field"><label class="lbl" for="f2">送審日期・到</label><input class="in" id="f2" value="2026-11-19"></div>
+<div class="field"><label class="lbl" for="f3">級別</label><select class="in" id="f3"><option>全部</option><option>L3</option><option>L4</option></select></div>
+<div class="field"><label class="lbl" for="f4">狀態</label><select class="in" id="f4"><option>全部</option><option>送審中</option><option>生效中</option><option>已退回</option><option>已到期</option><option>已撤銷</option></select></div>
+<div class="field"><label class="lbl" for="f5">主題包</label><select class="in" id="f5"><option>全部</option></select></div>
+<div class="field"><label class="lbl" for="f6">申請人部門</label><select class="in" id="f6"><option>全部</option></select></div>
+<div class="field"><label class="lbl" for="f7">例外情況</label><select class="in" id="f7"><option>全部</option><option>逾時升級</option><option>職務代理簽核</option><option>簽核人縮小範圍</option><option>重疊警示</option><option>自動撤銷</option></select></div>
+<div class="field"><label class="lbl" for="f8">單號或人名</label><input class="in" id="f8" placeholder="例如 DA-2026-0142"></div>
+</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px"><button class="btn pri" type="button">查詢</button><button class="btn" type="button">清除條件</button></div>
+</section>
+
+<section class="card" style="padding: 0">
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid #D0D7DE; background: #F6F8FA; border-radius: 8px 8px 0 0">
+<div style="font-size: 14px"><strong>共 128 張</strong>，已勾選 1 張</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<button class="btn" type="button">匯出清單（Excel）</button>
+<button class="btn" type="button">下載證據頁（PDF）</button>
+</div>
+</div>
+<div class="tbl">
+<table>
+<thead><tr><th><span style="position: absolute; left: -9999px">選取</span></th><th>單號</th><th>級別</th><th>申請人</th><th>被授權者</th><th>狀態</th><th>送審 → 結案</th><th>例外情況</th></tr></thead>
+<tbody>
+<tr><td><input type="checkbox" checked="{{ yes }}" aria-label="選取 DA-2026-0142"></td><td><a href="Audit-Evidence.dc.html">DA-2026-0142</a></td><td><span class="tag l3">L3</span></td><td>林怡君</td><td>專案：北區客戶流失分析</td><td><span class="tag ok">生效中</span></td><td>11-10 → 11-17（5 個工作天）</td><td><span class="tag warn">簽核人縮小</span> <span class="tag warn">重疊警示</span></td></tr>
+<tr><td><input type="checkbox" aria-label="選取 DA-2026-0135"></td><td><a href="Audit-Evidence.dc.html">DA-2026-0135</a></td><td><span class="tag l3">L3</span></td><td>何宗翰</td><td>團隊：通路業務組</td><td><span class="tag">送審中</span></td><td>11-03 → —</td><td><span class="tag dan">逾時升級</span></td></tr>
+<tr><td><input type="checkbox" aria-label="選取 DA-2026-0133"></td><td><a href="Audit-Evidence.dc.html">DA-2026-0133</a></td><td><span class="tag l4">L4</span></td><td>邱冠廷</td><td>agent：hr-headcount-bot</td><td><span class="tag">送審中</span></td><td>11-05 → —</td><td><span class="tag warn">職務代理簽核</span></td></tr>
+<tr><td><input type="checkbox" aria-label="選取 DA-2026-0118"></td><td><a href="Audit-Evidence.dc.html">DA-2026-0118</a></td><td><span class="tag l3">L3</span></td><td>蔡佩珊</td><td>專案：通路庫存預測</td><td><span class="tag dan">已撤銷</span></td><td>10-14 → 10-20</td><td><span class="tag dan">自動撤銷・未確認驗證</span></td></tr>
+<tr><td><input type="checkbox" aria-label="選取 DA-2026-0109"></td><td><a href="Audit-Evidence.dc.html">DA-2026-0109</a></td><td><span class="tag l4">L4</span></td><td>王志明</td><td>團隊：財務規劃組</td><td><span class="tag ok">生效中</span></td><td>10-06 → 10-15（7 個工作天）</td><td class="muted">無</td></tr>
+</tbody>
+</table>
+</div>
+<p class="muted" style="margin: 0; padding: 12px 20px">稽核帳號唯讀：這個畫面和證據頁都沒有任何修改、簽核或撤銷的按鈕。</p>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1000}}'>
+class Component extends DCLogic {
+renderVals() {
+return { yes: true };
+}
+}
+</script>
+</body>
+</html>

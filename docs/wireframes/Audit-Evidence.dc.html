@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>稽核－單張證據頁</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:12px;padding:8px 10px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:10px;border-bottom:1px solid #EAECEF;vertical-align:top;line-height:1.5}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;color:#3D444D;white-space:nowrap}
+.alert{border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.6}
+.alert.ok{background:#EEF8F1;border:1px solid #A6D8B5;color:#145A32}
+.kv{display:grid;grid-template-columns:120px minmax(0,1fr);gap:8px 16px;font-size:14px;margin:0}
+.kv dt{color:#57606A}
+.kv dd{margin:0}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role" href="MIS-Queue.dc.html">MIS</a>
+<a class="role on" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">黃淑芬｜稽核室（唯讀）</div>
+</header>
+<main class="wrap">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<a href="Audit-Search.dc.html" style="font-size: 14px">← 稽核查詢</a>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between">
+<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap"><h1 class="h1">證據頁　DA-2026-0142</h1><span class="tag l3">L3</span><span class="tag ok">生效中</span></div>
+<button class="btn" type="button">下載 PDF</button>
+</div>
+<div class="muted">產生時間 2026-11-19 10:30｜產生者 黃淑芬｜本頁雜湊 <span class="mono">5d2c…e81a</span></div>
+</div>
+
+<div class="alert ok"><strong>這張單的 13 筆事件雜湊鏈完整。</strong>每一筆都連到前一筆的雜湊，任何修改或刪除都會讓後面的雜湊對不上。</div>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<section class="card" aria-labelledby="c-h" style="flex: 999 1 560px; min-width: 0">
+<h2 class="h2" id="c-h">最終核准內容</h2>
+<dl class="kv">
+<dt>申請人</dt><dd>林怡君（業務分析部）</dd>
+<dt>被授權者</dt><dd>專案：北區客戶流失分析（負責人 林怡君）</dd>
+<dt>資料範圍</dt><dd>客戶主檔：客戶編號、客戶名稱、合約到期日<br>銷售訂單：訂單編號、客戶編號、訂單金額、訂單日期</dd>
+<dt>列條件</dt><dd>區域 屬於 北區</dd>
+<dt>資料期間</dt><dd>2024-01-01～2025-12-31</dd>
+<dt>授權起迄</dt><dd>2026-12-01～2027-04-30（申請人原填至 2027-05-31，主管縮短）</dd>
+<dt>使用情境</dt><dd>報表與分析：分析北區客戶續約率下降的原因，每季產出報告給業務主管會議。</dd>
+<dt>可否匯出</dt><dd>只能查詢</dd>
+<dt>DC 規則</dt><dd>R-0142-1</dd>
+</dl>
+</section>
+
+<section class="card" aria-labelledby="a-h" style="flex: 1 1 320px; min-width: 0">
+<h2 class="h2" id="a-h">簽核摘要</h2>
+<ol style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.8">
+<li>主管：陳建宏　11-11</li>
+<li>資料擁有者：張美玲　11-12、周文傑　11-13</li>
+<li>MIS：李志偉　11-14</li>
+<li>自動驗證 4／4 通過　11-14</li>
+<li>申請人確認　11-17</li>
+</ol>
+<p class="muted" style="margin: 8px 0 0">職責分離：四個簽核人與申請人皆為不同的人。</p>
+</section>
+</div>
+
+<section class="card" aria-labelledby="e-h">
+<h2 class="h2" id="e-h">事件紀錄（只增不改）</h2>
+<div class="tbl">
+<table>
+<thead><tr><th>#</th><th>時間</th><th>人員（角色）</th><th>動作</th><th>依據規則</th><th>改了什麼</th><th>IP／裝置</th><th>雜湊</th></tr></thead>
+<tbody>
+<tr><td>1</td><td class="mono">11-10 09:12:05</td><td>林怡君（申請人）</td><td>建立草稿</td><td>—</td><td>沿用 DA-2026-0098</td><td class="mono">10.2.14.33<br>電腦</td><td class="mono">a1f3…07c2</td></tr>
+<tr><td>2</td><td class="mono">11-10 09:30:41</td><td>林怡君（申請人）</td><td>送審</td><td>級別判定：取最高級 L3<br>重疊檢查：部分重疊，理由必填</td><td>狀態 草稿 → 送審</td><td class="mono">10.2.14.33<br>電腦</td><td class="mono">7be0…91d4</td></tr>
+<tr><td>3</td><td class="mono">11-10 09:30:42</td><td>系統</td><td>分派簽核人</td><td>L3 路徑；每關不同人</td><td>主管 陳建宏；擁有者 周文傑、張美玲；MIS 群組</td><td class="mono">—</td><td class="mono">c40a…5e18</td></tr>
+<tr><td>4</td><td class="mono">11-11 14:05:10</td><td>陳建宏（主管）</td><td>縮小</td><td>縮小免簽，通知申請人</td><td>授權迄 2027-05-31 → 2027-04-30</td><td class="mono">10.2.9.120<br>電腦</td><td class="mono">e9d1…aa30</td></tr>
+<tr><td>5</td><td class="mono">11-11 14:05:12</td><td>陳建宏（主管）</td><td>核准</td><td>—</td><td>第 1 關完成</td><td class="mono">10.2.9.120<br>電腦</td><td class="mono">3f72…c6b9</td></tr>
+<tr><td>6</td><td class="mono">11-12 18:02:33</td><td>張美玲（資料擁有者）</td><td>核准</td><td>手機核准需 MFA：通過</td><td>銷售訂單 擁有者核准</td><td class="mono">外網 61.x.x.x<br>手機</td><td class="mono">80bc…12fe</td></tr>
+<tr><td>7</td><td class="mono">11-13 09:15:20</td><td>周文傑（資料擁有者）</td><td>核准</td><td>並行關卡全部核准才往下</td><td>客戶主檔 擁有者核准；第 2 關完成</td><td class="mono">10.2.7.41<br>電腦</td><td class="mono">d215…7a03</td></tr>
+<tr><td>8</td><td class="mono">11-14 10:12:00</td><td>李志偉（MIS）</td><td>認領</td><td>MIS 群組認領；未簽過前面關卡</td><td>—</td><td class="mono">10.1.0.15<br>電腦</td><td class="mono">5a9e…b4c7</td></tr>
+<tr><td>9</td><td class="mono">11-14 10:40:18</td><td>李志偉（MIS）</td><td>核准並輸出規則</td><td>資安合規檢查</td><td>產生 R-0142-1；第 3 關完成</td><td class="mono">10.1.0.15<br>電腦</td><td class="mono">1c6d…e2f9</td></tr>
+<tr><td>10</td><td class="mono">11-14 16:05:44</td><td>李志偉（MIS）</td><td>標記 DC 已套用</td><td>—</td><td>狀態 → 驗證中</td><td class="mono">10.1.0.15<br>電腦</td><td class="mono">9f04…3d8a</td></tr>
+<tr><td>11</td><td class="mono">11-14 16:20:03</td><td>系統</td><td>自動驗證</td><td>查得到該查的、查不到不該查的</td><td>4／4 通過</td><td class="mono">—</td><td class="mono">b7e3…60c1</td></tr>
+<tr><td>12</td><td class="mono">11-17 10:02:51</td><td>林怡君（申請人）</td><td>確認驗證結果</td><td>確認時限 5 個工作天內</td><td>狀態 → 生效</td><td class="mono">10.2.14.33<br>電腦</td><td class="mono">46a8…f95d</td></tr>
+<tr><td>13</td><td class="mono">11-19 10:30:00</td><td>黃淑芬（稽核）</td><td>產生證據頁</td><td>稽核唯讀查詢</td><td>—</td><td class="mono">10.3.2.8<br>電腦</td><td class="mono">5d2c…e81a</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1500}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>MIS－合規檢查與規則輸出</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.btn.dan{color:#B42318;border-color:#E4A6A0}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:13px;padding:10px 12px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EAECEF;vertical-align:top}
+.alert{border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.6}
+.alert.warn{background:#FFF8EC;border:1px solid #F0C98A;color:#6B3A00}
+.alert.info{background:#F0F6FD;border:1px solid #B6D0EE;color:#0B3D73}
+.num{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:#1F2328;color:#fff;font-size:13px;font-weight:700;flex-shrink:0}
+.num.done{background:#17663A}
+.num.wait{background:#fff;color:#57606A;border:1px solid #C3CAD3}
+.chk{display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.6;padding:6px 0}
+.chk input{width:18px;height:18px;margin:3px 0 0;flex-shrink:0}
+.ok-row{display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.6;padding:6px 0}
+pre{margin:0;background:#F6F8FA;border:1px solid #D0D7DE;border-radius:8px;padding:16px;font-size:13px;line-height:1.6;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role on" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">李志偉｜MIS</div>
+</header>
+<main class="wrap">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<a href="MIS-Queue.dc.html" style="font-size: 14px">← MIS 佇列</a>
+<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap"><h1 class="h1">DA-2026-0142</h1><span class="tag l3">L3</span><span class="tag">你已認領</span></div>
+<div class="muted">專案：北區客戶流失分析｜客戶主檔、銷售訂單｜北區｜資料期間 2024–2025｜授權 2026-12-01～2027-04-30｜只能查詢</div>
+</div>
+
+<section class="card" aria-labelledby="s1">
+<h2 class="h2" id="s1"><span class="num">1</span>資安合規檢查</h2>
+<div style="display: flex; flex-wrap: wrap; gap: 24px">
+<div style="flex: 1 1 320px; min-width: 0">
+<h3 style="font-size: 14px; margin: 0 0 4px">系統已自動檢查</h3>
+<div class="ok-row"><span class="tag ok">通過</span>被授權者有在職的負責人（林怡君）</div>
+<div class="ok-row"><span class="tag ok">通過</span>每一關都是不同的人，也不是申請人</div>
+<div class="ok-row"><span class="tag ok">通過</span>授權期間在 L3 上限（一年）內</div>
+<div class="ok-row"><span class="tag ok">通過</span>欄位和列條件都存在於 DC 資料目錄</div>
+<div class="ok-row"><span class="tag warn">注意</span>和 DA-2026-0098 部分重疊，申請人已說明</div>
+</div>
+<div style="flex: 1 1 320px; min-width: 0">
+<h3 style="font-size: 14px; margin: 0 0 4px">請你人工確認</h3>
+<label class="chk"><input type="checkbox" checked="{{ yes }}">使用情境和資料範圍相符，沒有要求超過用途的欄位</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}">被授權者使用的系統環境符合資安政策</label>
+<label class="chk"><input type="checkbox">匯出設定合理（本單：只能查詢）</label>
+</div>
+</div>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px">
+<button class="btn pri" type="button">核准並輸出規則</button>
+<button class="btn dan" type="button">退回給申請人</button>
+</div>
+</section>
+
+<section class="card" aria-labelledby="s2">
+<h2 class="h2" id="s2"><span class="num wait">2</span>規則輸出，交給 DC 套用</h2>
+<p style="margin: 0 0 12px; font-size: 14px; line-height: 1.6">核准後產生下面的規則。第一版由你手動到 DC 套用，套用完成後按「已在 DC 套用」，這張單才會進入驗證。</p>
+<pre aria-label="規則內容">{
+  "rule_id": "R-0142-1",
+  "grantee": { "type": "project", "id": "PRJ-0031", "name": "北區客戶流失分析" },
+  "fields": [
+    "客戶主檔.客戶編號", "客戶主檔.客戶名稱", "客戶主檔.合約到期日",
+    "銷售訂單.訂單編號", "銷售訂單.客戶編號", "銷售訂單.訂單金額", "銷售訂單.訂單日期"
+  ],
+  "row_filter": [ { "field": "區域", "op": "in", "values": ["北區"] } ],
+  "data_period": { "from": "2024-01-01", "to": "2025-12-31" },
+  "valid": { "from": "2026-12-01", "to": "2027-04-30" },
+  "export": false
+}</pre>
+<div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px">
+<button class="btn" type="button">複製規則</button>
+<button class="btn" type="button">下載規則檔</button>
+<button class="btn pri" type="button">已在 DC 套用</button>
+</div>
+<p class="muted" style="margin: 8px 0 0">待確認 M2：DC 能接受的規則格式。之後可以改成自動交付給 DC，流程不變。</p>
+</section>
+
+<section class="card" aria-labelledby="s3">
+<h2 class="h2" id="s3"><span class="num wait">3</span>自動驗證</h2>
+<p style="margin: 0 0 12px; font-size: 14px; line-height: 1.6">DC 套用後，系統用被授權者的身分到 DC 試查。測試案例依申請範圍自動產生。</p>
+<div class="tbl" style="margin-bottom: 12px">
+<table>
+<thead><tr><th>測試</th><th>預期</th><th>結果</th></tr></thead>
+<tbody>
+<tr><td>客戶主檔・客戶名稱，區域＝北區</td><td>查得到</td><td class="muted">等待套用</td></tr>
+<tr><td>客戶主檔・客戶名稱，區域＝南區</td><td>查不到</td><td class="muted">等待套用</td></tr>
+<tr><td>客戶主檔・統一編號（未申請的欄位）</td><td>查不到</td><td class="muted">等待套用</td></tr>
+<tr><td>銷售訂單・訂單金額，訂單日期在 2023 年（資料期間外）</td><td>查不到</td><td class="muted">等待套用</td></tr>
+</tbody>
+</table>
+</div>
+<div class="alert warn">待確認 M3：DC 是否有測試查詢介面。如果沒有，這一步會改成由你上傳驗證證據，例如查詢畫面截圖。</div>
+<p class="muted" style="margin: 12px 0 0">任何一項沒通過，這張單會回到你這裡修正設定；全部通過後，交給申請人確認。</p>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1500}}'>
+class Component extends DCLogic {
+renderVals() {
+return { yes: true };
+}
+}
+</script>
+</body>
+</html>

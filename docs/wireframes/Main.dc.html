@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>申請人－我的申請</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.btn.dan{color:#B42318;border-color:#E4A6A0}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.l4{background:#FBE9E7;color:#9F2A1B}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.tag.dan{background:#FEE4E2;color:#9F1F12}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:#57606A;font-size:13px;padding:10px 12px;border-bottom:1px solid #D0D7DE;white-space:nowrap}
+td{padding:12px;border-bottom:1px solid #EAECEF;vertical-align:top}
+.alert{border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.6}
+.alert.warn{background:#FFF8EC;border:1px solid #F0C98A;color:#6B3A00}
+.alert.info{background:#F0F6FD;border:1px solid #B6D0EE;color:#0B3D73}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role on" href="Main.dc.html">申請人</a>
+<a class="role" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">林怡君｜業務分析部</div>
+</header>
+<main class="wrap">
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between">
+<h1 class="h1">我的申請</h1>
+<div style="display: flex; gap: 8px; flex-wrap: wrap">
+<a class="btn" href="Apply-Form.dc.html">從範本開始</a>
+<a class="btn pri" href="Apply-Form.dc.html">新申請</a>
+</div>
+</div>
+
+<section class="card" aria-labelledby="todo-h">
+<h2 class="h2" id="todo-h">待你處理（2）</h2>
+<div style="display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; border: 1px solid #F0C98A; background: #FFF8EC; border-radius: 8px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>DA-2026-0142</strong><span class="tag l3">L3</span><span class="tag warn">待你確認驗證結果</span></div>
+<div style="font-size: 14px">專案：北區客戶流失分析｜系統自動驗證 4／4 通過</div>
+<div class="muted">剩 3 個工作天確認（11-21 前），逾期會自動撤銷</div>
+</div>
+<a class="btn pri" href="Request-Detail.dc.html">確認驗證結果</a>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 14px 16px; border: 1px solid #D0D7DE; border-radius: 8px">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap"><strong>DA-2026-0077</strong><span class="tag l3">L3</span><span class="tag warn">14 天後到期</span></div>
+<div style="font-size: 14px">團隊：業務分析部｜客戶主檔、銷售訂單｜授權迄 2026-12-03</div>
+<div class="muted">一鍵續期會預填這張單，仍走完整簽核路徑</div>
+</div>
+<a class="btn" href="Apply-Form.dc.html">一鍵續期</a>
+</div>
+</div>
+</section>
+
+<section class="card" aria-labelledby="list-h">
+<div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 12px">
+<h2 class="h2" id="list-h" style="margin: 0">全部申請</h2>
+<div style="display: flex; gap: 4px; flex-wrap: wrap" role="group" aria-label="狀態篩選">
+<button class="btn" type="button" style="background: #E7EFF9; border-color: #B6D0EE; color: #0B4A8C">全部</button>
+<button class="btn" type="button">草稿</button>
+<button class="btn" type="button">送審中</button>
+<button class="btn" type="button">生效中</button>
+<button class="btn" type="button">已退回</button>
+<button class="btn" type="button">到期／撤銷</button>
+</div>
+</div>
+<div class="tbl">
+<table>
+<thead><tr><th>單號</th><th>級別</th><th>被授權者</th><th>資料範圍</th><th>狀態</th><th>授權起迄</th><th></th></tr></thead>
+<tbody>
+<tr><td><a href="Request-Detail.dc.html">DA-2026-0142</a></td><td><span class="tag l3">L3</span></td><td>專案：北區客戶流失分析</td><td>客戶主檔、銷售訂單｜北區｜2024–2025</td><td><span class="tag warn">驗證中</span></td><td>2026-12-01～2027-04-30</td><td><a href="Request-Detail.dc.html">查看</a></td></tr>
+<tr><td>DA-2026-0149</td><td><span class="tag l4">L4</span></td><td>agent：sales-report-bot</td><td>產品成本明細｜全區｜2025</td><td><span class="tag">送審中・資安長關</span><div class="muted">已等 1 個工作天</div></td><td>2026-12-01～2027-05-31</td><td><a href="Request-Detail.dc.html">查看</a></td></tr>
+<tr><td>DA-2026-0146</td><td><span class="tag l3">L3</span></td><td>團隊：業務分析部</td><td>客戶滿意度問卷｜全區｜2026</td><td><span class="tag dan">已退回</span><div class="muted">資料擁有者：請說明為何需要原始填答內容</div></td><td>—</td><td><a href="Apply-Form.dc.html">修改後重送</a></td></tr>
+<tr><td>DA-2026-0150</td><td><span class="tag">未判定</span></td><td>—</td><td>（尚未選擇）</td><td><span class="tag">草稿</span></td><td>—</td><td><a href="Apply-Form.dc.html">繼續編輯</a></td></tr>
+<tr><td>DA-2026-0098</td><td><span class="tag l3">L3</span></td><td>專案：北區客戶流失分析</td><td>銷售訂單｜北區｜2024</td><td><span class="tag ok">生效中</span></td><td>2026-06-01～2027-01-31</td><td><a href="Apply-Form.dc.html">沿用</a></td></tr>
+<tr><td>DA-2026-0077</td><td><span class="tag l3">L3</span></td><td>團隊：業務分析部</td><td>客戶主檔、銷售訂單｜全區｜2025</td><td><span class="tag ok">生效中</span></td><td>2025-12-04～2026-12-03</td><td><a href="Apply-Form.dc.html">續期</a></td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<section class="card" aria-labelledby="own-h">
+<h2 class="h2" id="own-h">我負責的被授權者</h2>
+<p class="muted" style="margin: 0 0 12px">你是這些專案或 agent 的負責人。你離職或調職時，主管要在 14 天內改指派，否則相關授權會自動撤銷。</p>
+<div class="tbl">
+<table>
+<thead><tr><th>被授權者</th><th>類型</th><th>有效授權</th><th>結束日</th></tr></thead>
+<tbody>
+<tr><td>北區客戶流失分析</td><td>專案</td><td>2 張</td><td>2027-06-30</td></tr>
+<tr><td>sales-report-bot</td><td>agent／服務帳號</td><td>1 張（送審中 1 張）</td><td>—</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1100}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

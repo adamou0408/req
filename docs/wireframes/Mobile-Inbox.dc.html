@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>手機－待簽</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.l4{background:#FBE9E7;color:#9F2A1B}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.item{display:flex;flex-direction:column;gap:6px;padding:16px;background:#fff;border:1px solid #D0D7DE;border-radius:12px;text-decoration:none;color:#1F2328}
+.item:hover{color:#1F2328;border-color:#0B5CAD}
+.muted{color:#57606A;font-size:13px}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; background: #F4F5F7; display: flex; flex-direction: column; overflow: hidden">
+<header style="padding: 20px 20px 12px; background: #fff; border-bottom: 1px solid #D0D7DE; display: flex; flex-direction: column; gap: 4px">
+<div class="muted">張美玲｜財務部</div>
+<h1 style="margin: 0; font-size: 22px">待我簽（3）</h1>
+</header>
+<div style="flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<a class="item" href="Mobile-Review.dc.html">
+<div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap"><strong style="font-size: 16px">DA-2026-0142</strong><span class="tag l3">L3</span><span class="tag warn">部分重疊</span></div>
+<div style="font-size: 14px">專案：北區客戶流失分析</div>
+<div class="muted">你負責：銷售訂單 4 個欄位｜申請人 林怡君</div>
+<div class="muted">新申請｜已等 1 個工作天</div>
+</a>
+<a class="item" href="Mobile-Review.dc.html">
+<div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap"><strong style="font-size: 16px">DA-2026-0153</strong><span class="tag l4">L4</span></div>
+<div style="font-size: 14px">agent：cost-analysis-bot</div>
+<div class="muted">你負責：產品成本明細 3 個欄位｜申請人 鄭雅文</div>
+<div class="muted">新申請｜當天</div>
+</a>
+<a class="item" href="Mobile-Review.dc.html">
+<div style="display: flex; gap: 6px; align-items: center; flex-wrap: wrap"><strong style="font-size: 16px">DA-2026-0144</strong><span class="tag l3">L3</span><span class="tag ok">無差異續期</span></div>
+<div style="font-size: 14px">團隊：財務規劃組</div>
+<div class="muted">你負責：銷售訂單 2 個欄位｜申請人 邱冠廷</div>
+<div class="muted">續期｜當天</div>
+</a>
+<p class="muted" style="margin: 4px 0 0; line-height: 1.6">手機上每張單都要打開來逐張簽；批次核准請在電腦上操作。</p>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+renderVals() {
+return {};
+}
+}
+</script>
+</body>
+</html>

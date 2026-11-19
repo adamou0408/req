@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<title>簽核人－簽核詳情</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F4F5F7;font-family:'Noto Sans TC',system-ui,sans-serif;color:#1F2328}
+a{color:#0B5CAD}a:hover{color:#084A8C}
+.top{display:flex;flex-wrap:wrap;align-items:center;gap:12px 20px;padding:12px 24px;background:#fff;border-bottom:1px solid #D0D7DE}
+.brand{font-weight:700;font-size:16px}
+.roles{display:flex;flex-wrap:wrap;gap:4px}
+.role{padding:8px 12px;border-radius:6px;text-decoration:none;color:#57606A;font-size:14px}
+.role.on{background:#E7EFF9;color:#0B5CAD;font-weight:600}
+.wrap{max-width:1200px;margin:0 auto;padding:24px;display:flex;flex-direction:column;gap:20px;box-sizing:border-box}
+.card{background:#fff;border:1px solid #D0D7DE;border-radius:8px;padding:20px}
+.h1{font-size:24px;font-weight:700;margin:0}
+.h2{font-size:16px;font-weight:700;margin:0 0 12px}
+.muted{color:#57606A;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 16px;border-radius:6px;border:1px solid #C3CAD3;background:#fff;color:#1F2328;font:inherit;font-size:14px;text-decoration:none;cursor:pointer;white-space:nowrap}
+.btn:hover{color:#1F2328;background:#F6F8FA}
+.btn.pri{background:#0B5CAD;border-color:#0B5CAD;color:#fff}
+.btn.pri:hover{background:#084A8C;color:#fff}
+.btn.dan{color:#B42318;border-color:#E4A6A0}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:600;background:#EEF0F3;color:#3D444D;white-space:nowrap}
+.tag.l3{background:#E7EFF9;color:#0B4A8C}
+.tag.l4{background:#FBE9E7;color:#9F2A1B}
+.tag.warn{background:#FFF1DB;color:#8A4500}
+.tag.ok{background:#E3F4E8;color:#17663A}
+.tag.add{background:#E3F4E8;color:#17663A}
+.alert{border-radius:8px;padding:12px 16px;font-size:14px;line-height:1.6}
+.alert.warn{background:#FFF8EC;border:1px solid #F0C98A;color:#6B3A00}
+.alert.info{background:#F0F6FD;border:1px solid #B6D0EE;color:#0B3D73}
+.field{display:flex;flex-direction:column;gap:6px;min-width:0}
+.lbl{font-size:13px;font-weight:600;color:#3D444D}
+.in{font:inherit;font-size:14px;padding:8px 10px;border:1px solid #C3CAD3;border-radius:6px;background:#fff;min-height:40px;box-sizing:border-box;width:100%;color:#1F2328}
+.in.chg{border-color:#D08A2E;background:#FFF8EC}
+.chk{display:flex;gap:8px;align-items:center;font-size:14px;min-height:32px}
+.chk input{width:18px;height:18px;margin:0}
+.steps{display:flex;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:0}
+.step{flex:1 1 160px;padding:10px 12px;border-radius:8px;border:1px solid #D0D7DE;font-size:13px;background:#fff}
+.step.done{background:#E3F4E8;border-color:#A6D8B5;color:#17663A}
+.step.now{background:#E7EFF9;border-color:#B6D0EE;color:#0B3D73;font-weight:600}
+.kv{display:grid;grid-template-columns:120px minmax(0,1fr);gap:10px 16px;font-size:14px;margin:0}
+.kv dt{color:#57606A}
+.kv dd{margin:0}
+</style>
+</helmet>
+<div style="min-height: 100vh">
+<header class="top">
+<div class="brand">資料授權簽核</div>
+<nav class="roles" aria-label="切換角色（wireframe 導覽）">
+<a class="role" href="Main.dc.html">申請人</a>
+<a class="role on" href="Approver-Inbox.dc.html">簽核人</a>
+<a class="role" href="Owner-Grants.dc.html">資料擁有者／主管</a>
+<a class="role" href="MIS-Queue.dc.html">MIS</a>
+<a class="role" href="Audit-Search.dc.html">稽核</a>
+<a class="role" href="Mobile-Inbox.dc.html">手機</a>
+</nav>
+<div class="muted" style="margin-left: auto">陳建宏｜業務分析部 經理</div>
+</header>
+<main class="wrap">
+<div style="display: flex; flex-direction: column; gap: 4px">
+<a href="Approver-Inbox.dc.html" style="font-size: 14px">← 待簽清單</a>
+<div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap"><h1 class="h1">DA-2026-0142</h1><span class="tag l3">L3</span><span class="tag">新申請</span><span class="tag warn">部分重疊</span></div>
+<div class="muted">申請人 林怡君（業務分析部）｜你的角色：申請人主管｜送審 2026-11-10 09:30</div>
+</div>
+
+<ol class="steps" aria-label="簽核路徑">
+<li class="step now">1　主管<br>陳建宏（你）</li>
+<li class="step">2　資料擁有者（並行）<br>周文傑、張美玲</li>
+<li class="step">3　MIS<br>群組認領</li>
+</ol>
+
+<div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start">
+<div style="flex: 999 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+
+<section class="card" aria-labelledby="ov-h">
+<h2 class="h2" id="ov-h">重疊警示</h2>
+<div class="alert warn" style="margin-bottom: 12px">同一個專案已有生效中的 <a href="Audit-Evidence.dc.html">DA-2026-0098</a>：銷售訂單・訂單編號、訂單金額｜北區｜2024，授權到 2027-01-31。</div>
+<div style="font-size: 14px; line-height: 1.6"><span class="muted">申請人說明：</span>前案只有 2024 年訂單，這次要加上 2025 年訂單和客戶主檔，才能比對續約狀況。</div>
+</section>
+
+<section class="card" aria-labelledby="df-h">
+<h2 class="h2" id="df-h">與前案 DA-2026-0098 的差異</h2>
+<ul style="margin: 0; padding-left: 20px; font-size: 14px; line-height: 1.9">
+<li><span class="tag add">新增</span> 客戶主檔：客戶編號、客戶名稱、合約到期日</li>
+<li><span class="tag add">新增</span> 銷售訂單：客戶編號、訂單日期</li>
+<li><span class="tag add">擴大</span> 資料期間：2024 → 2024–2025</li>
+<li><span class="tag">相同</span> 列條件：區域 屬於 北區</li>
+<li><span class="tag">相同</span> 使用情境：報表與分析</li>
+</ul>
+</section>
+
+<section class="card" aria-labelledby="sc-h">
+<h2 class="h2" id="sc-h">申請內容</h2>
+<div class="alert info" style="margin-bottom: 16px">你可以取消勾選欄位、縮短期間來縮小範圍，但不能擴大。縮小後系統會通知申請人，不用重簽。</div>
+
+<h3 style="font-size: 14px; margin: 0 0 4px">客戶主檔 <span class="tag l3">L3</span> <span class="muted" style="font-weight: 400">擁有者 周文傑</span></h3>
+<div style="display: flex; flex-wrap: wrap; gap: 0 24px; margin-bottom: 12px">
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 客戶編號</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 客戶名稱</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 合約到期日</label>
+</div>
+<h3 style="font-size: 14px; margin: 0 0 4px">銷售訂單 <span class="tag l3">L3</span> <span class="muted" style="font-weight: 400">擁有者 張美玲</span></h3>
+<div style="display: flex; flex-wrap: wrap; gap: 0 24px; margin-bottom: 20px">
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單編號</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 客戶編號</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單金額</label>
+<label class="chk"><input type="checkbox" checked="{{ yes }}"> 訂單日期</label>
+</div>
+
+<dl class="kv" style="margin-bottom: 20px">
+<dt>被授權者</dt><dd>專案：北區客戶流失分析（負責人 林怡君，在職；專案結束日 2027-06-30）</dd>
+<dt>列條件</dt><dd>區域 屬於 北區</dd>
+<dt>使用情境</dt><dd>報表與分析：分析北區客戶續約率下降的原因，每季產出報告給業務主管會議。</dd>
+<dt>可否匯出</dt><dd>只能查詢</dd>
+</dl>
+
+<div style="display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px">
+<div class="field" style="flex: 1 1 200px"><label class="lbl" for="dp1">資料期間・從</label><input class="in" id="dp1" value="2024-01-01"></div>
+<div class="field" style="flex: 1 1 200px"><label class="lbl" for="dp2">資料期間・到</label><input class="in" id="dp2" value="2025-12-31"></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div class="field" style="flex: 1 1 200px"><label class="lbl" for="g1">授權起</label><input class="in" id="g1" value="2026-12-01"></div>
+<div class="field" style="flex: 1 1 200px"><label class="lbl" for="g2">授權迄（你已修改）</label><input class="in chg" id="g2" value="2027-04-30"><span class="muted">申請人原填 2027-05-31</span></div>
+</div>
+</section>
+</div>
+
+<aside style="flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 20px" aria-label="簽核決定">
+<section class="card">
+<h2 class="h2">你的決定</h2>
+<div class="field" style="margin-bottom: 12px"><label class="lbl" for="cm">意見（退回時必填）</label><textarea class="in" id="cm" rows="4" style="min-height: 104px" value="報告是季度產出，授權到 4 月底已涵蓋第一季報告，之後再續期。"></textarea></div>
+<div style="display: flex; flex-direction: column; gap: 8px">
+<a class="btn pri" href="Approver-Inbox.dc.html">核准（含 1 項縮小）</a>
+<button class="btn dan" type="button">退回給申請人</button>
+</div>
+<p class="muted" style="margin: 12px 0 0">退回後，申請人只做縮小，會從你這關繼續；做了其他修改，會從第一關重簽。</p>
+</section>
+<section class="card">
+<h2 class="h2">時限</h2>
+<p style="margin: 0; font-size: 14px; line-height: 1.6">已等待 1 個工作天。3 個工作天未簽會催辦，再 2 個工作天未簽會升級給你的主管。</p>
+</section>
+</aside>
+</div>
+</main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":1500}}'>
+class Component extends DCLogic {
+renderVals() {
+return { yes: true };
+}
+}
+</script>
+</body>
+</html>
