@@ -77,10 +77,7 @@ export function ButtonLink({
   ...rest
 }: ButtonLinkProps) {
   return (
-    <Link
-      className={buttonClass({ variant, block }, className)}
-      {...rest}
-    >
+    <Link className={buttonClass({ variant, block }, className)} {...rest}>
       <span className="btn__label">{children}</span>
     </Link>
   );

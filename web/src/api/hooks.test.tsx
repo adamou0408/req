@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "./client";
 import { useMutation, useQuery } from "./hooks";
 
-const boom = new ApiError("REQUEST_NOT_FOUND", "找不到這張單", 404);
+const boom = new ApiError("case_not_found", "找不到這張單", 404);
 
 describe("useQuery", () => {
   it("先 loading，再給資料", async () => {
@@ -123,7 +123,7 @@ describe("useMutation", () => {
         .catch((reason: unknown) => reason);
     });
     expect(error).toBeInstanceOf(ApiError);
-    expect(error).toMatchObject({ code: "CLIENT_UNEXPECTED", message: "壞了" });
+    expect(error).toMatchObject({ code: "client_unexpected", message: "壞了" });
   });
 
   it("進行中 loading 為 true", async () => {

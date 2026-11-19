@@ -6,3 +6,6 @@ dist/
 test-results/
 playwright-report/
 sim/.run/
+
+# 模擬環境的執行期資料（資料庫檔、pid、log、建置出來的執行檔）
+sim/.run/

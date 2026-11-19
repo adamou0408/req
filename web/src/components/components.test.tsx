@@ -15,7 +15,6 @@ import {
   ErrorState,
   Field,
   KeyValue,
-  LevelTag,
   PageHeader,
   Segmented,
   Skeleton,
@@ -23,6 +22,7 @@ import {
   Stepper,
   Tabs,
   Tag,
+  TierTag,
   Timeline,
   useToast,
 } from ".";
@@ -67,15 +67,15 @@ describe("Tag", () => {
     render(
       <>
         <Tag tone="warn">部分重疊</Tag>
-        <LevelTag level="L4" />
-        <LevelTag level={null} />
-        <StatusTag status="in_review" detail="資安長關" />
+        <TierTag name="L4" elevated />
+        <TierTag name={null} />
+        <StatusTag status="in_approval" detail="資安長關" />
       </>,
     );
     expect(screen.getByText("部分重疊").className).toContain("tag--warn");
-    expect(screen.getByText("L4").className).toContain("tag--l4");
+    expect(screen.getByText("L4").className).toContain("tag--tier-high");
     expect(screen.getByText("未判定")).toBeTruthy();
-    expect(screen.getByText("送審中・資安長關")).toBeTruthy();
+    expect(screen.getByText("簽核中・資安長關")).toBeTruthy();
   });
 });
 
@@ -313,17 +313,12 @@ describe("EmptyState／ErrorState／Skeleton", () => {
     expect(screen.getByRole("button", { name: "重新整理" })).toBeTruthy();
   });
 
-  it("ErrorState 直接顯示後端的訊息與代碼，可以重試", async () => {
+  it("ErrorState 直接顯示後端的訊息（不顯示內部代碼），可以重試", async () => {
     const onRetry = vi.fn();
-    render(
-      <ErrorState
-        error={{ code: "REQUEST_NOT_FOUND", message: "找不到這張單" }}
-        onRetry={onRetry}
-      />,
-    );
+    render(<ErrorState error={{ message: "找不到這張單" }} onRetry={onRetry} />);
     const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("無法載入");
     expect(alert.textContent).toContain("找不到這張單");
-    expect(alert.textContent).toContain("REQUEST_NOT_FOUND");
     await userEvent.click(screen.getByRole("button", { name: "重試" }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
@@ -342,7 +337,7 @@ describe("PageHeader", () => {
       <PageHeader
         title="DA-2026-0142"
         back={{ to: "/approvals", label: "待簽清單" }}
-        tags={<LevelTag level="L3" />}
+        tags={<TierTag name="L3" />}
         meta="申請人 林怡君"
         actions={<Button>撤銷申請</Button>}
       />,
@@ -356,7 +351,7 @@ describe("PageHeader", () => {
     expect(screen.getByText("L3")).toBeTruthy();
     expect(screen.getByText("申請人 林怡君")).toBeTruthy();
     expect(screen.getByRole("button", { name: "撤銷申請" })).toBeTruthy();
-    expect(document.title).toBe("DA-2026-0142｜資料授權簽核");
+    expect(document.title).toBe("DA-2026-0142｜簽核平台");
   });
 });
 

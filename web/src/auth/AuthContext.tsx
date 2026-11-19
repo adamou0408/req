@@ -86,10 +86,13 @@ function useSession() {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const { state, setState, reload } = useSession();
 
-  const loginDev = useCallback(async (userId: string) => {
-    const user = await loginAsDevUser(userId);
-    setState({ status: "authenticated", user });
-  }, [setState]);
+  const loginDev = useCallback(
+    async (userId: string) => {
+      const user = await loginAsDevUser(userId);
+      setState({ status: "authenticated", user });
+    },
+    [setState],
+  );
 
   const logout = useCallback(async () => {
     await requestLogout();

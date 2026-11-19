@@ -3,9 +3,9 @@ import {
   Button,
   DataList,
   DiffList,
-  LevelTag,
   Stepper,
   Tag,
+  TierTag,
   Timeline,
 } from "../../components";
 import type { DataListColumn } from "../../components";
@@ -23,10 +23,10 @@ import type { SampleRow } from "./sampleData";
 const COLUMNS: readonly DataListColumn<SampleRow>[] = [
   { key: "id", header: "單號", primary: true, cell: (row) => row.id },
   {
-    key: "level",
+    key: "tier",
     header: "級別",
     primary: true,
-    cell: (row) => <LevelTag level={row.level} />,
+    cell: (row) => <TierTag name={row.tier} elevated={row.tier === "L4"} />,
   },
   { key: "applicant", header: "申請人", cell: (row) => row.applicant },
   {
@@ -74,7 +74,7 @@ export function DataListSection() {
         rows={SAMPLE_ROWS}
         rowKey={(row) => row.id}
         rowHref={() => "/dev/components"}
-        rowActions={(row) => <Button size="sm">查看 {row.id}</Button>}
+        rowActions={(row) => <Button>查看 {row.id}</Button>}
         selection={{
           selected,
           onChange: setSelected,

@@ -25,7 +25,8 @@ else
 fi
 
 all_healthy=true
-printf '%-12s %-10s %s\n' "服務" "狀態" "位址"
+# 標題不用 %-12s：中文字佔兩格，printf 以字數補空白會對不齊。
+printf '服務         狀態       位址\n'
 for name in "${names[@]}"; do
     state="$(sim_service_state "$name")"
     [[ "$state" == healthy ]] || all_healthy=false

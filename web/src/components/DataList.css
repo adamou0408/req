@@ -24,9 +24,8 @@
 }
 
 .datalist--table td {
-  padding: var(--space-3);
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
-  vertical-align: top;
 }
 
 .datalist--table tbody tr:last-child td {
@@ -54,18 +53,30 @@
   font-weight: 600;
 }
 
+/* 表格裡的連結與核取方塊都撐到觸控目標的大小，平板上用手指也點得準。 */
+.datalist--table .datalist__link {
+  display: inline-flex;
+  align-items: center;
+  min-width: var(--tap);
+  min-height: var(--tap);
+}
+
+.datalist--table td {
+  vertical-align: middle;
+}
+
 .datalist__check {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  min-height: 28px;
+  min-width: var(--tap);
+  min-height: var(--tap);
   cursor: pointer;
 }
 
 .datalist__check input {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   margin: 0;
   accent-color: var(--primary-bg);
 }
@@ -134,9 +145,7 @@
 }
 
 .datalist__card .datalist__check {
-  min-width: var(--tap);
-  min-height: var(--tap);
-  margin: -8px 0 -8px -12px;
+  margin: -8px 0 -8px -10px;
 }
 
 .datalist__card-body {

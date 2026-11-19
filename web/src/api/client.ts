@@ -281,7 +281,11 @@ class HttpClient implements ApiClient {
           ...(prompt && { prompt }),
         });
         if (code === null) {
-          throw new ApiError(CLIENT_ERROR.mfaCancelled, t.errors.mfaCancelled, 0);
+          throw new ApiError(
+            CLIENT_ERROR.mfaCancelled,
+            t.errors.mfaCancelled,
+            0,
+          );
         }
         rejected = await this.verifyMfa(code);
         if (!rejected) return await resend();
@@ -298,7 +302,10 @@ class HttpClient implements ApiClient {
       await this.send("POST", path, { body });
       return undefined;
     } catch (error) {
-      if (isApiError(error) && this.hasCode(error, this.options.mfa.invalidCodes)) {
+      if (
+        isApiError(error) &&
+        this.hasCode(error, this.options.mfa.invalidCodes)
+      ) {
         return error;
       }
       throw error;
@@ -346,7 +353,6 @@ class HttpClient implements ApiClient {
     return parseSuccess(response, request.responseType ?? "json");
   }
 }
-
 
 export function createClient(options: ClientOptions): ApiClient {
   return new HttpClient(options);

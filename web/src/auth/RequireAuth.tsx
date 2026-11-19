@@ -10,7 +10,10 @@ export interface LoginRedirectState {
   from: string;
 }
 
-function stateFor(location: { pathname: string; search: string }): LoginRedirectState {
+function stateFor(location: {
+  pathname: string;
+  search: string;
+}): LoginRedirectState {
   const params = new URLSearchParams(location.search);
   params.delete(LOGIN_ERROR_PARAM);
   const search = params.toString();
@@ -47,7 +50,13 @@ export function RequireAuth() {
     );
   }
   if (auth.status === "anonymous") {
-    return <Navigate to={loginPath(location.search)} replace state={stateFor(location)} />;
+    return (
+      <Navigate
+        to={loginPath(location.search)}
+        replace
+        state={stateFor(location)}
+      />
+    );
   }
   return <Outlet />;
 }

@@ -8,6 +8,7 @@
 - 以「**推論：**」開頭的是我根據事實做的判斷，不是來源的說法。
 - 以「**查不到：**」開頭的是找過但沒有可靠來源的事項，集中列在第 4 節。
 - 標示「（搜尋摘要）」的事實只在搜尋結果摘要看到，沒有打開原文逐字核對，引用前要再確認。
+- 表格中標題寫「（推論）」的欄位，以及「適合度」「理由」「風險與緩解」欄，是我的判斷。
 
 ---
 
@@ -15,7 +16,7 @@
 
 1. OpenID AuthZEN **Authorization API 1.0 已於 2026-01-12 成為 Final Specification**，定義「執行點問、判定點答」的 `subject／action／resource／context → decision` 介面，是候選標準中最貼近 spine 第 11 節 `check` 的已定稿協定 [1][2]。
 2. OPA、Cedar、OpenFGA 是判定引擎或政策語言，各自的 API 互不相容；它們之間的共同對外介面正是 AuthZEN（OpenFGA、Keycloak 目前是實驗性支援）[9][10][13][15]。
-3. Shared Signals Framework 1.0、CAEP 1.0、RISC 1.0 已於 2025-09 定稿，但 CAEP 的 8 種事件**沒有「授權或權限變更」專用事件**，而且查得到的產品大多只支援 session-revoked 與 credential-change 兩種 [20][22][24][27]。
+3. Shared Signals Framework 1.0、CAEP 1.0、RISC 1.0 已於 2025-09 定稿，但 CAEP 的 8 種事件**沒有「授權或權限變更」專用事件**，而且 Okta 發送方與 SailPoint 接收方都只支援 session-revoked 與 credential-change 兩種 [20][22][24][27]。
 4. SSF 的輪詢傳遞在接收方確認後，發送方就「released from any obligation to retain the SET」，所以**它不是可重播的事件串流**；spine 要求的重播能力必須自己提供 [29]。
 5. SCIM 2.0 的 `entitlements`、`roles` 屬性「No vocabulary or syntax is specified」，沒有期限與核准依據欄位，擴充草案也只是唯讀目錄；它不適合當授權的正式表達，只適合當往下游佈建群組或角色的選配通道 [35][38]。
 6. 機器對機器驗證的現行最佳實務是 OAuth 2.0 client credentials 加上非對稱的 client 驗證（mTLS 或簽章 JWT）；OWASP 明文寫不可只靠 API key 保護高價值資源 [39][40][44]。
@@ -91,7 +92,7 @@ ARAP 草案把「被拒絕 → 提出申請 → 等待核准 → 重新判定」
 
 草案的不變條件：「A denied decision remains a denial and MUST NOT be treated as access.」、「Approval does not by itself grant access.」；核准結果以 `result.mode: "reevaluate"` 與 `approval`（`id`、`approved_at`、`approved_until`）表達 [4]。
 
-**推論：** ARAP 描述的 Access Request Service 就是本平台在做的事（收申請、跑簽核、產生有期限的核准）。它才發布 13 天、只有一位作者、沒有任何實作紀錄，現在不能依賴；但本平台的 `check` 拒絕回應與申請單狀態若一開始就留出對應欄位，之後接上的成本很低。
+**推論：** ARAP 描述的 Access Request Service 就是本平台在做的事（收申請、跑簽核、產生有期限的核准）。它才發布 13 天、只有一位作者 [4]，查不到任何實作紀錄，現在不能依賴；但本平台的 `check` 拒絕回應與申請單狀態若一開始就留出對應欄位，之後接上的成本很低。
 
 #### 2.1.2 XACML
 
@@ -109,7 +110,7 @@ ARAP 草案把「被拒絕 → 提出申請 → 等待核准 → 重新判定」
 
 | | OPA／Rego | AWS Cedar | OpenFGA／Zanzibar |
 |---|---|---|---|
-| 性質 | 通用政策引擎＋ Rego 語言 | 政策語言＋ SDK；Amazon Verified Permissions 是代管服務 | 以關係（誰和什麼有何關係）為基礎的授權系統 |
+| 性質 | 通用政策引擎＋ Rego 語言 [13] | 政策語言＋ SDK；Amazon Verified Permissions 以它為基礎 [16] | 仿 Zanzibar、以關係為基礎的授權系統 [9][18] |
 | 治理 | CNCF Graduated（2021-01-29）（搜尋摘要）[14] | CNCF Sandbox（2026-01 報導）；採用者有 Cloudflare、MongoDB、StrongDM、Cloudinary（次級來源）[16] | CNCF Incubating（2025-10-28 生效，2025-11-11 公告）（搜尋摘要）[18] |
 | 判定 API | `POST /v1/data/{path}`，請求 `{"input": …}`，回應 `{"result": …}`；輸入與輸出的形狀由政策決定，沒有固定結構 [13] | `IsAuthorized`：`principal`、`action`、`resource`、`context`、`entities`、`policyStoreId` → `decision`（`ALLOW`／`DENY`）、`determiningPolicies`、`errors`；範例用 AWS SigV4 簽章 [15] | 原生 Check、BatchCheck、ListObjects、ListUsers；AuthZEN 端點對應到這些 [9] |
 | 判定紀錄 | 開啟 decision logging 時回應帶 `decision_id`，並出現在決策紀錄事件 [13] | 回應列出決定性的政策 [15] | 文件未述 |
@@ -125,9 +126,9 @@ ARAP 草案把「被拒絕 → 提出申請 → 等待核准 → 重新判定」
 | 標準狀態 | OpenID Final（2026-01）[2] | OASIS Standard（2019）[11] | 無 | 無 | 無 |
 | 請求模型與 spine `check` 的對應 | 直接對應：主體、資源、動作、情境 [1] | 要包成屬性類別 [11] | 自訂 | 接近，但綁 policy store [15] | 要轉成關係三元組 |
 | 回應可帶依據（授權、申請單） | 可，放 `context` [1] | 可，放 Advice／Obligations [11] | 自訂 | 只有政策代號 [15] | 不填 `context` [9] |
-| 批次判定 | 有 [1] | Multiple Decision Profile（本次未核對） | 自訂 | 有 BatchIsAuthorized（本次未核對） | 有 BatchCheck [9] |
+| 批次判定 | 有 [1] | 本次未查 | 自訂 | 本次未查 | 有 BatchCheck [9] |
 | 「列出某人能用什麼」 | Search API [1] | 無對應 | 自訂 | 無對應 | ListObjects／ListUsers [9] |
-| 既有執行點可直接接 | 已有多家判定點與閘道實作 [6][8] | 僅 XACML 產品 | OPA 生態 | AWS 生態 | OpenFGA SDK |
+| 已有多家獨立實作互通 | 是，多家判定點與身分提供者參與互通展示 [6][8] | 僅 XACML 產品 | OPA 生態 | AWS 生態 | OpenFGA SDK |
 
 **推論（結論）：** `check` 採用 AuthZEN Authorization API 1.0；`grants` 的「列出」需求用 AuthZEN Search API 涵蓋一部分，其餘（授權的限制條件、有效期間、申請單連結）用平台自己的 REST 資源補足。理由：
 
@@ -209,7 +210,7 @@ RFC 8936（輪詢）§2.2：「Once a SET has been acknowledged, the SET Transmi
 
 **推論：**
 
-- 接收端最容易實作的是「HTTP POST ＋ HMAC 標頭」。Standard Webhooks 的三個標頭與簽章算法是現成的慣例，已有多語言驗證函式庫，風險是它是社群規格而不是標準組織的標準。
+- 接收端最容易實作的是「HTTP POST ＋ HMAC 標頭」。Standard Webhooks 的三個標頭與簽章算法是現成的慣例，風險是它是社群規格而不是標準組織的標準。
 - CloudEvents 只是欄位命名。事件內容採用它的 `id`、`source`、`type`、`time`、`subject` 幾乎沒有成本，換來與事件匯流排、SIEM 管線的相容。
 - SSF 發送方適合放在第二階段：先用它服務「已經會收 SSF 的身分提供者與閘道」，事件用 CAEP 能對應的部分加上平台自訂 URI。
 
@@ -353,7 +354,7 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 
 ### 2.6 稽核事件輸出給 SIEM／GRC 的格式
 
-| 格式 | 性質與現況 | 優點 | 缺點 | 來源 |
+| 格式 | 性質與現況 | 優點（推論） | 缺點 | 來源 |
 |---|---|---|---|---|
 | OCSF | 開放結構描述；最新 1.9.0（2026-08-03），前一版 1.8.0（2026-03）。Identity & Access Management 類別有 3001 Account Change、3002 Authentication、3003 Authorize Session、3004 Entity Management、3005 User Access Management、3006 Group Management、3007 User Management、3008 Role Management（3001 與 3005 在 1.9.0 瀏覽器上標示「D」） | 欄位語意固定，跨廠商；Amazon Security Lake 要求自訂來源「must adhere to the OCSF schema and an Apache Parquet format」 | 版本更新快（一年三版）；沒有「簽核決定」的現成類別（推論，見第 4 節） | [63][64][65] |
 | CEF | ArcSight 的文字格式，走 syslog；標頭欄位含 Device Vendor、Device Product、Device Version、DeviceEventClassID、Name、Severity，後接鍵值延伸欄位。Microsoft Sentinel 以 CommonSecurityLog 表接收 | 老牌 SIEM 普遍能收 | 欄位為網路安全設備設計，自訂資料只能塞進 `cs1`–`cs6` 等自訂欄位，巢狀結構會遺失 | [66] |
@@ -413,7 +414,7 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 | 事件通知 `events`、`webhook_subscription` | 簽章 webhook（Standard Webhooks 的標頭與 HMAC-SHA256）[31]＋游標式可重播事件端點；事件欄位相容 CloudEvents 必填屬性 [33] | SSF 發送方（推送與輪詢），事件用 CAEP 可對應者加上平台自訂 URI [19][20] | RISC；把授權事件硬套成 CAEP session-revoked | CAEP 沒有授權事件；SSF 不可重播 | Standard Webhooks 是社群規格。緩解：簽章算法是通用的 HMAC，不被規格綁死 |
 | 佈建 | — | 流程包層級的 SCIM 2.0 對外連接器（群組或角色式授權）[35][36] | 核心介面採用 SCIM；平台當 SCIM 服務端 | SCIM 無期限、依據、限制條件 | 目標系統的 SCIM 實作差異大 |
 | 機器身分 `api_client` | OAuth 2.0 client credentials、TLS、範圍與對象限制、每次呼叫留紀錄 [39][40] | 簽章 JWT 或 mTLS 的 client 驗證；憑證綁定 token [40][41] | 以長期靜態 API key 為唯一方式；SPIFFE 專屬整合 | RFC 9700 與 OWASP 的建議 | 客戶端系統老舊只會帶固定金鑰。緩解：允許 API key 但強制到期、輪替、最小範圍 |
-| 人員登入 | OpenID Connect（已在 spine 第 12 節）[45] | — | SAML（本次未調查） | — | — |
+| 人員登入 | OpenID Connect（已在 spine 第 12 節）[45] | — | —（SAML 本次未調查） | 已是 ISO/IEC 標準 | — |
 | 防竄改 | PostgreSQL 內只增不改＋雜湊鏈；外部錨定；獨立驗證工具；定期驗證與告警 | 錨定值加 RFC 3161 時間戳記 [47]；定期 Merkle 根檢查點 [48] | immudb、Trillian、Rekor、公有區塊鏈 | 稽核要求的是結果；交易一致性與可攜性優先 | 擁有者與 superuser 仍可在兩次錨定之間重算。緩解：縮短錨定間隔、資料庫權限分離並納入稽核 |
 | 證據輸出 `evidence`、`audit_feed` | JSON Lines＋清單檔；游標式拉取 API [68] | OCSF 對應（標明版本）[63] | 內建 CEF、syslog 輸出 | 正本要保留驗證欄位；CEF／syslog 有損 | OCSF 改版頻繁；簽核事件的類別對應未定 |
 | 定期複查、對帳 | 平台自有 REST API（查不到標準），模型對齊「活動 → 項目 → 決定 → 套用」 | 對帳可選擇由平台以 SCIM GET 主動拉取 | — | 沒有標準可採 | 每個回報系統都要寫一小段轉換 |
@@ -476,7 +477,7 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 | N7 | immudb、Trillian、Tessera、Rekor、公有區塊鏈 | 結論 9；2.5.2 |
 | N8 | 內建 CEF 或 syslog 輸出 | 2.6；有損且無送達確認，可由客戶的收集器轉換 |
 | N9 | AuthZEN Obligations、COAZ | 2.1.1；仍是草案，第一版沒有對應需求 |
-| N10 | 判定結果的簽章（簽章 JWT 形式的 decision） | AuthZEN 1.0 未定義；TLS 加呼叫紀錄已足夠（推論） |
+| N10 | 判定結果的簽章（簽章 JWT 形式的 decision） | 本次讀到的 AuthZEN 1.0 內容只有 metadata 可簽章，沒有判定結果簽章的定義 [1]；TLS 加呼叫紀錄已足夠（推論） |
 
 ---
 

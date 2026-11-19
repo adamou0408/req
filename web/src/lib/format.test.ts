@@ -6,10 +6,9 @@ import {
   formatDateShort,
   formatDateTime,
   formatDaysLeft,
-  formatGrantee,
-  formatLevel,
-  formatRole,
+  formatPrincipal,
   formatStatus,
+  formatTier,
   formatWaited,
   formatWorkdays,
   formatWorkdaysLeft,
@@ -68,35 +67,28 @@ describe("工作天與天數", () => {
   });
 });
 
-describe("級別、狀態、角色", () => {
-  it("L3 與 L4 各有自己的顏色，L1、L2 用中性色", () => {
-    expect(formatLevel("L3")).toEqual({ label: "L3", tone: "l3" });
-    expect(formatLevel("L4")).toEqual({ label: "L4", tone: "l4" });
-    expect(formatLevel("L1")).toEqual({ label: "L1", tone: "neutral" });
+describe("級別、狀態、被授權者", () => {
+  it("級別名稱由後端給；需要特別留意的級別用醒目的顏色", () => {
+    expect(formatTier("L3")).toEqual({ label: "L3", tone: "tier" });
+    expect(formatTier("L4", true)).toEqual({ label: "L4", tone: "tier-high" });
+    expect(formatTier("一般用印")).toEqual({ label: "一般用印", tone: "tier" });
   });
 
-  it("還沒選欄位時顯示「未判定」", () => {
-    expect(formatLevel(null)).toEqual({ label: "未判定", tone: "neutral" });
+  it("還不足以判定級別時顯示「未判定」", () => {
+    expect(formatTier(null)).toEqual({ label: "未判定", tone: "neutral" });
   });
 
   it("狀態對應文案與色調", () => {
     expect(formatStatus("draft")).toEqual({ label: "草稿", tone: "neutral" });
-    expect(formatStatus("verifying")).toEqual({
-      label: "驗證中",
-      tone: "warn",
-    });
+    expect(formatStatus("in_approval")).toEqual({ label: "簽核中", tone: "info" });
+    expect(formatStatus("pending_fulfilment")).toEqual({ label: "待執行", tone: "warn" });
     expect(formatStatus("active")).toEqual({ label: "生效中", tone: "ok" });
-    expect(formatStatus("revoked")).toEqual({
-      label: "已撤銷",
-      tone: "danger",
-    });
+    expect(formatStatus("completed")).toEqual({ label: "已完成", tone: "ok" });
+    expect(formatStatus("revoked")).toEqual({ label: "已撤銷", tone: "danger" });
   });
 
-  it("角色、被授權者、件數", () => {
-    expect(formatRole("mis_admin")).toBe("MIS 系統管理員");
-    expect(formatGrantee("project", "北區客戶流失分析")).toBe(
-      "專案：北區客戶流失分析",
-    );
+  it("被授權者、件數", () => {
+    expect(formatPrincipal("project", "北區客戶流失分析")).toBe("專案：北區客戶流失分析");
     expect(formatCount("待我簽", 6)).toBe("待我簽（6）");
   });
 });

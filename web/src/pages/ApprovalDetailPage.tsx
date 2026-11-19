@@ -1,5 +1,5 @@
 import { useParams } from "react-router";
-import { ID_PARAM } from "../app/paths";
+import { ID_PARAM, PATHS } from "../app/paths";
 import { PageHeader } from "../components";
 import { useIsMobile } from "../lib/useMediaQuery";
 import { t } from "../i18n/zh-Hant";

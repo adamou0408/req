@@ -9,13 +9,13 @@ import {
   ErrorState,
   Field,
   KeyValue,
-  LevelTag,
   PageHeader,
   Segmented,
   Skeleton,
   StatusTag,
   Tabs,
   Tag,
+  TierTag,
 } from "../../components";
 import { DemoLabel, DemoSection } from "./DemoSection";
 
@@ -34,7 +34,6 @@ export function ButtonSection() {
           送出中
         </Button>
         <Button disabled>不能按</Button>
-        <Button size="sm">小按鈕（桌面）</Button>
         <ButtonLink to="/dev/components" variant="primary">
           連結按鈕
         </ButtonLink>
@@ -51,21 +50,22 @@ export function TagSection() {
     <DemoSection title="Tag">
       <DemoLabel>級別</DemoLabel>
       <div className="cluster">
-        <LevelTag level="L3" />
-        <LevelTag level="L4" />
-        <LevelTag level="L1" />
-        <LevelTag level={null} />
+        <TierTag name="L3" />
+        <TierTag name="L4" elevated />
+        <TierTag name={null} />
       </div>
       <DemoLabel>狀態</DemoLabel>
       <div className="cluster">
         <StatusTag status="draft" />
-        <StatusTag status="in_review" detail="資安長關" />
+        <StatusTag status="in_approval" detail="資安長關" />
         <StatusTag status="returned" />
-        <StatusTag status="pending_apply" />
+        <StatusTag status="pending_fulfilment" />
         <StatusTag status="verifying" />
         <StatusTag status="active" />
+        <StatusTag status="completed" />
         <StatusTag status="expired" />
         <StatusTag status="revoked" />
+        <StatusTag status="cancelled" />
       </div>
       <DemoLabel>色調</DemoLabel>
       <div className="cluster">
@@ -165,7 +165,13 @@ export function ChoiceSection() {
           <Checkbox
             key={name}
             label={name}
-            suffix={<LevelTag level={name === "統一編號" ? "L4" : "L3"} />}
+            suffix={
+              name === "統一編號" ? (
+                <TierTag name="L4" elevated />
+              ) : (
+                <TierTag name="L3" />
+              )
+            }
             checked={fields.has(name)}
             onChange={() => toggle(name)}
           />
@@ -234,10 +240,7 @@ export function StateSection() {
         action={<Button>重新整理</Button>}
       />
       <ErrorState
-        error={{
-          code: "CLIENT_NETWORK_ERROR",
-          message: "連不上伺服器，請確認網路後再試一次。",
-        }}
+        error={{ message: "連不上伺服器，請確認網路後再試一次。" }}
         onRetry={() => undefined}
       />
       <Skeleton count={3} />
@@ -254,7 +257,7 @@ export function PageHeaderSection() {
         back={{ to: "/dev/components", label: "待簽清單" }}
         tags={
           <>
-            <LevelTag level="L3" />
+            <TierTag name="L3" />
             <Tag>新申請</Tag>
             <Tag tone="warn">部分重疊</Tag>
           </>
@@ -262,7 +265,7 @@ export function PageHeaderSection() {
         meta="申請人 林怡君（業務分析部）｜你的角色：申請人主管｜送審 2026-11-10 09:30"
         actions={<Button variant="danger">撤銷申請</Button>}
       />
-      <Card title="時限" actions={<Button size="sm">催辦</Button>}>
+      <Card title="時限" actions={<Button>催辦</Button>}>
         <p>
           已等待 1 個工作天。3 個工作天未簽會催辦，再 2
           個工作天未簽會升級給你的主管。

@@ -15,9 +15,7 @@ const ApprovalsPage = lazy(() => import("./pages/ApprovalsPage"));
 const ApprovalDetailPage = lazy(() => import("./pages/ApprovalDetailPage"));
 const GrantsPage = lazy(() => import("./pages/GrantsPage"));
 const FulfilmentQueuePage = lazy(() => import("./pages/FulfilmentQueuePage"));
-const FulfilmentDetailPage = lazy(
-  () => import("./pages/FulfilmentDetailPage"),
-);
+const FulfilmentDetailPage = lazy(() => import("./pages/FulfilmentDetailPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AuditSearchPage = lazy(() => import("./pages/AuditSearchPage"));
 const AuditEvidencePage = lazy(() => import("./pages/AuditEvidencePage"));
@@ -64,9 +62,15 @@ export function App() {
           <Route element={<AppLayout />}>
             <Route index element={<HomeRoute />} />
             <Route path={PATHS.requestNew} element={<RequestNewPage />} />
-            <Route path={PATHS.request(ID_PATTERN)} element={<RequestDetailPage />} />
+            <Route
+              path={PATHS.request(ID_PATTERN)}
+              element={<RequestDetailPage />}
+            />
             <Route path={PATHS.approvals} element={<ApprovalsPage />} />
-            <Route path={PATHS.approval(ID_PATTERN)} element={<ApprovalDetailPage />} />
+            <Route
+              path={PATHS.approval(ID_PATTERN)}
+              element={<ApprovalDetailPage />}
+            />
             <Route path={PATHS.grants} element={<GrantsPage />} />
             <Route path={PATHS.fulfilment} element={<FulfilmentQueuePage />} />
             <Route
@@ -75,8 +79,14 @@ export function App() {
             />
             <Route path={PATHS.settings} element={<SettingsPage />} />
             <Route path={PATHS.audit} element={<AuditSearchPage />} />
-            <Route path={PATHS.auditEvidence(ID_PATTERN)} element={<AuditEvidencePage />} />
-            <Route path={LEGACY_FULFILMENT} element={<LegacyFulfilmentRedirect />} />
+            <Route
+              path={PATHS.auditEvidence(ID_PATTERN)}
+              element={<AuditEvidencePage />}
+            />
+            <Route
+              path={LEGACY_FULFILMENT}
+              element={<LegacyFulfilmentRedirect />}
+            />
             <Route
               path={`${LEGACY_FULFILMENT}/${ID_PATTERN}`}
               element={<LegacyFulfilmentRedirect />}

@@ -19,9 +19,11 @@ function setup(...responses: Array<Response | FetchFailure>) {
   }
   const client = createClient({
     unsafeMethodHeader: { name: "X-Requested-With", value: "das-web" },
-    mfaRequiredCodes: ["MFA_REQUIRED"],
-    mfaInvalidCodes: ["MFA_INVALID"],
-    mfaHeaders: (code) => ({ "X-MFA-Code": code }),
+    mfa: {
+      requiredCodes: ["mfa_required"],
+      invalidCodes: ["mfa_invalid"],
+      verifyRequest: (code) => ({ path: "/api/auth/mfa/verify", body: { code } }),
+    },
     fetch: fetchMock,
   });
   const onUnauthorized = vi.fn();
@@ -53,9 +55,10 @@ async function caught(promise: Promise<unknown>): Promise<ApiError> {
 }
 
 const mfaRequired = () =>
-  jsonResponse({ code: "MFA_REQUIRED", message: "需要多一道驗證" }, 401);
-const mfaInvalid = () =>
-  jsonResponse({ code: "MFA_INVALID", message: "驗證碼不正確" }, 401);
+  jsonResponse({ code: "mfa_required", message: "這個動作需要再驗證一次身分" }, 403);
+const mfaInvalid = () => jsonResponse({ code: "mfa_invalid", message: "驗證碼不正確" }, 422);
+const mfaVerified = () => jsonResponse({ mfa_verified: true });
+const unauthenticated = () => jsonResponse({ code: "unauthenticated", message: "請先登入" }, 401);
 
 describe("buildUrl", () => {
   it("略過 null 與 undefined，陣列展開成多個同名參數", () => {
@@ -105,11 +108,11 @@ describe("一般請求", () => {
 describe("錯誤統一成 {code, message}", () => {
   it("後端回 {code, message}：原樣帶出並附上 HTTP 狀態", async () => {
     const { client, onUnauthorized } = setup(
-      jsonResponse({ code: "REQUEST_NOT_FOUND", message: "找不到這張單" }, 404),
+      jsonResponse({ code: "case_not_found", message: "找不到這張單" }, 404),
     );
     const error = await caught(client.get("/api/x"));
     expect(error).toMatchObject({
-      code: "REQUEST_NOT_FOUND",
+      code: "case_not_found",
       message: "找不到這張單",
       status: 404,
     });
@@ -118,11 +121,11 @@ describe("錯誤統一成 {code, message}", () => {
 
   it("後端回 {error: {code, message}}：也認得", async () => {
     const { client } = setup(
-      jsonResponse({ error: { code: "FORBIDDEN", message: "沒有權限" } }, 403),
+      jsonResponse({ error: { code: "forbidden", message: "沒有權限" } }, 403),
     );
     const error = await caught(client.get("/api/x"));
     expect(error).toMatchObject({
-      code: "FORBIDDEN",
+      code: "forbidden",
       message: "沒有權限",
       status: 403,
     });
@@ -137,7 +140,7 @@ describe("錯誤統一成 {code, message}", () => {
     expect(error.message).toContain("502");
   });
 
-  it("連不上後端：CLIENT_NETWORK_ERROR，狀態為 0", async () => {
+  it("連不上後端：client_network_error，狀態為 0", async () => {
     const { client } = setup(
       new FetchFailure(new TypeError("Failed to fetch")),
     );
@@ -145,7 +148,7 @@ describe("錯誤統一成 {code, message}", () => {
     expect(error).toMatchObject({ code: CLIENT_ERROR.network, status: 0 });
   });
 
-  it("成功但內容不是 JSON：CLIENT_BAD_RESPONSE", async () => {
+  it("成功但內容不是 JSON：client_bad_response", async () => {
     const { client } = setup(
       new Response("<html></html>", {
         status: 200,
@@ -168,19 +171,14 @@ describe("錯誤統一成 {code, message}", () => {
 
 describe("401", () => {
   it("通知身分層（由它導向登入），並把錯誤丟給呼叫端", async () => {
-    const { client, onUnauthorized } = setup(
-      jsonResponse({ code: "UNAUTHENTICATED", message: "尚未登入" }, 401),
-    );
+    const { client, onUnauthorized } = setup(unauthenticated());
     const error = await caught(client.get("/api/x"));
-    expect(error.status).toBe(401);
+    expect(error).toMatchObject({ code: "unauthenticated", status: 401 });
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
   });
 
-  it("MFA 驗證通過後重試才發現登入過期：一樣通知身分層", async () => {
-    const { client, onUnauthorized } = setup(
-      mfaRequired(),
-      jsonResponse({ code: "UNAUTHENTICATED", message: "尚未登入" }, 401),
-    );
+  it("MFA 進行到一半登入過期：一樣通知身分層，並關掉 MFA 視窗", async () => {
+    const { client, onUnauthorized } = setup(mfaRequired(), unauthenticated());
     const { handler } = mfaHandler("123456");
     client.setMfaHandler(handler);
     await caught(client.post("/api/x"));
@@ -190,68 +188,68 @@ describe("401", () => {
 });
 
 describe("需要 MFA", () => {
-  it("向使用者要驗證碼，帶著驗證碼重試同一個請求", async () => {
+  it("向使用者要驗證碼 → 交給後端驗證 → 原樣重送原本的請求", async () => {
     const { client, fetchMock, onUnauthorized, headersOf } = setup(
       mfaRequired(),
+      mfaVerified(),
       jsonResponse({ approved: true }),
     );
     const { handler, challenges } = mfaHandler("123456");
     client.setMfaHandler(handler);
     const prompt = { title: "確認核准", summary: ["DA-2026-0142"] };
 
-    await expect(
-      client.post("/api/approve", { id: 1 }, { mfa: prompt }),
-    ).resolves.toEqual({ approved: true });
+    await expect(client.post("/api/approve", { id: 1 }, { mfa: prompt })).resolves.toEqual({
+      approved: true,
+    });
 
     expect(challenges).toEqual([{ attempt: 1, prompt }]);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(headersOf(0)["X-MFA-Code"]).toBeUndefined();
-    expect(headersOf(1)["X-MFA-Code"]).toBe("123456");
-    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe('{"id":1}');
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      "/api/approve",
+      "/api/auth/mfa/verify",
+      "/api/approve",
+    ]);
+    expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
+    expect(fetchMock.mock.calls[1]?.[1]?.body).toBe('{"code":"123456"}');
+    expect(headersOf(1)["X-Requested-With"]).toBe("das-web");
+    expect(fetchMock.mock.calls[2]?.[1]?.body).toBe('{"id":1}');
     expect(handler.settle).toHaveBeenCalledTimes(1);
     expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
-  it("驗證碼被拒絕：帶著錯誤再問一次，直到通過", async () => {
-    const { client, fetchMock, headersOf } = setup(
+  it("驗證碼被拒絕：帶著後端的訊息再問一次，直到通過", async () => {
+    const { client, fetchMock } = setup(
       mfaRequired(),
       mfaInvalid(),
+      mfaVerified(),
       jsonResponse({ approved: true }),
     );
     const { handler, challenges } = mfaHandler("000000", "123456");
     client.setMfaHandler(handler);
 
-    await expect(client.post("/api/approve")).resolves.toEqual({
-      approved: true,
-    });
+    await expect(client.post("/api/approve")).resolves.toEqual({ approved: true });
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(challenges[1]).toMatchObject({
       attempt: 2,
-      error: { code: "MFA_INVALID", message: "驗證碼不正確" },
+      error: { code: "mfa_invalid", message: "驗證碼不正確" },
     });
-    expect(headersOf(2)["X-MFA-Code"]).toBe("123456");
+    expect(fetchMock.mock.calls[2]?.[1]?.body).toBe('{"code":"123456"}');
     expect(handler.settle).toHaveBeenCalledTimes(1);
   });
 
-  it("連續三次被拒絕：不再問，把後端的錯誤丟出", async () => {
-    const { client, fetchMock, onUnauthorized } = setup(
-      mfaRequired(),
-      mfaInvalid(),
-      mfaInvalid(),
-      mfaInvalid(),
-    );
-    const { handler } = mfaHandler("111111", "222222", "333333");
+  it("輸入錯誤太多次被後端鎖住：不再問，把後端的錯誤丟出", async () => {
+    const locked = jsonResponse({ code: "mfa_locked", message: "驗證碼輸入錯誤太多次，請稍後再試" }, 429);
+    const { client, fetchMock } = setup(mfaRequired(), mfaInvalid(), locked);
+    const { handler } = mfaHandler("111111", "222222");
     client.setMfaHandler(handler);
     const error = await caught(client.post("/api/approve"));
-    expect(error.code).toBe("MFA_INVALID");
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(handler.request).toHaveBeenCalledTimes(3);
+    expect(error).toMatchObject({ code: "mfa_locked", status: 429 });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(handler.request).toHaveBeenCalledTimes(2);
     expect(handler.settle).toHaveBeenCalledTimes(1);
-    expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
-  it("使用者取消：不重試，丟出 CLIENT_MFA_CANCELLED", async () => {
+  it("使用者取消：不驗證也不重送，丟出 client_mfa_cancelled", async () => {
     const { client, fetchMock, onUnauthorized } = setup(mfaRequired());
     const { handler } = mfaHandler(null);
     client.setMfaHandler(handler);
@@ -262,25 +260,23 @@ describe("需要 MFA", () => {
     expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
-  it("重試時遇到其他錯誤：直接丟出，不再問驗證碼", async () => {
+  it("驗證通過後重送遇到其他錯誤：直接丟出，不再問驗證碼", async () => {
     const { client } = setup(
       mfaRequired(),
-      jsonResponse(
-        { code: "STAGE_ALREADY_DECIDED", message: "這一關已經簽過" },
-        409,
-      ),
+      mfaVerified(),
+      jsonResponse({ code: "task_already_decided", message: "這一關已經簽過" }, 409),
     );
     const { handler } = mfaHandler("123456");
     client.setMfaHandler(handler);
     const error = await caught(client.post("/api/approve"));
-    expect(error).toMatchObject({ code: "STAGE_ALREADY_DECIDED", status: 409 });
+    expect(error).toMatchObject({ code: "task_already_decided", status: 409 });
     expect(handler.request).toHaveBeenCalledTimes(1);
   });
 
-  it("沒有註冊 MFA 視窗：把 MFA_REQUIRED 原樣丟出，不當成登入過期", async () => {
+  it("沒有註冊 MFA 視窗：把 mfa_required 原樣丟出", async () => {
     const { client, onUnauthorized } = setup(mfaRequired());
     const error = await caught(client.post("/api/approve"));
-    expect(error.code).toBe("MFA_REQUIRED");
+    expect(error.code).toBe("mfa_required");
     expect(onUnauthorized).not.toHaveBeenCalled();
   });
 
@@ -288,7 +284,9 @@ describe("需要 MFA", () => {
     const { client } = setup(
       mfaRequired(),
       mfaRequired(),
+      mfaVerified(),
       jsonResponse({ n: 1 }),
+      mfaVerified(),
       jsonResponse({ n: 2 }),
     );
     let open = 0;

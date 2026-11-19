@@ -31,7 +31,9 @@ const FILTER_THRESHOLD = 8;
 const copy = t.auth.dev;
 
 function matches(option: DevLoginOption, keyword: string): boolean {
-  const text = [option.name, option.org_unit, option.title].join(" ").toLowerCase();
+  const text = [option.name, option.org_unit, option.title]
+    .join(" ")
+    .toLowerCase();
   return text.includes(keyword.trim().toLowerCase());
 }
 
@@ -40,7 +42,11 @@ interface PickProps {
   onPick: (actorId: string) => void;
 }
 
-function DevPersonButton({ option, busy, onPick }: PickProps & { option: DevLoginOption }) {
+function DevPersonButton({
+  option,
+  busy,
+  onPick,
+}: PickProps & { option: DevLoginOption }) {
   return (
     <li>
       <button
@@ -63,7 +69,10 @@ function DevPersonButton({ option, busy, onPick }: PickProps & { option: DevLogi
   );
 }
 
-function DevPersonList({ options, ...pick }: PickProps & { options: readonly DevLoginOption[] }) {
+function DevPersonList({
+  options,
+  ...pick
+}: PickProps & { options: readonly DevLoginOption[] }) {
   const [keyword, setKeyword] = useState("");
   const visible = options.filter((option) => matches(option, keyword));
   if (options.length === 0) return <p className="muted">{copy.listEmpty}</p>;
@@ -136,7 +145,13 @@ function DevLogin() {
   );
 }
 
-function SsoLogin({ config, returnTo }: { config: AuthConfig; returnTo: string }) {
+function SsoLogin({
+  config,
+  returnTo,
+}: {
+  config: AuthConfig;
+  returnTo: string;
+}) {
   const url = ssoLoginUrl(config, returnTo);
   if (url === null) return <Alert tone="warn">{t.auth.ssoUnavailable}</Alert>;
   return (
@@ -169,7 +184,8 @@ export default function LoginPage() {
   const returnTo = redirectTarget(useLocation().state);
   const config = useQuery("auth-config", fetchAuthConfig);
   useDocumentTitle(t.auth.loginTitle);
-  if (auth.status === "authenticated") return <Navigate to={returnTo} replace />;
+  if (auth.status === "authenticated")
+    return <Navigate to={returnTo} replace />;
   return (
     <main className="login">
       <header className="login__head">

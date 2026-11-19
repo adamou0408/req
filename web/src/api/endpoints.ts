@@ -96,11 +96,16 @@ export function fetchAuthConfig(signal: AbortSignal): Promise<AuthConfig> {
 }
 
 export async function fetchMe(signal: AbortSignal): Promise<CurrentUser> {
-  return toCurrentUser(await api.get<SessionResponse>(`${AUTH}/me`, { signal }));
+  return toCurrentUser(
+    await api.get<SessionResponse>(`${AUTH}/me`, { signal }),
+  );
 }
 
 /** 【後端已實作】單一登入的起點；登入後導回 returnTo（後端只接受站內路徑）。 */
-export function ssoLoginUrl(config: AuthConfig, returnTo: string): string | null {
+export function ssoLoginUrl(
+  config: AuthConfig,
+  returnTo: string,
+): string | null {
   if (!config.oidc_enabled || config.oidc_login_url === null) return null;
   return `${config.oidc_login_url}?${new URLSearchParams({ return_to: returnTo })}`;
 }
@@ -117,13 +122,17 @@ export interface DevLoginOption {
   roles: RoleRef[];
 }
 
-export function fetchDevLoginOptions(signal: AbortSignal): Promise<DevLoginOption[]> {
+export function fetchDevLoginOptions(
+  signal: AbortSignal,
+): Promise<DevLoginOption[]> {
   return api.get(`${AUTH}/dev-users`, { signal });
 }
 
 /** 【後端已實作】只在後端 AUTH_MODE=dev 時存在。 */
 export async function loginAsDevUser(actorId: string): Promise<CurrentUser> {
-  const session = await api.post<SessionResponse>(`${AUTH}/dev-login`, { actor_id: actorId });
+  const session = await api.post<SessionResponse>(`${AUTH}/dev-login`, {
+    actor_id: actorId,
+  });
   return toCurrentUser(session);
 }
 

@@ -2,12 +2,11 @@
  * 元件展示頁（/dev/components）專用的範例內容，取自 docs/wireframes 的文案。
  * 只在開發模式載入，不會進正式建置；不是任何頁面的資料來源。
  */
-import type { Level } from "../../api/endpoints";
 import type { DiffItem, StepItem, TimelineItem } from "../../components";
 
 export interface SampleRow {
   id: string;
-  level: Level;
+  tier: string;
   applicant: string;
   grantee: string;
   scope: string;
@@ -20,7 +19,7 @@ export interface SampleRow {
 export const SAMPLE_ROWS: readonly SampleRow[] = [
   {
     id: "DA-2026-0142",
-    level: "L3",
+    tier: "L3",
     applicant: "林怡君",
     grantee: "專案：北區客戶流失分析",
     scope: "客戶主檔、銷售訂單｜北區｜2024–2025",
@@ -31,7 +30,7 @@ export const SAMPLE_ROWS: readonly SampleRow[] = [
   },
   {
     id: "DA-2026-0151",
-    level: "L4",
+    tier: "L4",
     applicant: "蔡佩珊",
     grantee: "agent：sales-forecast-bot",
     scope: "產品成本明細｜全區｜2025",
@@ -42,7 +41,7 @@ export const SAMPLE_ROWS: readonly SampleRow[] = [
   },
   {
     id: "DA-2026-0139",
-    level: "L3",
+    tier: "L3",
     applicant: "王志明",
     grantee: "團隊：業務分析部",
     scope: "客戶主檔｜全區｜2025",
@@ -53,7 +52,7 @@ export const SAMPLE_ROWS: readonly SampleRow[] = [
   },
   {
     id: "DA-2026-0140",
-    level: "L3",
+    tier: "L3",
     applicant: "蔡佩珊",
     grantee: "專案：季度業績看板",
     scope: "銷售訂單｜全區｜2026",
