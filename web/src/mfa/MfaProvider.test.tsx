@@ -21,22 +21,27 @@ function stubFetch(...responses: Response[]) {
 }
 
 const mfaRequired = () =>
-  jsonResponse({ code: "MFA_REQUIRED", message: "需要多一道驗證" }, 401);
+  jsonResponse(
+    { code: "mfa_required", message: "這個動作需要再驗證一次身分" },
+    403,
+  );
+const mfaVerified = () => jsonResponse({ mfa_verified: true });
 
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 describe("MfaProvider：API 層要求 MFA 時自動跳出 MfaDialog", () => {
-  it("輸入驗證碼後帶著它重試，成功後關閉視窗", async () => {
+  it("輸入驗證碼後交給後端驗證，通過就重送原本的請求並關閉視窗", async () => {
     const fetchMock = stubFetch(
       mfaRequired(),
+      mfaVerified(),
       jsonResponse({ approved: true }),
     );
     render(<MfaProvider>頁面</MfaProvider>);
 
     const pending = api.post(
-      "/api/approvals/1/approve",
+      "/api/tasks/1/approve",
       { comment: "" },
       { mfa: PROMPT },
     );
@@ -47,34 +52,31 @@ describe("MfaProvider：API 層要求 MFA 時自動跳出 MfaDialog", () => {
     await userEvent.click(screen.getByRole("button", { name: "確認核准" }));
 
     await expect(pending).resolves.toEqual({ approved: true });
-    const retryHeaders = fetchMock.mock.calls[1]?.[1]?.headers as Record<
-      string,
-      string
-    >;
-    expect(retryHeaders["X-MFA-Code"]).toBe("482913");
-    expect(retryHeaders["X-Requested-With"]).toBe("das-web");
+    const [verifyUrl, verifyInit] = fetchMock.mock.calls[1] ?? [];
+    expect(verifyUrl).toBe("/api/auth/mfa/verify");
+    expect(verifyInit?.body).toBe('{"code":"482913"}');
+    expect(
+      (verifyInit?.headers as Record<string, string>)["X-Requested-With"],
+    ).toBe("sgn-web");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("/api/tasks/1/approve");
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
   it("驗證碼被拒絕：視窗留著並顯示後端的訊息，重新輸入後通過", async () => {
     stubFetch(
       mfaRequired(),
-      jsonResponse(
-        { code: "MFA_INVALID", message: "驗證碼不正確，請再輸入一次。" },
-        401,
-      ),
+      jsonResponse({ code: "mfa_invalid", message: "驗證碼不正確" }, 422),
+      mfaVerified(),
       jsonResponse({ approved: true }),
     );
     render(<MfaProvider>頁面</MfaProvider>);
-    const pending = api.post("/api/approvals/1/approve");
+    const pending = api.post("/api/tasks/1/approve");
 
     await userEvent.type(
       await screen.findByLabelText(CODE_LABEL),
       "000000{Enter}",
     );
-    expect(
-      await screen.findByText("驗證碼不正確，請再輸入一次。"),
-    ).toBeTruthy();
+    expect(await screen.findByText("驗證碼不正確")).toBeTruthy();
     const input = screen.getByLabelText(CODE_LABEL) as HTMLInputElement;
     await waitFor(() => expect(input.value).toBe(""));
 
@@ -83,11 +85,11 @@ describe("MfaProvider：API 層要求 MFA 時自動跳出 MfaDialog", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
 
-  it("使用者取消：請求以 CLIENT_MFA_CANCELLED 結束，不會重送", async () => {
+  it("使用者取消：請求以 client_mfa_cancelled 結束，不會重送", async () => {
     const fetchMock = stubFetch(mfaRequired());
     render(<MfaProvider>頁面</MfaProvider>);
     const pending = api
-      .post("/api/approvals/1/approve")
+      .post("/api/tasks/1/approve")
       .catch((error: unknown) => error);
 
     await screen.findByRole("dialog");
@@ -95,7 +97,7 @@ describe("MfaProvider：API 層要求 MFA 時自動跳出 MfaDialog", () => {
 
     const error = await pending;
     expect(error).toBeInstanceOf(ApiError);
-    expect((error as ApiError).code).toBe("CLIENT_MFA_CANCELLED");
+    expect((error as ApiError).code).toBe("client_mfa_cancelled");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });

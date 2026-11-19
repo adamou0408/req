@@ -38,7 +38,9 @@ sim_log "建置 Mailpit ${version}（第一次約需一到兩分鐘）"
     cd src
     npm ci --ignore-scripts --no-audit --no-fund
     npm run package
-    CGO_ENABLED=0 go build -trimpath \
+    # -buildvcs=false：建置目錄位在平台 repo 的工作目錄底下，go 會把外層 repo 的版本資訊
+    # 蓋進執行檔（擁有者不同時還會直接失敗），那不是 Mailpit 的版本。
+    CGO_ENABLED=0 go build -trimpath -buildvcs=false \
         -ldflags "-s -w -X ${MODULE}/config.Version=${version}" \
         -o "${bin}.new" .
 } >"${run_dir}/install.log" 2>&1 || sim_die "建置失敗，請看 ${run_dir}/install.log"

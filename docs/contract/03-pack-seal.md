@@ -6,7 +6,7 @@
 
 - 不修改任何核心資料表、核心 function、後端核心、前端核心。
 - 沒有前端專屬元件：表單、簽核、執行、確認全部用通用畫面與通用欄位型別（含 `attachment`）。`web/src/packs/seal/` 不存在。
-- 沒有外部系統：`api/src/packs/seal/` 不存在。
+- 沒有外部系統：`api/src/packs/seal/` 不存在；不產生可供其他系統查詢的權限（骨幹第 11 節的兩個 hook 都不登記）。
 - 沒有專屬的對外 function（第 6 節）。
 
 ## 0. 前提與依賴
@@ -20,7 +20,7 @@
 | 關卡 | 簽核 3 關、執行 1 關 | 第 3 節 |
 | 代碼表 | 2（`seal_kind`、`contract_type`） | 第 4 節 |
 | 讀取用 view | 1（`seal_case`） | 第 4 節 |
-| 實作的 hook | 8；另外 4 個用核心預設 | 第 5 節 |
+| 實作的 hook | 8；另外 6 個用核心預設 | 第 5 節 |
 | 專屬對外 function | 0 | 第 6 節 |
 | 專屬參數 | 1；另釘住 1 個核心參數的流程類型值 | 第 7.1 節 |
 | 規則代碼 | 10 | 第 7.2 節 |
@@ -141,7 +141,7 @@ draft、in_approval、returned、pending_fulfilment → cancelled
 }
 ```
 
-`form_schema` 由 `pack_seal.build_form_schema()` 產生後一起登記（第 2 節）。沒有登記的 hook：`stage_scopes`、`automated_checks`、`build_verification_cases`、`on_grant_event`（原因見第 5.9 節）。
+`form_schema` 由 `pack_seal.build_form_schema()` 產生後一起登記（第 2 節）。沒有登記的 hook：`stage_scopes`、`automated_checks`、`build_verification_cases`、`on_grant_event`，以及骨幹第 11 節的 `describe_entitlements`、`evaluate_constraints`（原因見第 5.9 節）。
 
 ## 2. 表單定義（`form_schema`）
 
@@ -767,6 +767,8 @@ pack_seal.build_fulfilment(p_case_id bigint) returns jsonb  -- stable
 | `automated_checks` | rules.md 沒有定義自動檢查；簽核人需要的事實已在摘要、重疊警示與人工檢查清單 | 空陣列 |
 | `build_verification_cases` | `requires_verification` 是 false | 空陣列 |
 | `on_grant_event` | `has_validity` 是 false，不產生授權；流程包沒有需要同步的資料表 | 不做事 |
+| `describe_entitlements` | 用印是一次性的動作，不產生可以被其他系統查詢或判定的權限 | 空陣列 |
+| `evaluate_constraints` | 沒有權限，也就沒有限制條件 | 沒有限制條件時回 true |
 
 ## 6. 專屬的對外 function
 
@@ -1043,7 +1045,7 @@ rules.md 的每一段、每一列、每個預設值各一列。「實作」欄�
 | `SEAL-OVERLAP missing_case_raises_error` | 第 5.7 節範例 #6 |
 | `SEAL-OPTIONS registered_options_match_contract` | 已登記的十個選項等於第 1.2 節 |
 | `seal_arch hooks_are_registered_with_spine_signatures` | 8 個 hook 存在、簽章符合骨幹第 6 節、擁有者是 `sgn_owner`、固定 `search_path` |
-| `seal_arch unregistered_hooks_use_kernel_default` | `stage_scopes`、`automated_checks`、`build_verification_cases`、`on_grant_event` 沒有登記 |
+| `seal_arch unregistered_hooks_use_kernel_default` | `stage_scopes`、`automated_checks`、`build_verification_cases`、`on_grant_event`、`describe_entitlements`、`evaluate_constraints` 沒有登記 |
 | `seal_arch functions_do_not_write_kernel_tables` | `pack_seal` 所有 function 的原始碼沒有對 `sgn.` 的 `insert`、`update`、`delete`、`truncate` |
 | `seal_arch no_hardcoded_threshold` | `pack_seal` 所有 function 的原始碼沒有出現 `1000000`（門檻只能從參數讀取） |
 | `seal_arch no_api_functions_and_app_role_has_no_access` | `api` schema 沒有 `seal_` 開頭的 function；`sgn_app` 對 `pack_seal` 沒有任何權限 |
@@ -1068,3 +1070,33 @@ rules.md 的每一段、每一列、每個預設值各一列。「實作」欄�
 | A-8 | 外幣合約的金額怎麼換算、金額含稅或未稅 | 不處理；欄位是新台幣整數，由申請人換算後填寫，法務關核對 |
 | A-9 | 「用印後」的時點 | 以印鑑管理人標記完成為準 |
 | A-10 | 縮小金額後級別從重大降為一般時，還沒開始的財務長關是否略過 | 依新級別重新套用適用條件，財務長關略過（D-16）；已經簽過的關卡不受影響 |
+
+## 附錄 B：待納入的增修對這份契約的影響
+
+[pending-amendments.md](pending-amendments.md) 的項目還沒有進入骨幹，這份契約依目前的骨幹撰寫。下表列出修訂時這份契約要跟著改的地方，方便交叉審查。
+
+| 增修 | 對這份契約的影響 |
+|---|---|
+| A1 對外整合介面 | 已反映：`describe_entitlements`、`evaluate_constraints` 不登記（第 5.9 節） |
+| A3 申請單保密 | 新增的選項要在第 1.2 節補上值。建議：合約用印不保密；需要規則的負責人確認 |
+| A7 人工的獨立驗證 | 不使用：rules.md 規定這個流程不做驗證。選項的值在第 1.2 節補上 |
+| A11 宣告式流程定義 | 影響最大：合約用印要改成完全宣告、不寫 hook。第 5 節每個 hook 的演算法就是宣告要表達的內容，對應見下表 |
+| A12 集團多公司 | 門檻參數的適用範圍加上公司別；三個角色依公司別指派；重複檢查是否限定同一公司需要規則的負責人決定 |
+| A13 補齊簽核動作 | 流程包沒有要改的地方；第 8.4 節「用印後不可取消」要涵蓋新增的撤回動作 |
+| A19 機密欄位 | 八個欄位都不是機密欄位；分級只用到金額與印鑑種類 |
+| A20 平台管理角色分離 | 流程包沒有引用 `sys_admin`，不受影響 |
+
+A11 的對應（hook → 宣告需要表達的內容）：
+
+| 現在的 hook | 改成宣告時需要核心支援的表達能力 |
+|---|---|
+| `normalize_content` | 文字欄位的通用整理：去前後空白、壓縮連續空白、空字串視為未填 |
+| `validate_content` | 條件必填：`description` 在 `contract_type` 屬於 `requires_description` 的選項時必填 |
+| `classify_tier` | 分級規則：`amount >= 參數 seal.major_amount_threshold` 或 `seal_kind` 屬於 `forces_major` 的選項 → `major`；否則 `standard`；欄位缺值時取最高級別。需要能引用參數與選項的屬性 |
+| `compare_content` | 欄位的縮小方向：`amount`、`copies` 為「數值變小」；其餘欄位「任何變更都是擴大」；附件以 `sha256` 的集合比較 |
+| `diff_content` | 核心預設的逐欄比較，加上縮小方向即可得到相同的分類 |
+| `summarize_content` | 摘要欄位的位置（標題、副標、事實）與強調條件（和分級規則相同的條件） |
+| `find_overlaps` | 重複判斷的鍵：同一申請人＋`contract_name`、`counterparty` 的比對鍵（NFKC、去空白、轉小寫）；計入的狀態：草稿與已取消以外；結果固定為部分重疊；每筆的說明文字樣板 |
+| `build_fulfilment` | 人工執行的宣告：要顯示的事實欄位、附件欄位，以及完成回報欄位 `actual_copies`，其上限引用申請內容的 `copies` |
+
+宣告如果表達不了上表的任何一項，該項就必須保留為 hook；這時「合約用印不寫任何程式」的目標達不到，要回報。

@@ -1,6 +1,6 @@
 /**
  * 對 /dev/components、/login 與登入後的外框截圖（390px 與 1280px，淺色與深色），
- * 同時檢查「沒有水平捲動」與「手機上的觸控目標至少 44px」。
+ * 同時檢查「沒有水平捲動」與「可點擊的元素至少 44×44px」（docs/ux-acceptance.md 第 3 節）。
  * 任何一項沒過就以非 0 結束。圖存在 web/.screenshots/。
  *
  * 用法：npm run screenshots（需要全域安裝的 playwright）。
@@ -18,89 +18,101 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const WIDTHS = [390, 1280];
 const SCHEMES = ["light", "dark"];
 const MIN_TAP = 44;
-const TAP_TARGETS = [
-  ".btn",
-  ".bottomnav__item",
-  ".field__control",
-  ".tabs__tab",
-  ".choice__row",
-  ".seg__option",
-  ".login__person",
-  ".topbar__logout",
-  ".topbar__brand",
-  ".pagehead__back",
-  ".modal__close",
-].join(",");
+const MOBILE_MAX = 640;
+const CLICKABLE =
+  'a[href], button, input:not([type="hidden"]), select, textarea, [role="tab"]';
 
-// 截圖用的假回應；欄位名稱跟著 src/api/endpoints.ts 的 CurrentUser。
+// 截圖用的假回應。外型跟著 src/api/endpoints.ts；人員取自 docs/contract/seed-directory.md。
+const role = (code, name) => ({ code, name });
 const PEOPLE = [
   {
-    user_id: "u01",
+    actor_id: "4",
     name: "林怡君",
-    dept: "業務分析部",
-    title: null,
-    roles: ["applicant"],
+    org_unit: "業務分析部",
+    title: "分析師",
+    roles: [],
   },
   {
-    user_id: "u02",
+    actor_id: "3",
     name: "陳建宏",
-    dept: "業務分析部",
+    org_unit: "業務分析部",
     title: "經理",
-    roles: ["applicant", "manager", "approver"],
+    roles: [],
   },
   {
-    user_id: "u03",
+    actor_id: "11",
     name: "張美玲",
-    dept: "財務部",
+    org_unit: "財務部",
     title: "經理",
-    roles: ["applicant", "owner", "manager"],
+    roles: [role("r1", "資料擁有者")],
   },
   {
-    user_id: "u04",
+    actor_id: "17",
     name: "李志偉",
-    dept: "資訊部",
-    title: null,
-    roles: ["applicant", "mis", "mis_admin"],
+    org_unit: "資訊部",
+    title: "工程師",
+    roles: [role("r2", "MIS")],
   },
   {
-    user_id: "u05",
+    actor_id: "22",
     name: "黃淑芬",
-    dept: "稽核室",
-    title: null,
-    roles: ["auditor"],
+    org_unit: "稽核室",
+    title: "稽核員",
+    roles: [role("r3", "稽核")],
   },
 ];
-const EVERY_ROLE = {
-  user_id: "u99",
-  name: "測試人員",
-  dept: "資訊部",
-  title: null,
-  roles: [
-    "applicant",
-    "approver",
-    "owner",
-    "manager",
-    "mis",
-    "mis_admin",
-    "auditor",
-  ],
+const session = (person, areas) => ({
+  actor_id: person.actor_id,
+  profile: {
+    name: person.name,
+    org_unit: person.org_unit,
+    title: person.title,
+    roles: person.roles,
+    areas,
+  },
+});
+const EVERY_AREA = session(
+  {
+    actor_id: "16",
+    name: "謝明哲",
+    org_unit: "資訊部",
+    title: "經理",
+    roles: [],
+  },
+  ["requests", "approvals", "grants", "fulfilment", "audit"],
+);
+const APPLICANT = session(PEOPLE[0], ["requests"]);
+const DEV_CONFIG = {
+  auth_mode: "dev",
+  oidc_enabled: false,
+  oidc_login_url: null,
+};
+const OIDC_CONFIG = {
+  auth_mode: "oidc",
+  oidc_enabled: true,
+  oidc_login_url: "/api/auth/oidc/login",
 };
 
 const SHOTS = [
-  { name: "dev-components", url: "/dev/components", user: null },
-  { name: "login", url: "/login", user: null },
-  { name: "app-home", url: "/", user: EVERY_ROLE },
-  { name: "app-approvals", url: "/approvals", user: EVERY_ROLE },
+  { name: "dev-components", url: "/dev/components" },
+  { name: "login", url: "/login" },
+  {
+    name: "login-sso",
+    url: "/login?login_error=login_failed",
+    config: OIDC_CONFIG,
+  },
+  { name: "app-home", url: "/", user: EVERY_AREA },
+  { name: "app-approvals", url: "/approvals", user: EVERY_AREA },
   {
     name: "app-approval-detail",
     url: "/approvals/DA-2026-0142",
-    user: EVERY_ROLE,
+    user: EVERY_AREA,
   },
-  { name: "app-single-role", url: "/", user: PEOPLE[0] },
+  { name: "app-fulfilment", url: "/fulfilment", user: EVERY_AREA },
+  { name: "app-single-area", url: "/", user: APPLICANT },
   {
     name: "dialog-mfa",
     url: "/dev/components",
-    user: null,
     before: (page) =>
       page.getByRole("button", { name: "核准（需要 MFA）" }).click(),
     viewportOnly: true,
@@ -108,9 +120,16 @@ const SHOTS = [
   {
     name: "dialog-confirm",
     url: "/dev/components",
-    user: null,
     before: (page) =>
       page.getByRole("button", { name: "撤銷（要填原因）" }).click(),
+    viewportOnly: true,
+  },
+  {
+    name: "focus-ring",
+    url: "/dev/components",
+    before: async (page) => {
+      for (let step = 0; step < 3; step += 1) await page.keyboard.press("Tab");
+    },
     viewportOnly: true,
   },
 ];
@@ -123,15 +142,20 @@ function json(body, status = 200) {
   };
 }
 
-async function mockAuth(page, user) {
-  await page.route("**/auth/me", (route) =>
-    route.fulfill(
-      user
-        ? json(user)
-        : json({ code: "UNAUTHENTICATED", message: "尚未登入" }, 401),
-    ),
+async function mockAuth(page, shot) {
+  const unauthenticated = json(
+    { code: "unauthenticated", message: "請先登入" },
+    401,
   );
-  await page.route("**/auth/dev/users", (route) => route.fulfill(json(PEOPLE)));
+  await page.route("**/api/auth/me", (route) =>
+    route.fulfill(shot.user ? json(shot.user) : unauthenticated),
+  );
+  await page.route("**/api/auth/config", (route) =>
+    route.fulfill(json(shot.config ?? DEV_CONFIG)),
+  );
+  await page.route("**/api/auth/dev-users", (route) =>
+    route.fulfill(json(PEOPLE)),
+  );
 }
 
 async function waitForServer() {
@@ -147,38 +171,40 @@ async function waitForServer() {
   throw new Error("vite 開發伺服器沒有在時限內啟動");
 }
 
-/** 回傳這個畫面的問題清單；空陣列代表通過。 */
-function inspect({ minTap, selector, checkTaps }) {
+/** 回傳這個畫面的問題清單；空陣列代表通過。在瀏覽器裡執行。 */
+function inspect({ minTap, selector }) {
   const problems = [];
   const root = document.documentElement;
+  const describe = (element) =>
+    `<${element.tagName.toLowerCase()} class="${element.className}">`;
   if (root.scrollWidth > root.clientWidth) {
     problems.push(
       `水平捲動：內容寬 ${root.scrollWidth}px > 畫面寬 ${root.clientWidth}px`,
     );
-    for (const element of document.querySelectorAll("body *")) {
+    const wide = [...document.querySelectorAll("body *")].find((element) => {
       const rect = element.getBoundingClientRect();
-      if (rect.right > root.clientWidth + 1 && rect.width > 0) {
-        problems.push(
-          `  超出畫面：<${element.tagName.toLowerCase()} class="${element.className}">`,
-        );
-        break;
-      }
-    }
+      return rect.width > 0 && rect.right > root.clientWidth + 1;
+    });
+    if (wide) problems.push(`  超出畫面：${describe(wide)}`);
   }
-  if (!checkTaps) return problems;
   for (const element of document.querySelectorAll(selector)) {
-    const rect = element.getBoundingClientRect();
+    // 核取方塊與單選的可點範圍是包住它的 label。
+    const boxed = element.matches(
+      'input[type="checkbox"], input[type="radio"]',
+    );
+    const target = boxed ? (element.closest("label") ?? element) : element;
+    const rect = target.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) continue;
     if (rect.height < minTap - 0.5 || rect.width < minTap - 0.5) {
       const text = (
-        element.textContent ||
-        element.getAttribute("aria-label") ||
+        target.textContent ||
+        target.getAttribute("aria-label") ||
         ""
       )
         .trim()
         .slice(0, 12);
       problems.push(
-        `觸控目標太小：${Math.round(rect.width)}×${Math.round(rect.height)} <${element.tagName.toLowerCase()} class="${element.className}"> ${text}`,
+        `可點擊範圍太小：${Math.round(rect.width)}×${Math.round(rect.height)} ${describe(target)} ${text}`,
       );
     }
   }
@@ -187,10 +213,10 @@ function inspect({ minTap, selector, checkTaps }) {
 
 async function capture(browser, shot, width, scheme) {
   const context = await browser.newContext({
-    viewport: { width, height: width < 640 ? 844 : 800 },
+    viewport: { width, height: width < MOBILE_MAX ? 844 : 800 },
     colorScheme: scheme,
-    deviceScaleFactor: width < 640 ? 2 : 1,
-    hasTouch: width < 640,
+    deviceScaleFactor: width < MOBILE_MAX ? 2 : 1,
+    hasTouch: width < MOBILE_MAX,
     locale: "zh-TW",
   });
   const page = await context.newPage();
@@ -199,7 +225,7 @@ async function capture(browser, shot, width, scheme) {
     if (message.type() === "error") consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => consoleErrors.push(String(error)));
-  await mockAuth(page, shot.user);
+  await mockAuth(page, shot);
   await page.goto(BASE_URL + shot.url, { waitUntil: "networkidle" });
   await page.locator("h1").first().waitFor();
   if (shot.before) await shot.before(page);
@@ -211,8 +237,7 @@ async function capture(browser, shot, width, scheme) {
   });
   const problems = await page.evaluate(inspect, {
     minTap: MIN_TAP,
-    selector: TAP_TARGETS,
-    checkTaps: width < 640,
+    selector: CLICKABLE,
   });
   // 沒登入時 /auth/me 回 401 是預期行為，瀏覽器會把它記成一筆 console error。
   const unexpected = consoleErrors.filter((text) => !text.includes("401"));

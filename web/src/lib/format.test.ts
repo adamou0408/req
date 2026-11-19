@@ -80,15 +80,26 @@ describe("級別、狀態、被授權者", () => {
 
   it("狀態對應文案與色調", () => {
     expect(formatStatus("draft")).toEqual({ label: "草稿", tone: "neutral" });
-    expect(formatStatus("in_approval")).toEqual({ label: "簽核中", tone: "info" });
-    expect(formatStatus("pending_fulfilment")).toEqual({ label: "待執行", tone: "warn" });
+    expect(formatStatus("in_approval")).toEqual({
+      label: "簽核中",
+      tone: "info",
+    });
+    expect(formatStatus("pending_fulfilment")).toEqual({
+      label: "待執行",
+      tone: "warn",
+    });
     expect(formatStatus("active")).toEqual({ label: "生效中", tone: "ok" });
     expect(formatStatus("completed")).toEqual({ label: "已完成", tone: "ok" });
-    expect(formatStatus("revoked")).toEqual({ label: "已撤銷", tone: "danger" });
+    expect(formatStatus("revoked")).toEqual({
+      label: "已撤銷",
+      tone: "danger",
+    });
   });
 
   it("被授權者、件數", () => {
-    expect(formatPrincipal("project", "北區客戶流失分析")).toBe("專案：北區客戶流失分析");
+    expect(formatPrincipal("project", "北區客戶流失分析")).toBe(
+      "專案：北區客戶流失分析",
+    );
     expect(formatCount("待我簽", 6)).toBe("待我簽（6）");
   });
 });

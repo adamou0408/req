@@ -4,20 +4,6 @@
 set -euo pipefail
 
 sim_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=SCRIPTDIR/../common.sh
-source "${sim_dir}/lib/common.sh"
-
-# 映像只帶工具鏈；腳本用到而映像沒有的小工具在這裡補上。
-install_missing_tools() {
-    local tool missing=()
-    for tool in curl jq; do
-        command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
-    done
-    [[ "${#missing[@]}" -gt 0 ]] || return 0
-    sim_log "安裝 ${missing[*]}"
-    apt-get update >/dev/null
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "${missing[@]}" >/dev/null
-}
 
 shutdown() {
     trap - TERM INT
@@ -25,7 +11,6 @@ shutdown() {
     exit 0
 }
 
-install_missing_tools
 trap shutdown TERM INT
 "${sim_dir}/up.sh" "$@"
 

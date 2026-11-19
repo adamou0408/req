@@ -65,15 +65,16 @@ export interface RouteDef {
 export interface ErrorRule {
   status: number;
   /**
-   * true ：這是 SQL function 刻意 raise 的。回應的 code 取自 SQL message（訊息代碼），
+   * true ：這個 SQLSTATE 是 SQL function 刻意丟的。回應的 code 取自 SQL message（長得像代碼時），
    *        message 取自 SQL detail；沒有就用下面的預設值。
    * false：只回下面寫死的 code／message，SQL 的原始訊息只進 log。
    */
   expose: boolean;
-  code?: string;
-  message?: string;
+  code: string;
+  message: string;
 }
 
+/** 不在資料庫錯誤目錄裡的 SQLSTATE 要怎麼回（主要是 PostgreSQL 內建的）。 */
 export interface ErrorContract {
   /** 完整 5 碼 SQLSTATE。 */
   exact: Record<string, ErrorRule>;

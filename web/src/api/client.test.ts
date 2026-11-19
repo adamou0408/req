@@ -18,11 +18,14 @@ function setup(...responses: Array<Response | FetchFailure>) {
     else fetchMock.mockResolvedValueOnce(response);
   }
   const client = createClient({
-    unsafeMethodHeader: { name: "X-Requested-With", value: "das-web" },
+    unsafeMethodHeader: { name: "X-Requested-With", value: "sgn-web" },
     mfa: {
       requiredCodes: ["mfa_required"],
       invalidCodes: ["mfa_invalid"],
-      verifyRequest: (code) => ({ path: "/api/auth/mfa/verify", body: { code } }),
+      verifyRequest: (code) => ({
+        path: "/api/auth/mfa/verify",
+        body: { code },
+      }),
     },
     fetch: fetchMock,
   });
@@ -55,10 +58,15 @@ async function caught(promise: Promise<unknown>): Promise<ApiError> {
 }
 
 const mfaRequired = () =>
-  jsonResponse({ code: "mfa_required", message: "這個動作需要再驗證一次身分" }, 403);
-const mfaInvalid = () => jsonResponse({ code: "mfa_invalid", message: "驗證碼不正確" }, 422);
+  jsonResponse(
+    { code: "mfa_required", message: "這個動作需要再驗證一次身分" },
+    403,
+  );
+const mfaInvalid = () =>
+  jsonResponse({ code: "mfa_invalid", message: "驗證碼不正確" }, 422);
 const mfaVerified = () => jsonResponse({ mfa_verified: true });
-const unauthenticated = () => jsonResponse({ code: "unauthenticated", message: "請先登入" }, 401);
+const unauthenticated = () =>
+  jsonResponse({ code: "unauthenticated", message: "請先登入" }, 401);
 
 describe("buildUrl", () => {
   it("略過 null 與 undefined，陣列展開成多個同名參數", () => {
@@ -92,7 +100,7 @@ describe("一般請求", () => {
         jsonResponse({ ok: true }),
       );
       await client[method]("/api/x", { reason: "測試" });
-      expect(headersOf(0)["X-Requested-With"]).toBe("das-web");
+      expect(headersOf(0)["X-Requested-With"]).toBe("sgn-web");
       expect(headersOf(0)["Content-Type"]).toBe("application/json");
       expect(fetchMock.mock.calls[0]?.[1]?.body).toBe('{"reason":"測試"}');
     },
@@ -101,7 +109,7 @@ describe("一般請求", () => {
   it("DELETE 也算非 GET，要加自訂標頭", async () => {
     const { client, headersOf } = setup(new Response(null, { status: 204 }));
     await expect(client.delete("/api/x")).resolves.toBeUndefined();
-    expect(headersOf(0)["X-Requested-With"]).toBe("das-web");
+    expect(headersOf(0)["X-Requested-With"]).toBe("sgn-web");
   });
 });
 
@@ -198,7 +206,9 @@ describe("需要 MFA", () => {
     client.setMfaHandler(handler);
     const prompt = { title: "確認核准", summary: ["DA-2026-0142"] };
 
-    await expect(client.post("/api/approve", { id: 1 }, { mfa: prompt })).resolves.toEqual({
+    await expect(
+      client.post("/api/approve", { id: 1 }, { mfa: prompt }),
+    ).resolves.toEqual({
       approved: true,
     });
 
@@ -210,7 +220,7 @@ describe("需要 MFA", () => {
     ]);
     expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("POST");
     expect(fetchMock.mock.calls[1]?.[1]?.body).toBe('{"code":"123456"}');
-    expect(headersOf(1)["X-Requested-With"]).toBe("das-web");
+    expect(headersOf(1)["X-Requested-With"]).toBe("sgn-web");
     expect(fetchMock.mock.calls[2]?.[1]?.body).toBe('{"id":1}');
     expect(handler.settle).toHaveBeenCalledTimes(1);
     expect(onUnauthorized).not.toHaveBeenCalled();
@@ -226,7 +236,9 @@ describe("需要 MFA", () => {
     const { handler, challenges } = mfaHandler("000000", "123456");
     client.setMfaHandler(handler);
 
-    await expect(client.post("/api/approve")).resolves.toEqual({ approved: true });
+    await expect(client.post("/api/approve")).resolves.toEqual({
+      approved: true,
+    });
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
     expect(challenges[1]).toMatchObject({
@@ -238,7 +250,10 @@ describe("需要 MFA", () => {
   });
 
   it("輸入錯誤太多次被後端鎖住：不再問，把後端的錯誤丟出", async () => {
-    const locked = jsonResponse({ code: "mfa_locked", message: "驗證碼輸入錯誤太多次，請稍後再試" }, 429);
+    const locked = jsonResponse(
+      { code: "mfa_locked", message: "驗證碼輸入錯誤太多次，請稍後再試" },
+      429,
+    );
     const { client, fetchMock } = setup(mfaRequired(), mfaInvalid(), locked);
     const { handler } = mfaHandler("111111", "222222");
     client.setMfaHandler(handler);
@@ -264,7 +279,10 @@ describe("需要 MFA", () => {
     const { client } = setup(
       mfaRequired(),
       mfaVerified(),
-      jsonResponse({ code: "task_already_decided", message: "這一關已經簽過" }, 409),
+      jsonResponse(
+        { code: "task_already_decided", message: "這一關已經簽過" },
+        409,
+      ),
     );
     const { handler } = mfaHandler("123456");
     client.setMfaHandler(handler);

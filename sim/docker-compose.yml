@@ -11,7 +11,10 @@
 # - 使用主機網路：服務和本機直接執行時一樣只綁 127.0.0.1，位址以 sim/status.sh 的輸出為準。
 #   Linux 的 Docker Engine 直接可用；Docker Desktop（macOS、Windows）要 4.34 以上，
 #   並在 Settings → Resources → Network 開啟「Enable host networking」。
-# - 執行期資料放在具名的 volume，不寫進 repo；repo 以唯讀掛載。
+# - 執行期資料放在具名的 volume（映像把 SIM_RUN_ROOT 指到那裡），不寫進 repo；repo 以唯讀掛載。
+# - 容器以一般使用者執行；服務需要的系統套件已裝在映像裡（見 lib/container/Dockerfile）。
+#
+# 這個檔只做過 docker compose config 的語法檢查；撰寫時的環境沒有 Docker daemon，沒有實際啟動過。
 name: sgn-sim
 
 services:
@@ -22,14 +25,10 @@ services:
     network_mode: host
     # init：服務以背景行程執行，需要有行程回收結束的子行程。
     init: true
-    environment:
-      SIM_RUN_ROOT: /var/lib/sgn-sim
-      # 第一次啟動要建置執行檔與安裝套件，健康檢查的等待時間放寬。
-      SIM_HEALTH_TIMEOUT: "120"
     volumes:
       - ..:/workspace:ro
       - sim-run:/var/lib/sgn-sim
-      - sim-go:/root/go
+      - sim-go:/home/node/go
     stop_grace_period: 30s
     security_opt:
       - no-new-privileges:true

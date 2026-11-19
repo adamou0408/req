@@ -1,47 +1,48 @@
 /**
- * ★ 契約檔：SQLSTATE → HTTP 狀態。照 docs/sql-functions.md／docs/api.md 填。
+ * ★ 契約檔：PostgreSQL 內建 SQLSTATE → HTTP 狀態。
  *
- * 目前「自訂」那一段是範例（假設自訂 SQLSTATE 用 DA 開頭＋HTTP 狀態碼），
- * 契約定案後整段換掉即可，其他程式不用改。機制在 src/errors.ts。
+ * 業務錯誤不寫在這裡：它們的代碼、訊息、HTTP 狀態只存在資料庫的錯誤目錄，
+ * 後端啟動時透過 sqlNames.errorCatalog 指到的 function 讀進來（機制在 src/errors.ts）。
+ * 這裡只處理「不是 SQL function 刻意丟的」那些：輸入轉型失敗、逾時、資料庫暫時不可用。
  *
- * 沒列在這裡的 SQLSTATE 一律回 500 internal_error，原始訊息只進 log。
+ * 沒列在這裡、也不在錯誤目錄裡的 SQLSTATE 一律回 500 internal_error，原始訊息只進 log。
  */
-import type { ErrorContract } from '../routing/types.ts';
+import { BACKEND_ERRORS } from '../errors.ts';
+import type { ErrorContract, ErrorRule } from '../routing/types.ts';
+
+const INVALID_INPUT: ErrorRule = { status: 400, expose: false, code: 'invalid_input', message: '輸入的格式不正確' };
+const BUSY: ErrorRule = { status: 409, expose: false, code: 'busy', message: '系統忙碌中，請再試一次' };
+const UNAVAILABLE: ErrorRule = {
+  status: BACKEND_ERRORS.service_unavailable[0],
+  expose: false,
+  code: 'service_unavailable',
+  message: BACKEND_ERRORS.service_unavailable[1],
+};
 
 export const errors: ErrorContract = {
   exact: {
-    // ── 自訂（範例，待契約）─────────────────────────────────────
-    // SQL 端：raise exception 'request_not_found' using errcode = 'DA404', detail = '找不到這張申請單';
-    // 回應  ：404 {"code":"request_not_found","message":"找不到這張申請單"}
-    DA400: { status: 400, expose: true, code: 'invalid_request', message: '送出的內容不正確' },
-    DA401: { status: 401, expose: true, code: 'unauthenticated', message: '請先登入' },
-    DA403: { status: 403, expose: true, code: 'forbidden', message: '你沒有權限做這個動作' },
-    DA404: { status: 404, expose: true, code: 'not_found', message: '找不到資料' },
-    DA409: { status: 409, expose: true, code: 'conflict', message: '資料狀態已經改變，請重新整理' },
-    DA422: { status: 422, expose: true, code: 'rule_violation', message: '不符合規則' },
+    // 參數轉型失敗（例：把 "abc" 傳給 bigint 參數）。原始訊息含使用者輸入與型別名稱，不外露。
+    '22P02': INVALID_INPUT,
+    '22007': INVALID_INPUT,
+    '22008': INVALID_INPUT,
+    '22003': INVALID_INPUT,
+    '22001': { ...INVALID_INPUT, message: '輸入的內容太長' },
 
-    // ── PostgreSQL 內建：輸入格式不對（例：uuid、日期轉型失敗）──
-    // 不外露原始訊息。
-    '22P02': { status: 400, expose: false, code: 'invalid_input', message: '輸入的格式不正確' },
-    '22007': { status: 400, expose: false, code: 'invalid_input', message: '輸入的格式不正確' },
-    '22008': { status: 400, expose: false, code: 'invalid_input', message: '輸入的格式不正確' },
-    '22003': { status: 400, expose: false, code: 'invalid_input', message: '輸入的格式不正確' },
-    '22001': { status: 400, expose: false, code: 'invalid_input', message: '輸入的內容太長' },
+    // 序列化衝突與死結：db 層已自動重試過，還是失敗才會到這裡。
+    '40001': BUSY,
+    '40P01': BUSY,
 
-    // ── PostgreSQL 內建：暫時性問題 ─────────────────────────────
-    // 40001／40P01 在 db 層已自動重試過，還是失敗才會到這裡。
-    '40001': { status: 409, expose: false, code: 'busy', message: '系統忙碌中，請再試一次' },
-    '40P01': { status: 409, expose: false, code: 'busy', message: '系統忙碌中，請再試一次' },
+    // 超過 statement_timeout。
     '57014': { status: 503, expose: false, code: 'timeout', message: '處理逾時，請稍後再試' },
-    '57P01': { status: 503, expose: false, code: 'service_unavailable', message: '系統暫時無法使用，請稍後再試' },
-    '57P02': { status: 503, expose: false, code: 'service_unavailable', message: '系統暫時無法使用，請稍後再試' },
-    '57P03': { status: 503, expose: false, code: 'service_unavailable', message: '系統暫時無法使用，請稍後再試' },
+
+    // 資料庫正在關機或啟動。
+    '57P01': UNAVAILABLE,
+    '57P02': UNAVAILABLE,
+    '57P03': UNAVAILABLE,
   },
   classes: {
-    // 自訂類別的保底（範例，待契約）：DAxxx 沒有個別列出的都當 400。
-    DA: { status: 400, expose: true, code: 'invalid_request', message: '無法完成這個操作' },
     // 08＝連線異常、53＝資源不足。
-    '08': { status: 503, expose: false, code: 'service_unavailable', message: '系統暫時無法使用，請稍後再試' },
-    '53': { status: 503, expose: false, code: 'service_unavailable', message: '系統暫時無法使用，請稍後再試' },
+    '08': UNAVAILABLE,
+    '53': UNAVAILABLE,
   },
 };

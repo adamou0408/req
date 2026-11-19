@@ -315,7 +315,9 @@ describe("EmptyState／ErrorState／Skeleton", () => {
 
   it("ErrorState 直接顯示後端的訊息（不顯示內部代碼），可以重試", async () => {
     const onRetry = vi.fn();
-    render(<ErrorState error={{ message: "找不到這張單" }} onRetry={onRetry} />);
+    render(
+      <ErrorState error={{ message: "找不到這張單" }} onRetry={onRetry} />,
+    );
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("無法載入");
     expect(alert.textContent).toContain("找不到這張單");
