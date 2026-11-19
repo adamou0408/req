@@ -52,7 +52,7 @@ psql_admin "$PROBE_DB" \
     -c "grant connect on database \"$PROBE_DB\" to \"$PROBE_ROLE_APP\", \"$PROBE_ROLE_VERIFIER\", \"$PROBE_ROLE_SYNC\", \"$PROBE_ROLE_ANCHOR\""
 
 log "套用 SQL（以 owner 身分）"
-migrations=(01_core 02_crypto_bignum 03_crypto_es256 04_crypto_rs256_jwt 10_audit_chain 20_directory 30_identity 40_case 50_decide 60_audit_query)
+migrations=(01_core 02_crypto_bignum 03_crypto_es256 04_crypto_rs256_jwt 10_audit_chain 20_directory 30_identity 40_case 50_decide 60_audit_query 70_path)
 args=(-c "set role \"$PROBE_ROLE_OWNER\"")
 for m in "${migrations[@]}"; do
     [[ "$m" == 02_crypto_bignum ]] && args+=(-c "reset role" -c "create extension pgcrypto schema sgn_crypto" -c "set role \"$PROBE_ROLE_OWNER\"")

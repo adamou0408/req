@@ -1,95 +1,29 @@
-// 設定的唯一來源：sim 的 service.env 與 test-credentials.env（KEY=VALUE，支援 ${VAR} 展開），
-// 加上少數本探針自己的環境變數。不在這裡另抄一份位址或密碼。
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
+// 後端設定。值的唯一來源是 probe/db/probe.env 與 sim/idp 的 service.env、test-credentials.env；這裡只讀，不另寫一份。
+import { join } from 'node:path';
+import { loadConfig, roleUrl } from '../../db/tools/lib/env.mjs';
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+type EnvFiles = { probe: Record<string, string>; idp: Record<string, string> };
 
-/** 讀 sim/<服務>/ 底下的 env 檔，回傳展開後的鍵值。 */
-export function readSimEnv(service: string): Record<string, string> {
-    const values: Record<string, string> = {};
-    for (const file of ['service.env', 'test-credentials.env']) {
-        let text: string;
-        try {
-            text = readFileSync(path.join(repoRoot, 'sim', service, file), 'utf8');
-        } catch {
-            continue;
-        }
-        for (const line of text.split('\n')) {
-            const match = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
-            if (!match) continue;
-            const raw = match[2].replace(/^"(.*)"$/, '$1');
-            values[match[1]] = raw.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name: string) => values[name] ?? '');
-        }
-    }
-    return values;
+const env = loadConfig() as EnvFiles;
+const origin = new URL(env.probe.PROBE_RP_ORIGIN);
+const redirectUri = new URL('/auth/oidc/callback', origin).toString();
+
+if (!env.idp.SIM_IDP_CLIENT_REDIRECT_URIS.split(' ').includes(redirectUri)) {
+    throw new Error(`redirect URI ${redirectUri} 沒有登記在身分提供者`);
 }
 
-function required(values: Record<string, string>, key: string): string {
-    const value = values[key];
-    if (!value) throw new Error(`sim 設定缺少 ${key}`);
-    return value;
-}
-
-export interface OidcConfig {
-    issuer: string;
-    clientId: string;
-    clientSecret: string;
-    redirectUri: string;
-    scopes: string;
-}
-
-export interface LdapConfig {
-    url: string;
-    bindDn: string;
-    bindPassword: string;
-    peopleDn: string;
-    groupsDn: string;
-}
-
-export interface AppConfig {
-    port: number;
-    /** 瀏覽器看到的來源。WebAuthn 的 rpId 不能是 IP，所以用 localhost。 */
-    origin: string;
-    rpId: string;
-    rpName: string;
-    webDir: string;
-    oidc: OidcConfig;
-}
-
-export function loadLdapConfig(): LdapConfig {
-    const env = readSimEnv('ldap');
-    return {
-        url: required(env, 'SIM_LDAP_URL'),
-        bindDn: required(env, 'SIM_LDAP_READER_DN'),
-        bindPassword: required(env, 'SIM_LDAP_READER_PASSWORD'),
-        peopleDn: required(env, 'SIM_LDAP_PEOPLE_DN'),
-        groupsDn: required(env, 'SIM_LDAP_GROUPS_DN'),
-    };
-}
-
-export function loadConfig(): AppConfig {
-    const idp = readSimEnv('idp');
-    const port = Number(process.env.PROBE_PORT ?? 3000);
-    const origin = process.env.PROBE_ORIGIN ?? `http://localhost:${port}`;
-    const redirectUri = `${origin}/auth/oidc/callback`;
-    const registered = required(idp, 'SIM_IDP_CLIENT_REDIRECT_URIS').split(/\s+/);
-    if (!registered.includes(redirectUri)) {
-        throw new Error(`redirect URI ${redirectUri} 沒有在 sim/idp 登記（已登記：${registered.join(', ')}）`);
-    }
-    return {
-        port,
-        origin,
-        rpId: new URL(origin).hostname,
-        rpName: 'sgn probe',
-        webDir: path.join(repoRoot, 'probe', 'web'),
-        oidc: {
-            issuer: required(idp, 'SIM_IDP_ISSUER'),
-            clientId: required(idp, 'SIM_IDP_CLIENT_ID'),
-            clientSecret: required(idp, 'SIM_IDP_CLIENT_SECRET'),
-            redirectUri,
-            scopes: required(idp, 'SIM_IDP_SCOPES'),
-        },
-    };
-}
+export const config = {
+    dbUrl: roleUrl(env, 'APP') as string,
+    origin,
+    listenHost: origin.hostname,
+    listenPort: Number(origin.port),
+    oidc: {
+        issuer: env.idp.SIM_IDP_ISSUER,
+        clientId: env.idp.SIM_IDP_CLIENT_ID,
+        clientSecret: env.idp.SIM_IDP_CLIENT_SECRET,
+        scopes: env.idp.SIM_IDP_SCOPES,
+        redirectUri,
+    },
+    anchorFile: env.probe.PROBE_ANCHOR_FILE,
+    webDir: join(import.meta.dirname, '..', '..', 'web'),
+};
