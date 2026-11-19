@@ -130,10 +130,10 @@ async function handleCallback(req: IncomingMessage, res: ServerResponse, url: UR
     flows.delete(state);
     const clearFlow = setCookie(FLOW_COOKIE, '', 0, 'Lax');
     if (!flow || flow.expires < Date.now() || cookies(req).get(FLOW_COOKIE) !== state) {
-        return redirect(res, '/?error=FLOW_INVALID', [clearFlow]);
+        return redirect(res, `/?error=${encodeURIComponent('登入流程已逾時或無效，請重新操作一次')}`, [clearFlow]);
     }
     const code = url.searchParams.get('code');
-    if (!code) return redirect(res, '/?error=LOGIN_CANCELLED', [clearFlow]);
+    if (!code) return redirect(res, `/?error=${encodeURIComponent('登入沒有完成，請重新操作一次')}`, [clearFlow]);
     const idToken = await oidc.exchange(code, flow.verifier);
     try {
         if (flow.kind === 'login') {
@@ -150,7 +150,7 @@ async function handleCallback(req: IncomingMessage, res: ServerResponse, url: UR
         ]);
         return redirect(res, '/?notice=PASSKEY_REGISTERED', [clearFlow]);
     } catch (err) {
-        if (err instanceof ApiError) return redirect(res, `/?error=${encodeURIComponent(err.code)}`, [clearFlow]);
+        if (err instanceof ApiError) return redirect(res, `/?error=${encodeURIComponent(err.message)}`, [clearFlow]);
         throw err;
     }
 }
