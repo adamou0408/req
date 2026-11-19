@@ -19,7 +19,7 @@
     "Mobile-Inbox.dc.html": {"x": 0, "y": 7680, "w": 390, "h": 844, "title": "手機｜待簽", "is_interactive": true},
     "Mobile-Review.dc.html": {"x": 470, "y": 7680, "w": 390, "h": 844, "title": "手機｜簽核", "is_interactive": true},
     "Mobile-MFA.dc.html": {"x": 940, "y": 7680, "w": 390, "h": 844, "title": "手機｜MFA 確認", "is_interactive": true},
-    "Swimlane.dc.html": {"x": 0, "y": 9120, "w": 3064, "h": 1460, "title": "泳道圖｜一張申請從送審到生效"},
+    "Swimlane.dc.html": {"x": 0, "y": 9120, "w": 2808, "h": 1280, "title": "泳道圖｜一張申請從送審到生效"},
     "Flowchart.dc.html": {"x": 3144, "y": 9120, "w": 1880, "h": 1760, "title": "流程圖｜判斷點與分支"}
   },
   "order": [
