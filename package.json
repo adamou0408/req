@@ -1,0 +1,32 @@
+{
+  "name": "sgn",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0 <23"
+  },
+  "workspaces": [
+    "packages/contract",
+    "api",
+    "web",
+    "e2e",
+    "tools",
+    "db"
+  ],
+  "scripts": {
+    "check": "tools/check.sh",
+    "test": "tools/run-all.sh",
+    "lint": "eslint --max-warnings 0 .",
+    "format": "prettier --check .",
+    "typecheck": "tsc -p packages/contract && tsc -p api && tsc -p e2e/reference/passkey"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.19.1",
+    "eslint": "10.15.0",
+    "globals": "17.14.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.73.0"
+  }
+}

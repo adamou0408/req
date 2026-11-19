@@ -1,0 +1,11 @@
+{
+  "name": "@sgn/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sgn/contract": "0.0.0",
+    "ldapts": "7.3.3",
+    "pg": "8.13.1"
+  }
+}
