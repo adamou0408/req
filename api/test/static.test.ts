@@ -86,7 +86,6 @@ describe('WEB_DIST：靜態檔與 SPA fallback', () => {
       '/../outside.txt',
       '/assets/../../outside.txt',
       '/%2e%2e/outside.txt',
-      '/%2e%2e/%2e%2e/etc/passwd',
       '/assets/%2e%2e%2f%2e%2e%2foutside.txt',
       '/..%2foutside.txt',
       '/assets/..%5c..%5coutside.txt',
@@ -126,6 +125,8 @@ describe('WEB_DIST：靜態檔與 SPA fallback', () => {
       '/assets/../../outside.txt',
       '/assets/../../../../../../etc/passwd',
       '/../../../../etc/passwd',
+      '/%2e%2e/%2e%2e/etc/passwd',
+      '/%2E%2E/outside.txt',
       '/assets/..%2f..%2foutside.txt',
       '/.env',
     ]) {
