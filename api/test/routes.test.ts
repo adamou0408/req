@@ -158,7 +158,9 @@ describe('路由表驅動的通用 handler', () => {
       const logged = t.logs.slice(before).map((l) => JSON.parse(l));
       const entry = logged.find((l) => l.msg === '請求失敗（內部錯誤）');
       expect(entry).toMatchObject({ level: 50, status: 500, sqlstate: 'P0001', reqId: res.headers['x-request-id'] });
-      expect(entry.err.message).toContain('leaked');
+      expect(entry.error).toMatchObject({ code: 'P0001', message: expect.stringContaining('leaked') });
+      expect(entry.error.where).toContain('api.boom');
+      expect(entry.time).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
     it('沒對應到的 SQLSTATE 就算訊息寫得像代碼也不外露', async () => {

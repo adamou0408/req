@@ -223,9 +223,7 @@ describe('MFA step-up', () => {
 
   it('MFA_MODE=totp：用資料庫裡的密鑰驗證；沒設定的人回 409', async () => {
     const totpClock = new FakeClock();
-    const base = await makeApp({ now: totpClock.now, env: { MFA_MODE: 'totp' } });
-    await base.close();
-    // 用同一份設定、接上真的 TotpMfa（密鑰來自測試 schema 的 api.mfa_totp_secret）。
+    // 接上真的 TotpMfa（密鑰來自測試 schema 的 api.mfa_totp_secret）。
     const holder: { sys?: TestApp['sys'] } = {};
     const mfa = new TotpMfa({ getSecret: (actor) => holder.sys!.totpSecret(actor), now: totpClock.now });
     const app = await makeApp({ now: totpClock.now, env: { MFA_MODE: 'totp' }, mfa });

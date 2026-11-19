@@ -19,7 +19,14 @@ export class OpenidClientOidc implements OidcPort {
 
   private discover(): Promise<oidc.Configuration> {
     if (this.discovered === null) {
-      const pending = oidc.discovery(new URL(this.config.issuer), this.config.clientId, this.config.clientSecret);
+      const pending = oidc.discovery(
+        new URL(this.config.issuer),
+        this.config.clientId,
+        this.config.clientSecret,
+        undefined,
+        // 預設只接受 https；接本機的模擬器時才放寬（正式環境在設定檢查就擋掉了）。
+        this.config.allowInsecure ? { execute: [oidc.allowInsecureRequests] } : undefined,
+      );
       // 失敗就不快取，下次再試。
       pending.catch(() => {
         if (this.discovered === pending) this.discovered = null;

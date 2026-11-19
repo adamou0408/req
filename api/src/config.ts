@@ -15,6 +15,8 @@ export interface OidcConfig {
   clientSecret: string;
   redirectUri: string;
   scope: string;
+  /** 身分提供者走 http://（只有非正式環境接模擬器時才允許）。 */
+  allowInsecure: boolean;
 }
 
 export interface SmtpConfig {
@@ -261,6 +263,11 @@ export function loadConfig(env: Env = process.env): Config {
           ok = false;
         }
       }
+      const insecure = ok && new URL(issuer).protocol === 'http:';
+      if (insecure && isProduction) {
+        problems.push('NODE_ENV=production 時 OIDC_ISSUER 必須是 https://');
+        ok = false;
+      }
       if (ok) {
         oidc = {
           issuer,
@@ -268,6 +275,7 @@ export function loadConfig(env: Env = process.env): Config {
           clientSecret,
           redirectUri,
           scope: raw('OIDC_SCOPE') ?? 'openid profile email',
+          allowInsecure: insecure,
         };
       }
     }

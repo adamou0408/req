@@ -9,6 +9,7 @@
   position: relative;
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr);
+  align-content: start;
   gap: var(--space-3);
   padding-bottom: var(--space-4);
 }

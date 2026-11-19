@@ -23,6 +23,8 @@ export function baseEnv(overrides: Record<string, string | undefined> = {}): Rec
     DC_MODE: 'mock',
     MFA_MODE: 'dev',
     SCHEDULER_INTERVAL_SEC: '60',
+    // 測試會頻繁登入；要測 rate limit 的案例自己把上限調低。
+    RATE_LIMIT_MAX: '1000',
     ...overrides,
   };
 }

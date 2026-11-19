@@ -3,7 +3,7 @@
  * 這裡不含任何業務判斷：只有安全檢查、身分、把請求轉給 SQL function。
  */
 import { randomUUID } from 'node:crypto';
-import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
+import Fastify, { LogController, type FastifyInstance, type FastifyReply, type FastifyRequest } from 'fastify';
 import type { Config } from './config.ts';
 import type { Contract } from './contract/index.ts';
 import type { SystemCalls } from './contract/systemCalls.ts';
@@ -63,6 +63,8 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     logger: {
       level: config.logLevel,
       base: { service: 'das-api' },
+      // ISO 8601（UTC），方便和資料庫的稽核紀錄對時間。
+      timestamp: () => `,"time":"${new Date().toISOString()}"`,
       // 保險：就算有人把整個 request 丟進 log，也不會印出憑證。
       redact: {
         paths: ['req.headers.cookie', 'req.headers.authorization', 'headers.cookie', 'headers.authorization', 'res.headers["set-cookie"]'],
@@ -71,7 +73,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
       ...(deps.logStream ? { stream: deps.logStream } : {}),
     },
     // 自己記請求 log（下面的 onResponse），內容比較精簡，也不含 query string。
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
     // 不採用用戶端給的 request id。
     requestIdHeader: false,
     genReqId: () => randomUUID(),
@@ -121,7 +123,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   app.setErrorHandler((err, req, reply) => {
     const mapped = mapError(err, contract.errors);
     const info = { status: mapped.status, code: mapped.body.code, sqlstate: mapped.sqlstate };
-    if (mapped.kind === 'internal') req.log.error({ ...info, err: describeError(err) }, '請求失敗（內部錯誤）');
+    if (mapped.kind === 'internal') req.log.error({ ...info, error: describeError(err) }, '請求失敗（內部錯誤）');
     else if (mapped.kind === 'business') req.log.info(info, '請求被 SQL function 拒絕');
     else req.log.info(info, '請求被拒絕');
     return reply.code(mapped.status).headers(mapped.headers).type(JSON_TYPE).send(JSON.stringify(mapped.body));

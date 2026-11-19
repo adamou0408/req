@@ -125,7 +125,14 @@ describe('設定', () => {
       clientSecret: 's3cret',
       redirectUri: 'https://das.example.test/api/auth/oidc/callback',
       scope: 'openid profile email',
+      allowInsecure: false,
     });
+  });
+
+  it('OIDC_ISSUER 是 http://：開發時允許（接模擬器），正式環境拒絕', () => {
+    const oidcEnv = { OIDC_ISSUER: 'http://localhost:9000', OIDC_CLIENT_ID: 'das', OIDC_CLIENT_SECRET: 's', OIDC_REDIRECT_URI: 'http://localhost:3000/api/auth/oidc/callback' };
+    expect(loadConfig({ ...valid, AUTH_MODE: 'oidc', ...oidcEnv }).oidc?.allowInsecure).toBe(true);
+    expect(problems({ ...prod, ...oidcEnv })).toEqual(['NODE_ENV=production 時 OIDC_ISSUER 必須是 https://']);
   });
 
   it('MAIL_MODE=smtp 需要 SMTP_URL 與 MAIL_FROM', () => {

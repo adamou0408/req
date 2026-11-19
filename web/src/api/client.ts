@@ -33,8 +33,9 @@ export function isApiError(value: unknown): value is ApiError {
   return value instanceof ApiError;
 }
 
+/** 用名稱判斷而不是 instanceof：不同執行環境的 DOMException 不是同一個類別。 */
 export function isAbortError(value: unknown): boolean {
-  return value instanceof DOMException && value.name === "AbortError";
+  return typeof value === "object" && value !== null && "name" in value && value.name === "AbortError";
 }
 
 /** MFA 視窗上要讓使用者核對的內容（例如單號、範圍、起迄）。 */

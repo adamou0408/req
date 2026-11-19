@@ -1,0 +1,8 @@
+{
+  "people": [
+    { "id": "u1", "name": "王小明", "email": "u1@example.test", "manager_id": "u3", "team_ids": ["t1"], "active": true },
+    { "id": "u2", "name": "陳小華", "email": "u2@example.test", "manager_id": "u3", "team_ids": ["t1"], "active": true },
+    { "id": "u3", "name": "林主管", "email": "u3@example.test", "manager_id": null, "team_ids": ["t1"], "active": true }
+  ],
+  "teams": [{ "id": "t1", "name": "資料分析組", "parent_id": null }]
+}

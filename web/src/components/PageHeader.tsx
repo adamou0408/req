@@ -22,7 +22,7 @@ export function PageHeader({ title, back, tags, meta, actions }: PageHeaderProps
     <header className="pagehead">
       {back && (
         <Link className="pagehead__back" to={back.to}>
-          <span aria-hidden="true">← </span>
+          <span aria-hidden="true">←</span>
           {back.label}
         </Link>
       )}
