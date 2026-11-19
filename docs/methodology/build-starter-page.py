@@ -38,21 +38,24 @@ pre { margin:0; background:var(--code); border:1px solid var(--line); border-rad
 <div class="page">
 <header style="display:flex;flex-direction:column;gap:8px">
 <h1>用 AI 從零做出產品：導入包</h1>
-<p>一份可以直接貼給 Claude Code 的指示。貼上後，AI 會照這套方法帶你從想法做到驗證過的產品。</p>
-<p class="muted">2026-11 第一版。實戰走過的是釐清到契約；架構探針之後的步驟仍在第一個專案中驗證。</p>
+<p>一段貼給 Claude Code 的指示。AI 會先問清楚目的，用最小的可執行路徑驗證做法，再擴展；你糾正過的事，它要記下來並改掉。</p>
 </header>
 <section>
-<h2>怎麼用</h2>
+<h2>給人讀</h2>
 <div class="card"><ol>
-<li>按下面的「複製」。</li>
-<li>開一個新的 Claude Code 工作階段，貼成第一則訊息。</li>
-<li>把最後一行換成你的產品想法和已知的限制。</li>
-<li>開始後隔 5 到 10 分鐘看兩次用量，把數字告訴 AI。</li>
+<li>按「複製」，貼成新工作階段的第一則訊息。</li>
+<li>把最後一行換成你的想法。</li>
+<li>開始後隔幾分鐘看兩次用量，把數字告訴它。</li>
+</ol></div>
+<div class="card"><p><strong>你要盯的三件事</strong></p><ol>
+<li>它有沒有先跑出程式，而不是一直寫文件。</li>
+<li>它說「完成」時，是寫了、跑過，還是沒驗證。</li>
+<li>你重複提醒的事，它有沒有記下來並改掉。</li>
 </ol>
-<p class="muted">想固定使用：存成專案根目錄的 CLAUDE.md，或存成 Skill。</p></div>
+<p class="muted">2026-11 第一版。走過實戰的只到設計階段，實作以後的步驟仍在驗證中。</p></div>
 </section>
 <section>
-<div class="bar"><h2>貼上的內容</h2><button type="button" id="copy">複製</button></div>
+<div class="bar"><h2>給 AI 讀</h2><button type="button" id="copy">複製</button></div>
 <p class="muted" id="status" role="status" aria-live="polite"></p>
 <pre id="kit" tabindex="0">__KIT__</pre>
 </section>
