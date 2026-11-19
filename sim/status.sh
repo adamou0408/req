@@ -4,7 +4,7 @@
 #   --strict：只要有服務不是 healthy 就回傳 1（給 CI 與檢查腳本用）。
 set -euo pipefail
 
-# shellcheck source=sim/lib/orchestrate.sh
+# shellcheck source=SCRIPTDIR/lib/orchestrate.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/orchestrate.sh"
 
 strict=false

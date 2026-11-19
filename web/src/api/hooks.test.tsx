@@ -7,24 +7,43 @@ const boom = new ApiError("REQUEST_NOT_FOUND", "找不到這張單", 404);
 
 describe("useQuery", () => {
   it("先 loading，再給資料", async () => {
-    const { result } = renderHook(() => useQuery("k", () => Promise.resolve("資料")));
-    expect(result.current).toMatchObject({ loading: true, data: undefined, error: null });
+    const { result } = renderHook(() =>
+      useQuery("k", () => Promise.resolve("資料")),
+    );
+    expect(result.current).toMatchObject({
+      loading: true,
+      data: undefined,
+      error: null,
+    });
     await waitFor(() => expect(result.current.data).toBe("資料"));
-    expect(result.current).toMatchObject({ loading: false, fetching: false, error: null });
+    expect(result.current).toMatchObject({
+      loading: false,
+      fetching: false,
+      error: null,
+    });
   });
 
   it("失敗時把錯誤放在 error", async () => {
-    const { result } = renderHook(() => useQuery("k", () => Promise.reject(boom)));
+    const { result } = renderHook(() =>
+      useQuery("k", () => Promise.reject(boom)),
+    );
     await waitFor(() => expect(result.current.error).toBe(boom));
     expect(result.current.loading).toBe(false);
   });
 
   it("reload 重新抓，期間保留舊資料（loading 為 false、fetching 為 true）", async () => {
-    const fetcher = vi.fn().mockResolvedValueOnce("第一次").mockResolvedValueOnce("第二次");
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce("第一次")
+      .mockResolvedValueOnce("第二次");
     const { result } = renderHook(() => useQuery("k", fetcher));
     await waitFor(() => expect(result.current.data).toBe("第一次"));
     act(() => result.current.reload());
-    expect(result.current).toMatchObject({ data: "第一次", loading: false, fetching: true });
+    expect(result.current).toMatchObject({
+      data: "第一次",
+      loading: false,
+      fetching: true,
+    });
     await waitFor(() => expect(result.current.data).toBe("第二次"));
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
@@ -33,7 +52,11 @@ describe("useQuery", () => {
     const fetcher = vi.fn();
     const { result } = renderHook(() => useQuery<string>(null, fetcher));
     expect(fetcher).not.toHaveBeenCalled();
-    expect(result.current).toMatchObject({ loading: false, fetching: false, data: undefined });
+    expect(result.current).toMatchObject({
+      loading: false,
+      fetching: false,
+      data: undefined,
+    });
   });
 
   it("換 key：不顯示上一個 key 的資料，並中止上一個請求", async () => {
@@ -42,9 +65,12 @@ describe("useQuery", () => {
       signals.push(signal);
       return Promise.resolve(`單 ${id}`);
     };
-    const { result, rerender } = renderHook(({ id }) => useQuery(id, fetcher(id)), {
-      initialProps: { id: "1" },
-    });
+    const { result, rerender } = renderHook(
+      ({ id }) => useQuery(id, fetcher(id)),
+      {
+        initialProps: { id: "1" },
+      },
+    );
     await waitFor(() => expect(result.current.data).toBe("單 1"));
     rerender({ id: "2" });
     expect(result.current).toMatchObject({ data: undefined, loading: true });
@@ -57,7 +83,9 @@ describe("useMutation", () => {
   it("成功：回傳結果並呼叫 onSuccess", async () => {
     const onSuccess = vi.fn();
     const { result } = renderHook(() =>
-      useMutation((id: string) => Promise.resolve(`已核准 ${id}`), { onSuccess }),
+      useMutation((id: string) => Promise.resolve(`已核准 ${id}`), {
+        onSuccess,
+      }),
     );
     let returned: string | undefined;
     await act(async () => {
@@ -70,7 +98,9 @@ describe("useMutation", () => {
 
   it("失敗：mutate 不會 reject，錯誤放在 error 並呼叫 onError", async () => {
     const onError = vi.fn();
-    const { result } = renderHook(() => useMutation(() => Promise.reject(boom), { onError }));
+    const { result } = renderHook(() =>
+      useMutation(() => Promise.reject(boom), { onError }),
+    );
     let returned: unknown = "尚未回傳";
     await act(async () => {
       returned = await result.current.mutate(undefined);
@@ -83,10 +113,14 @@ describe("useMutation", () => {
   });
 
   it("mutateAsync 失敗時 reject；不是 ApiError 的錯誤也會包成 ApiError", async () => {
-    const { result } = renderHook(() => useMutation(() => Promise.reject(new Error("壞了"))));
+    const { result } = renderHook(() =>
+      useMutation(() => Promise.reject(new Error("壞了"))),
+    );
     let error: unknown;
     await act(async () => {
-      error = await result.current.mutateAsync(undefined).catch((reason: unknown) => reason);
+      error = await result.current
+        .mutateAsync(undefined)
+        .catch((reason: unknown) => reason);
     });
     expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ code: "CLIENT_UNEXPECTED", message: "壞了" });

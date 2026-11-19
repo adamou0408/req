@@ -1,6 +1,12 @@
 import type { ReactNode } from "react";
 import type { CurrentUser, Role } from "../api/endpoints";
-import { IconDocument, IconInbox, IconSearch, IconShield, IconSliders } from "../components/icons";
+import {
+  IconDocument,
+  IconInbox,
+  IconSearch,
+  IconShield,
+  IconSliders,
+} from "../components/icons";
 import { t } from "../i18n/zh-Hant";
 
 export interface NavItem {
@@ -59,10 +65,14 @@ export const NAV_ITEMS: readonly NavItem[] = [
 ];
 
 export function navItemsFor(user: CurrentUser): NavItem[] {
-  return NAV_ITEMS.filter((item) => item.roles.some((role) => user.roles.includes(role)));
+  return NAV_ITEMS.filter((item) =>
+    item.roles.some((role) => user.roles.includes(role)),
+  );
 }
 
 export function isNavItemActive(item: NavItem, pathname: string): boolean {
   if (pathname === item.to) return true;
-  return item.match.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
+  return item.match.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
 }

@@ -103,7 +103,8 @@
   min-width: 0;
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom));
+  padding: var(--space-4) var(--space-4)
+    calc(var(--space-6) + env(safe-area-inset-bottom));
 }
 
 .app__main:focus {
@@ -116,7 +117,9 @@ html.has-bottomnav {
 }
 
 html.has-bottomnav .app__main {
-  padding-bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom) + var(--space-6));
+  padding-bottom: calc(
+    var(--bottomnav-h) + env(safe-area-inset-bottom) + var(--space-6)
+  );
 }
 
 .bottomnav {

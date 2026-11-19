@@ -3,20 +3,31 @@ import type { InputHTMLAttributes, ReactNode } from "react";
 import { cx } from "../lib/cx";
 import "./Choice.css";
 
-export interface CheckboxProps
-  extends Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "children"> {
+export interface CheckboxProps extends Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  "type" | "children"
+> {
   label: ReactNode;
   /** 標籤後面的補充（例如欄位的級別標籤）。 */
   suffix?: ReactNode;
   hint?: ReactNode;
 }
 
-export function Checkbox({ label, suffix, hint, className, id, ...rest }: CheckboxProps) {
+export function Checkbox({
+  label,
+  suffix,
+  hint,
+  className,
+  id,
+  ...rest
+}: CheckboxProps) {
   const autoId = useId();
   const inputId = id ?? autoId;
   const hintId = hint ? `${inputId}-hint` : undefined;
   return (
-    <div className={cx("choice", rest.disabled && "choice--disabled", className)}>
+    <div
+      className={cx("choice", rest.disabled && "choice--disabled", className)}
+    >
       <label className="choice__row" htmlFor={inputId}>
         <input
           className="choice__input"
@@ -57,16 +68,22 @@ export interface SegmentedProps<T extends string> {
 
 /** 單選的一排選項。底層是原生 radio，方向鍵切換、空白鍵選取都由瀏覽器處理。 */
 export function Segmented<T extends string>(props: SegmentedProps<T>) {
-  const { legend, hideLegend, options, value, onChange, hint, disabled } = props;
+  const { legend, hideLegend, options, value, onChange, hint, disabled } =
+    props;
   const name = useId();
   return (
     <fieldset className="seg" disabled={disabled}>
-      <legend className={cx("seg__legend", hideLegend && "visually-hidden")}>{legend}</legend>
+      <legend className={cx("seg__legend", hideLegend && "visually-hidden")}>
+        {legend}
+      </legend>
       <div className="seg__options">
         {options.map((option) => (
           <label
             key={option.value}
-            className={cx("seg__option", value === option.value && "seg__option--on")}
+            className={cx(
+              "seg__option",
+              value === option.value && "seg__option--on",
+            )}
           >
             <input
               className="choice__input"

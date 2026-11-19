@@ -22,12 +22,18 @@ export function RequireAuth() {
   if (auth.status === "error") {
     return (
       <div className="app-gate">
-        <ErrorState title={t.auth.sessionCheckFailed} error={auth.error} onRetry={auth.reload} />
+        <ErrorState
+          title={t.auth.sessionCheckFailed}
+          error={auth.error}
+          onRetry={auth.reload}
+        />
       </div>
     );
   }
   if (auth.status === "anonymous") {
-    const state: LoginRedirectState = { from: location.pathname + location.search };
+    const state: LoginRedirectState = {
+      from: location.pathname + location.search,
+    };
     return <Navigate to="/login" replace state={state} />;
   }
   return <Outlet />;

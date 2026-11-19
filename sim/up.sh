@@ -6,7 +6,7 @@
 # 環境變數：SIM_HEALTH_TIMEOUT＝每個服務等待健康檢查的秒數（預設 60）。
 set -euo pipefail
 
-# shellcheck source=sim/lib/orchestrate.sh
+# shellcheck source=SCRIPTDIR/lib/orchestrate.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/orchestrate.sh"
 
 health_timeout="${SIM_HEALTH_TIMEOUT:-60}"

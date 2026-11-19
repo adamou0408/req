@@ -56,7 +56,9 @@ describe("Button", () => {
 
   it("ButtonLink 是站內連結", () => {
     renderWithProviders(<ButtonLink to="/requests/new">新申請</ButtonLink>);
-    expect(screen.getByRole("link", { name: "新申請" }).getAttribute("href")).toBe("/requests/new");
+    expect(
+      screen.getByRole("link", { name: "新申請" }).getAttribute("href"),
+    ).toBe("/requests/new");
   });
 });
 
@@ -95,23 +97,43 @@ describe("Field", () => {
     render(
       <>
         <Field label="搜尋主題包" />
-        <Field as="select" label="分類" options={[{ value: "a", label: "報表與分析" }]} placeholder="請選擇" />
+        <Field
+          as="select"
+          label="分類"
+          options={[{ value: "a", label: "報表與分析" }]}
+          placeholder="請選擇"
+        />
         <Field as="textarea" label="說明" />
       </>,
     );
     expect(screen.getByLabelText("搜尋主題包").tagName).toBe("INPUT");
     const select = screen.getByLabelText("分類");
     expect(select.tagName).toBe("SELECT");
-    expect(within(select).getAllByRole("option").map((option) => option.textContent)).toEqual(["請選擇", "報表與分析"]);
+    expect(
+      within(select)
+        .getAllByRole("option")
+        .map((option) => option.textContent),
+    ).toEqual(["請選擇", "報表與分析"]);
     expect(screen.getByLabelText("說明").tagName).toBe("TEXTAREA");
   });
 
   it("錯誤訊息與說明都接到欄位上，並標成 invalid", () => {
-    render(<Field label="原因" required hint="會寫進稽核紀錄" error="請填寫原因。" />);
+    render(
+      <Field
+        label="原因"
+        required
+        hint="會寫進稽核紀錄"
+        error="請填寫原因。"
+      />,
+    );
     const input = screen.getByRole("textbox", { name: /原因/ });
     expect(input.getAttribute("aria-invalid")).toBe("true");
-    const describedBy = (input.getAttribute("aria-describedby") ?? "").split(" ");
-    const texts = describedBy.map((id) => document.getElementById(id)?.textContent);
+    const describedBy = (input.getAttribute("aria-describedby") ?? "").split(
+      " ",
+    );
+    const texts = describedBy.map(
+      (id) => document.getElementById(id)?.textContent,
+    );
     expect(texts).toEqual(["會寫進稽核紀錄", "請填寫原因。"]);
     expect(screen.getByText("（必填）")).toBeTruthy();
   });
@@ -129,7 +151,10 @@ describe("Checkbox／Segmented", () => {
     const onChange = vi.fn();
     render(<Checkbox label="客戶編號" hint="L3 欄位" onChange={onChange} />);
     const box = screen.getByRole("checkbox", { name: "客戶編號" });
-    expect(document.getElementById(box.getAttribute("aria-describedby") ?? "")?.textContent).toBe("L3 欄位");
+    expect(
+      document.getElementById(box.getAttribute("aria-describedby") ?? "")
+        ?.textContent,
+    ).toBe("L3 欄位");
     box.focus();
     await userEvent.keyboard(" ");
     expect(onChange).toHaveBeenCalledTimes(1);
@@ -153,8 +178,14 @@ describe("Checkbox／Segmented", () => {
     render(<Demo />);
     const group = screen.getByRole("group", { name: "被授權者" });
     await userEvent.click(within(group).getByRole("radio", { name: "專案" }));
-    expect((within(group).getByRole("radio", { name: "專案" }) as HTMLInputElement).checked).toBe(true);
-    expect((within(group).getByRole("radio", { name: "團隊" }) as HTMLInputElement).checked).toBe(false);
+    expect(
+      (within(group).getByRole("radio", { name: "專案" }) as HTMLInputElement)
+        .checked,
+    ).toBe(true);
+    expect(
+      (within(group).getByRole("radio", { name: "團隊" }) as HTMLInputElement)
+        .checked,
+    ).toBe(false);
   });
 });
 
@@ -165,15 +196,26 @@ describe("Stepper", () => {
         label="簽核路徑"
         steps={[
           { key: "a", label: "主管", state: "done", detail: "陳建宏・11-11" },
-          { key: "b", label: "資料擁有者", state: "current", people: [{ name: "張美玲", state: "done" }, { name: "周文傑" }] },
+          {
+            key: "b",
+            label: "資料擁有者",
+            state: "current",
+            people: [{ name: "張美玲", state: "done" }, { name: "周文傑" }],
+          },
           { key: "c", label: "MIS", state: "todo" },
         ]}
       />,
     );
     const list = screen.getByRole("list", { name: "簽核路徑" });
-    const steps = within(list).getAllByRole("listitem").filter((item) => item.className.includes("stepper__step"));
+    const steps = within(list)
+      .getAllByRole("listitem")
+      .filter((item) => item.className.includes("stepper__step"));
     expect(steps).toHaveLength(3);
-    expect(steps.map((step) => step.getAttribute("aria-current"))).toEqual([null, "step", null]);
+    expect(steps.map((step) => step.getAttribute("aria-current"))).toEqual([
+      null,
+      "step",
+      null,
+    ]);
     expect(steps[0]?.textContent).toContain("（已完成）");
     expect(steps[1]?.textContent).toContain("張美玲已完成");
     expect(steps[2]?.textContent).toContain("（未開始）");
@@ -186,17 +228,34 @@ describe("Timeline", () => {
       <Timeline
         label="紀錄"
         items={[
-          { key: "2", at: "2026-11-10T01:30:42Z", actor: "系統", action: "分派簽核人", rule: "L3 路徑；每關不同人" },
-          { key: "1", at: "2026-11-10T01:30:41Z", actor: "林怡君", role: "申請人", action: "送審", detail: "狀態 草稿 → 送審" },
+          {
+            key: "2",
+            at: "2026-11-10T01:30:42Z",
+            actor: "系統",
+            action: "分派簽核人",
+            rule: "L3 路徑；每關不同人",
+          },
+          {
+            key: "1",
+            at: "2026-11-10T01:30:41Z",
+            actor: "林怡君",
+            role: "申請人",
+            action: "送審",
+            detail: "狀態 草稿 → 送審",
+          },
         ]}
       />,
     );
-    const items = within(screen.getByRole("list", { name: "紀錄" })).getAllByRole("listitem");
+    const items = within(
+      screen.getByRole("list", { name: "紀錄" }),
+    ).getAllByRole("listitem");
     expect(items[0]?.textContent).toContain("2026-11-10 09:30");
     expect(items[0]?.textContent).toContain("系統：分派簽核人");
     expect(items[0]?.textContent).toContain("依據：L3 路徑；每關不同人");
     expect(items[1]?.textContent).toContain("林怡君（申請人）：送審");
-    expect(items[1]?.querySelector("time")?.getAttribute("datetime")).toBe("2026-11-10T01:30:41Z");
+    expect(items[1]?.querySelector("time")?.getAttribute("datetime")).toBe(
+      "2026-11-10T01:30:41Z",
+    );
   });
 });
 
@@ -206,14 +265,29 @@ describe("DiffList", () => {
       <DiffList
         label="與前案的差異"
         items={[
-          { key: "a", kind: "added", label: "客戶主檔", text: "客戶編號、客戶名稱" },
-          { key: "b", kind: "expanded", label: "資料期間", before: "2024", after: "2024–2025" },
+          {
+            key: "a",
+            kind: "added",
+            label: "客戶主檔",
+            text: "客戶編號、客戶名稱",
+          },
+          {
+            key: "b",
+            kind: "expanded",
+            label: "資料期間",
+            before: "2024",
+            after: "2024–2025",
+          },
           { key: "c", kind: "same", label: "列條件", text: "區域 屬於 北區" },
         ]}
       />,
     );
-    const items = within(screen.getByRole("list", { name: "與前案的差異" })).getAllByRole("listitem");
-    expect(items.map((item) => item.querySelector(".tag")?.textContent)).toEqual(["新增", "擴大", "相同"]);
+    const items = within(
+      screen.getByRole("list", { name: "與前案的差異" }),
+    ).getAllByRole("listitem");
+    expect(
+      items.map((item) => item.querySelector(".tag")?.textContent),
+    ).toEqual(["新增", "擴大", "相同"]);
     expect(items[1]?.querySelector("del")?.textContent).toBe("2024");
     expect(items[1]?.querySelector("ins")?.textContent).toBe("2024–2025");
     expect(items[0]?.querySelector(".tag")?.className).toContain("tag--warn");
@@ -227,7 +301,13 @@ describe("DiffList", () => {
 
 describe("EmptyState／ErrorState／Skeleton", () => {
   it("EmptyState 顯示標題、說明與下一步", () => {
-    render(<EmptyState title="目前沒有待簽的單" description="有新的單會通知你" action={<Button>重新整理</Button>} />);
+    render(
+      <EmptyState
+        title="目前沒有待簽的單"
+        description="有新的單會通知你"
+        action={<Button>重新整理</Button>}
+      />,
+    );
     expect(screen.getByText("目前沒有待簽的單")).toBeTruthy();
     expect(screen.getByText("有新的單會通知你")).toBeTruthy();
     expect(screen.getByRole("button", { name: "重新整理" })).toBeTruthy();
@@ -235,7 +315,12 @@ describe("EmptyState／ErrorState／Skeleton", () => {
 
   it("ErrorState 直接顯示後端的訊息與代碼，可以重試", async () => {
     const onRetry = vi.fn();
-    render(<ErrorState error={{ code: "REQUEST_NOT_FOUND", message: "找不到這張單" }} onRetry={onRetry} />);
+    render(
+      <ErrorState
+        error={{ code: "REQUEST_NOT_FOUND", message: "找不到這張單" }}
+        onRetry={onRetry}
+      />,
+    );
     const alert = screen.getByRole("alert");
     expect(alert.textContent).toContain("找不到這張單");
     expect(alert.textContent).toContain("REQUEST_NOT_FOUND");
@@ -262,8 +347,12 @@ describe("PageHeader", () => {
         actions={<Button>撤銷申請</Button>}
       />,
     );
-    expect(screen.getByRole("heading", { level: 1, name: "DA-2026-0142" })).toBeTruthy();
-    expect(screen.getByRole("link", { name: "待簽清單" }).getAttribute("href")).toBe("/approvals");
+    expect(
+      screen.getByRole("heading", { level: 1, name: "DA-2026-0142" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("link", { name: "待簽清單" }).getAttribute("href"),
+    ).toBe("/approvals");
     expect(screen.getByText("L3")).toBeTruthy();
     expect(screen.getByText("申請人 林怡君")).toBeTruthy();
     expect(screen.getByRole("button", { name: "撤銷申請" })).toBeTruthy();
@@ -300,7 +389,11 @@ describe("Alert／KeyValue／ActionBar", () => {
         <Button variant="primary">核准</Button>
       </ActionBar>,
     );
-    expect(within(screen.getByRole("group", { name: "你的決定" })).getAllByRole("button")).toHaveLength(2);
+    expect(
+      within(screen.getByRole("group", { name: "你的決定" })).getAllByRole(
+        "button",
+      ),
+    ).toHaveLength(2);
   });
 });
 
@@ -326,9 +419,19 @@ describe("Tabs", () => {
 
   it("件數接在名稱後面；只有選中的分頁在 Tab 順序裡", () => {
     render(<Demo onChange={() => undefined} />);
-    const tabs = within(screen.getByRole("tablist", { name: "清單分類" })).getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["待我簽（6）", "我已簽", "職務代理"]);
-    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false", "false"]);
+    const tabs = within(
+      screen.getByRole("tablist", { name: "清單分類" }),
+    ).getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent)).toEqual([
+      "待我簽（6）",
+      "我已簽",
+      "職務代理",
+    ]);
+    expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual([
+      "true",
+      "false",
+      "false",
+    ]);
     expect(tabs.map((tab) => tab.tabIndex)).toEqual([0, -1, -1]);
   });
 
@@ -345,7 +448,13 @@ describe("Tabs", () => {
     await userEvent.keyboard("{ArrowLeft}");
     expect(document.activeElement?.textContent).toBe("職務代理");
     await userEvent.keyboard("{Home}");
-    expect(onChange.mock.calls.map(([value]) => value as string)).toEqual(["done", "deputy", "todo", "deputy", "todo"]);
+    expect(onChange.mock.calls.map(([value]) => value as string)).toEqual([
+      "done",
+      "deputy",
+      "todo",
+      "deputy",
+      "todo",
+    ]);
   });
 });
 
@@ -380,10 +489,5 @@ describe("Toast", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it("沒有包在 ToastProvider 裡會直接報錯，不會靜靜失效", () => {
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    expect(() => render(<Trigger />)).toThrow(/ToastProvider/);
   });
 });

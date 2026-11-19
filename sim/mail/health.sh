@@ -2,7 +2,7 @@
 # 健康檢查：HTTP 的 readyz 通過，而且 SMTP 埠回應 220。健康回 0。
 set -euo pipefail
 
-# shellcheck source=sim/lib/common.sh
+# shellcheck source=SCRIPTDIR/../lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 sim_load_env mail

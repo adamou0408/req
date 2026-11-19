@@ -45,7 +45,9 @@ export function App() {
     <Suspense fallback={<Skeleton count={4} />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        {DevComponentsPage && <Route path="/dev/components" element={<DevComponentsPage />} />}
+        {DevComponentsPage && (
+          <Route path="/dev/components" element={<DevComponentsPage />} />
+        )}
         <Route element={<RequireAuth />}>
           <Route element={<AppLayout />}>
             <Route index element={<HomeRoute />} />

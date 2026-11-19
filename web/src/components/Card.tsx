@@ -14,7 +14,13 @@ export interface CardProps {
   children: ReactNode;
 }
 
-export function Card({ title, actions, flush = false, className, children }: CardProps) {
+export function Card({
+  title,
+  actions,
+  flush = false,
+  className,
+  children,
+}: CardProps) {
   const titleId = useId();
   const classes = cx("card", flush && "card--flush", className);
   if (title === undefined) {

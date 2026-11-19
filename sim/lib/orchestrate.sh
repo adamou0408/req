@@ -2,7 +2,7 @@
 # up.sh / down.sh / status.sh 共用：找出有哪些模擬服務、依 depends_on 排出順序。
 # 服務清單不寫在任何腳本裡：sim/ 下任何含 start.sh 的目錄就是一個服務。
 
-# shellcheck source=sim/lib/common.sh
+# shellcheck source=SCRIPTDIR/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 readonly SIM_SERVICE_SCRIPTS=(start.sh stop.sh health.sh)

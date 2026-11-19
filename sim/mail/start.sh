@@ -3,7 +3,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=sim/lib/common.sh
+# shellcheck source=SCRIPTDIR/../lib/common.sh
 source "${here}/../lib/common.sh"
 
 readonly NAME=mail

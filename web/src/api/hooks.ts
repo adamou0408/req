@@ -60,14 +60,21 @@ export function useQuery<T>(
       (data) => setState({ key, data, error: null, fetching: false }),
       (error: unknown) => {
         if (controller.signal.aborted || isAbortError(error)) return;
-        setState((prev) => ({ ...prev, error: asApiError(error), fetching: false }));
+        setState((prev) => ({
+          ...prev,
+          error: asApiError(error),
+          fetching: false,
+        }));
       },
     );
     return () => controller.abort();
   }, [key, version]);
 
   const reload = useCallback(() => setVersion((value) => value + 1), []);
-  const current = state.key === key ? state : { data: undefined, error: null, fetching: key !== null };
+  const current =
+    state.key === key
+      ? state
+      : { data: undefined, error: null, fetching: key !== null };
 
   return {
     data: current.data,
@@ -102,7 +109,10 @@ export function useMutation<TArgs, TResult>(
   const optionsRef = useRef(options);
   optionsRef.current = options;
   const mounted = useRef(true);
-  const [state, setState] = useState<{ loading: boolean; error: ApiError | null }>({
+  const [state, setState] = useState<{
+    loading: boolean;
+    error: ApiError | null;
+  }>({
     loading: false,
     error: null,
   });
@@ -133,7 +143,16 @@ export function useMutation<TArgs, TResult>(
     (args: TArgs) => mutateAsync(args).catch(() => undefined),
     [mutateAsync],
   );
-  const reset = useCallback(() => setState({ loading: false, error: null }), []);
+  const reset = useCallback(
+    () => setState({ loading: false, error: null }),
+    [],
+  );
 
-  return { mutate, mutateAsync, loading: state.loading, error: state.error, reset };
+  return {
+    mutate,
+    mutateAsync,
+    loading: state.loading,
+    error: state.error,
+    reset,
+  };
 }

@@ -5,7 +5,7 @@
 # 已經是指定版本就什麼都不做。
 set -euo pipefail
 
-# shellcheck source=sim/lib/common.sh
+# shellcheck source=SCRIPTDIR/../lib/common.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../lib/common.sh"
 
 readonly NAME=mail

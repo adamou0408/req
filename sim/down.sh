@@ -5,7 +5,7 @@
 #   指定：停止這些服務，以及相依於它們的服務（否則會留下相依對象已經不在的服務）。
 set -euo pipefail
 
-# shellcheck source=sim/lib/orchestrate.sh
+# shellcheck source=SCRIPTDIR/lib/orchestrate.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/orchestrate.sh"
 
 order_text="$(sim_stop_order "$@")" || exit 1

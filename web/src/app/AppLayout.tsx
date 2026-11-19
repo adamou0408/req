@@ -12,7 +12,13 @@ import { isNavItemActive, navItemsFor } from "./nav";
 import type { NavItem } from "./nav";
 import "./AppLayout.css";
 
-function NavLinks({ items, className }: { items: readonly NavItem[]; className: string }) {
+function NavLinks({
+  items,
+  className,
+}: {
+  items: readonly NavItem[];
+  className: string;
+}) {
   const { pathname } = useLocation();
   return (
     <nav className={className} aria-label={t.nav.label}>
@@ -22,7 +28,10 @@ function NavLinks({ items, className }: { items: readonly NavItem[]; className: 
           <Link
             key={item.key}
             to={item.to}
-            className={cx(`${className}__item`, active && `${className}__item--on`)}
+            className={cx(
+              `${className}__item`,
+              active && `${className}__item--on`,
+            )}
             aria-current={active ? "page" : undefined}
           >
             {item.icon}
@@ -42,7 +51,9 @@ function UserMenu({ user }: { user: CurrentUser }) {
   });
   return (
     <div className="topbar__user">
-      <span className="topbar__name">{t.auth.userLine(user.name, user.dept)}</span>
+      <span className="topbar__name">
+        {t.auth.userLine(user.name, user.dept)}
+      </span>
       <button
         type="button"
         className="topbar__logout"

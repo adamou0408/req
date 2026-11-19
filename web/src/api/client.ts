@@ -20,7 +20,12 @@ export class ApiError extends Error {
   readonly status: number;
   readonly details: unknown;
 
-  constructor(code: string, message: string, status: number, details?: unknown) {
+  constructor(
+    code: string,
+    message: string,
+    status: number,
+    details?: unknown,
+  ) {
     super(message);
     this.name = "ApiError";
     this.code = code;
@@ -35,7 +40,12 @@ export function isApiError(value: unknown): value is ApiError {
 
 /** 用名稱判斷而不是 instanceof：不同執行環境的 DOMException 不是同一個類別。 */
 export function isAbortError(value: unknown): boolean {
-  return typeof value === "object" && value !== null && "name" in value && value.name === "AbortError";
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    value.name === "AbortError"
+  );
 }
 
 /** MFA 視窗上要讓使用者核對的內容（例如單號、範圍、起迄）。 */
@@ -86,7 +96,11 @@ export interface ClientOptions {
 }
 
 export interface ApiClient {
-  request<T>(method: string, path: string, options?: RequestOptions): Promise<T>;
+  request<T>(
+    method: string,
+    path: string,
+    options?: RequestOptions,
+  ): Promise<T>;
   get<T>(path: string, options?: RequestOptions): Promise<T>;
   post<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T>;
   put<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T>;
@@ -115,7 +129,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function pickString(source: Record<string, unknown>, key: string): string | undefined {
+function pickString(
+  source: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const value = source[key];
   return typeof value === "string" && value !== "" ? value : undefined;
 }
@@ -143,12 +160,20 @@ async function readBody(response: Response): Promise<unknown> {
   }
 }
 
-async function parseSuccess(response: Response, responseType: "json" | "blob"): Promise<unknown> {
+async function parseSuccess(
+  response: Response,
+  responseType: "json" | "blob",
+): Promise<unknown> {
   if (responseType === "blob") return response.blob();
   const body = await readBody(response);
-  const isJson = response.headers.get("content-type")?.includes("json") ?? false;
+  const isJson =
+    response.headers.get("content-type")?.includes("json") ?? false;
   if (body !== undefined && !isJson) {
-    throw new ApiError(CLIENT_ERROR.badResponse, t.errors.badResponse, response.status);
+    throw new ApiError(
+      CLIENT_ERROR.badResponse,
+      t.errors.badResponse,
+      response.status,
+    );
   }
   return body;
 }
@@ -191,8 +216,13 @@ class HttpClient implements ApiClient {
     return this.request("DELETE", path, options);
   }
 
-  async request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
-    const resend: Resend = (extra) => this.send(method.toUpperCase(), path, options, extra);
+  async request<T>(
+    method: string,
+    path: string,
+    options: RequestOptions = {},
+  ): Promise<T> {
+    const resend: Resend = (extra) =>
+      this.send(method.toUpperCase(), path, options, extra);
     try {
       return (await this.sendWithMfa(resend, options.mfa)) as T;
     } catch (error) {
@@ -205,15 +235,22 @@ class HttpClient implements ApiClient {
   private isSessionExpired(error: unknown): boolean {
     if (!isApiError(error) || error.status !== 401) return false;
     const { mfaRequiredCodes, mfaInvalidCodes } = this.options;
-    return !mfaRequiredCodes.includes(error.code) && !mfaInvalidCodes.includes(error.code);
+    return (
+      !mfaRequiredCodes.includes(error.code) &&
+      !mfaInvalidCodes.includes(error.code)
+    );
   }
 
-  private async sendWithMfa(resend: Resend, prompt?: MfaPrompt): Promise<unknown> {
+  private async sendWithMfa(
+    resend: Resend,
+    prompt?: MfaPrompt,
+  ): Promise<unknown> {
     try {
       return await resend({});
     } catch (error) {
       const handler = this.mfaHandler;
-      const needsMfa = isApiError(error) && this.options.mfaRequiredCodes.includes(error.code);
+      const needsMfa =
+        isApiError(error) && this.options.mfaRequiredCodes.includes(error.code);
       if (!handler || !needsMfa) throw error;
       return this.exclusive(() => this.retryWithMfa(handler, resend, prompt));
     }
@@ -226,7 +263,11 @@ class HttpClient implements ApiClient {
     return run;
   }
 
-  private async retryWithMfa(handler: MfaHandler, resend: Resend, prompt?: MfaPrompt): Promise<unknown> {
+  private async retryWithMfa(
+    handler: MfaHandler,
+    resend: Resend,
+    prompt?: MfaPrompt,
+  ): Promise<unknown> {
     const maxAttempts = this.options.maxMfaAttempts ?? DEFAULT_MAX_MFA_ATTEMPTS;
     let rejected: ApiError | undefined;
     try {
@@ -237,12 +278,18 @@ class HttpClient implements ApiClient {
           ...(prompt && { prompt }),
         });
         if (code === null) {
-          throw new ApiError(CLIENT_ERROR.mfaCancelled, t.errors.mfaCancelled, 0);
+          throw new ApiError(
+            CLIENT_ERROR.mfaCancelled,
+            t.errors.mfaCancelled,
+            0,
+          );
         }
         try {
           return await resend(this.options.mfaHeaders(code));
         } catch (error) {
-          const invalid = isApiError(error) && this.options.mfaInvalidCodes.includes(error.code);
+          const invalid =
+            isApiError(error) &&
+            this.options.mfaInvalidCodes.includes(error.code);
           if (!invalid || attempt >= maxAttempts) throw error;
           rejected = error;
         }
@@ -252,7 +299,11 @@ class HttpClient implements ApiClient {
     }
   }
 
-  private buildInit(method: string, request: RequestOptions, extra: Record<string, string>): RequestInit {
+  private buildInit(
+    method: string,
+    request: RequestOptions,
+    extra: Record<string, string>,
+  ): RequestInit {
     const headers: Record<string, string> = {
       Accept: "application/json",
       ...request.headers,
@@ -275,7 +326,12 @@ class HttpClient implements ApiClient {
     return init;
   }
 
-  private async send(method: string, path: string, request: RequestOptions, extra: Record<string, string>): Promise<unknown> {
+  private async send(
+    method: string,
+    path: string,
+    request: RequestOptions,
+    extra: Record<string, string>,
+  ): Promise<unknown> {
     const doFetch = this.options.fetch ?? fetch;
     const url = buildUrl(this.options.baseUrl ?? "", path, request.query);
     let response: Response;
@@ -285,7 +341,8 @@ class HttpClient implements ApiClient {
       if (isAbortError(cause)) throw cause;
       throw new ApiError(CLIENT_ERROR.network, t.errors.network, 0, cause);
     }
-    if (!response.ok) throw toApiError(response.status, await readBody(response));
+    if (!response.ok)
+      throw toApiError(response.status, await readBody(response));
     return parseSuccess(response, request.responseType ?? "json");
   }
 }

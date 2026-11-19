@@ -79,7 +79,13 @@ function ConfirmDialogContent(props: ContentProps) {
     </>
   );
   return (
-    <Modal open title={title} onClose={onCancel} busy={form.busy} footer={footer}>
+    <Modal
+      open
+      title={title}
+      onClose={onCancel}
+      busy={form.busy}
+      footer={footer}
+    >
       <form id={formId} className="stack" onSubmit={form.submit} noValidate>
         {children && <div>{children}</div>}
         {reason && (
