@@ -11,6 +11,25 @@ function asApiError(error: unknown): ApiError {
   return new ApiError(CLIENT_ERROR.unexpected, message, 0, error);
 }
 
+/** 永遠指向最新的值，讓 effect 與 callback 不必因為它改變而重跑。 */
+function useLatest<T>(value: T) {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
+}
+
+/** 畫面卸載後就不再更新狀態。 */
+function useMounted() {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  return mounted;
+}
+
 export interface QueryResult<T> {
   data: T | undefined;
   error: ApiError | null;
@@ -36,8 +55,7 @@ export function useQuery<T>(
   key: string | null,
   fetcher: (signal: AbortSignal) => Promise<T>,
 ): QueryResult<T> {
-  const fetcherRef = useRef(fetcher);
-  fetcherRef.current = fetcher;
+  const fetcherRef = useLatest(fetcher);
   const [version, setVersion] = useState(0);
   const [state, setState] = useState<QueryState<T>>({
     key,
@@ -104,11 +122,9 @@ export function useMutation<TArgs, TResult>(
   mutation: (args: TArgs) => Promise<TResult>,
   options: MutationOptions<TResult> = {},
 ): MutationResult<TArgs, TResult> {
-  const mutationRef = useRef(mutation);
-  mutationRef.current = mutation;
-  const optionsRef = useRef(options);
-  optionsRef.current = options;
-  const mounted = useRef(true);
+  const mutationRef = useLatest(mutation);
+  const optionsRef = useLatest(options);
+  const mounted = useMounted();
   const [state, setState] = useState<{
     loading: boolean;
     error: ApiError | null;
@@ -116,13 +132,6 @@ export function useMutation<TArgs, TResult>(
     loading: false,
     error: null,
   });
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
 
   const mutateAsync = useCallback(async (args: TArgs): Promise<TResult> => {
     setState({ loading: true, error: null });

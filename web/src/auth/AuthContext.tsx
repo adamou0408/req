@@ -56,7 +56,8 @@ function toErrorState(error: unknown): AuthState {
   return { status: "error", error: apiError };
 }
 
-export function AuthProvider({ children }: { children: ReactNode }) {
+/** 向後端確認目前是誰；version 改變就重新確認一次。 */
+function useSession() {
   const [state, setState] = useState<AuthState>({ status: "loading" });
   const [version, setVersion] = useState(0);
 
@@ -79,16 +80,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const reload = useCallback(() => setVersion((value) => value + 1), []);
+  return { state, setState, reload };
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  const { state, setState, reload } = useSession();
 
   const loginDev = useCallback(async (userId: string) => {
     const user = await loginAsDevUser(userId);
     setState({ status: "authenticated", user });
-  }, []);
+  }, [setState]);
 
   const logout = useCallback(async () => {
     await requestLogout();
     setState({ status: "anonymous" });
-  }, []);
+  }, [setState]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

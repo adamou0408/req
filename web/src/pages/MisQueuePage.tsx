@@ -7,7 +7,9 @@ export default function MisQueuePage() {
     <>
       <PageHeader
         title={t.pages.misQueue.title}
-        actions={<ButtonLink to="/settings">{t.pages.misQueue.settings}</ButtonLink>}
+        actions={
+          <ButtonLink to="/settings">{t.pages.misQueue.settings}</ButtonLink>
+        }
       />
       <PagePlaceholder wireframes={["MIS-Queue.dc.html"]} />
     </>

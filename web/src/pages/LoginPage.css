@@ -5,7 +5,8 @@
   width: 100%;
   max-width: 480px;
   margin: 0 auto;
-  padding: var(--space-8) var(--space-4) calc(var(--space-8) + env(safe-area-inset-bottom));
+  padding: var(--space-8) var(--space-4)
+    calc(var(--space-8) + env(safe-area-inset-bottom));
 }
 
 .login__head {

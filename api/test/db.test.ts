@@ -97,6 +97,15 @@ describe('db 層：callApi', () => {
     }
   });
 
+  it('date 原樣回傳 YYYY-MM-DD（不會因主機時區變成前一天）；timestamptz 是 Date', async () => {
+    const { rows } = await pool.query(
+      "select date '2026-01-05' as d, array[date '2026-01-05', date '2026-12-31'] as ds, timestamptz '2026-01-05 09:00+08' as t",
+    );
+    expect(rows[0].d).toBe('2026-01-05');
+    expect(rows[0].ds).toEqual(['2026-01-05', '2026-12-31']);
+    expect(JSON.stringify(rows[0].t)).toBe('"2026-01-05T01:00:00.000Z"');
+  });
+
   it('ping 成功', async () => {
     await expect(db.ping()).resolves.toBeUndefined();
   });

@@ -66,6 +66,15 @@ async function main(): Promise<void> {
       process.exit(1);
     }
   };
+  // 沒被接住的錯誤：記下來再結束，交給外面的程序管理工具重啟。
+  process.on('unhandledRejection', (reason) => {
+    log.fatal({ error: String((reason as Error)?.stack ?? reason) }, '未處理的 Promise 錯誤，程式即將結束');
+    process.exit(1);
+  });
+  process.on('uncaughtException', (err) => {
+    log.fatal({ error: String(err?.stack ?? err) }, '未捕捉的例外，程式即將結束');
+    process.exit(1);
+  });
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
 

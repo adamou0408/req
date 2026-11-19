@@ -13,6 +13,9 @@ declare module 'vitest' {
     appDbUrl: string;
     /** 以管理者連到同一個臨時資料庫（測試要檢查資料表內容時用）。 */
     adminDbUrl: string;
+    /** 第二個一模一樣的臨時資料庫，專門給「把後端當成獨立程式啟動」的測試用，
+     *  免得它的背景 worker 和其他測試搶同一份佇列與鎖。 */
+    procDbUrl: string;
   }
 }
 
@@ -29,6 +32,7 @@ function withDatabase(url: string, database: string, user?: string, password?: s
 export default async function setup(project: TestProject): Promise<() => Promise<void>> {
   const suffix = randomBytes(4).toString('hex');
   const database = `das_api_test_${suffix}`;
+  const procDatabase = `das_api_test_${suffix}_proc`;
   const role = `das_api_test_${suffix}_app`;
   const password = randomBytes(12).toString('hex');
 
@@ -44,6 +48,7 @@ export default async function setup(project: TestProject): Promise<() => Promise
 
   const teardown = async (): Promise<void> => {
     await admin.query(`drop database if exists ${database} with (force)`);
+    await admin.query(`drop database if exists ${procDatabase} with (force)`);
     await admin.query(`drop role if exists ${role}`);
     await admin.end();
   };
@@ -51,22 +56,25 @@ export default async function setup(project: TestProject): Promise<() => Promise
   try {
     // 名稱只含英數與底線，是這裡自己產生的，可以直接放進 SQL。
     await admin.query(`create role ${role} login password '${password}'`);
-    await admin.query(`create database ${database}`);
-
-    const adminDbUrl = withDatabase(ADMIN_URL, database);
-    const db = new pg.Client({ connectionString: adminDbUrl });
-    await db.connect();
-    try {
-      await db.query(await readFile(new URL('./fixtures/test-schema.sql', import.meta.url), 'utf8'));
-      await db.query(`
-        revoke all on schema public from public;
-        grant usage on schema api to ${role};
-        grant execute on all functions in schema api to ${role};
-      `);
-    } finally {
-      await db.end();
+    const schemaSql = await readFile(new URL('./fixtures/test-schema.sql', import.meta.url), 'utf8');
+    for (const name of [database, procDatabase]) {
+      await admin.query(`create database ${name}`);
+      const db = new pg.Client({ connectionString: withDatabase(ADMIN_URL, name) });
+      await db.connect();
+      try {
+        await db.query(schemaSql);
+        await db.query(`
+          revoke all on schema public from public;
+          grant usage on schema api to ${role};
+          grant execute on all functions in schema api to ${role};
+        `);
+      } finally {
+        await db.end();
+      }
     }
 
+    const adminDbUrl = withDatabase(ADMIN_URL, database);
+    project.provide('procDbUrl', withDatabase(ADMIN_URL, procDatabase, role, password));
     project.provide('adminDbUrl', adminDbUrl);
     project.provide('appDbUrl', withDatabase(ADMIN_URL, database, role, password));
   } catch (err) {

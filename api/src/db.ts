@@ -13,9 +13,35 @@ const IDENTIFIER = /^[a-z_][a-z0-9_]{0,62}$/;
 const RETRYABLE = new Set(['40001', '40P01']);
 const MAX_ATTEMPTS = 3;
 
+const OID_DATE = 1082;
+const OID_DATE_ARRAY = 1182;
+
+/**
+ * date 欄位原樣回傳 'YYYY-MM-DD' 字串。
+ * pg 驅動預設會把它變成「主機時區午夜」的 JS Date，轉成 JSON 後在 UTC+8 會變成前一天。
+ * 其他型別照驅動的預設（timestamptz → Date → ISO 8601 UTC，沒有這個問題）。
+ */
+type ArrayParser = { create(source: string, transform: (v: string) => string): { parse(): string[] } };
+
+function parseTextArray(value: string): string[] {
+  // @types/pg 把 arrayParser 標成函式，實際上是帶 create() 的物件。
+  return (pg.types.arrayParser as unknown as ArrayParser).create(value, (v) => v).parse();
+}
+
+const types: pg.CustomTypesConfig = {
+  getTypeParser(oid: number, format?: string) {
+    if (format !== 'binary') {
+      if (oid === OID_DATE) return (value: string) => value;
+      if (oid === OID_DATE_ARRAY) return (value: string) => parseTextArray(value);
+    }
+    return pg.types.getTypeParser(oid, format as 'text');
+  },
+} as pg.CustomTypesConfig;
+
 export function createPool(config: Pick<Config, 'databaseUrl' | 'dbPoolMax' | 'dbStatementTimeoutMs'>): pg.Pool {
   return new pg.Pool({
     connectionString: config.databaseUrl,
+    types,
     max: config.dbPoolMax,
     statement_timeout: config.dbStatementTimeoutMs,
     connectionTimeoutMillis: 5_000,

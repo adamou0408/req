@@ -32,12 +32,18 @@ export function Timeline({ label, items }: TimelineProps) {
             {formatDateTime(item.at)}
           </time>
           <p className="timeline__main">
-            <strong>{item.role ? t.timeline.actorWithRole(item.actor, item.role) : item.actor}</strong>
+            <strong>
+              {item.role
+                ? t.timeline.actorWithRole(item.actor, item.role)
+                : item.actor}
+            </strong>
             {t.common.colon}
             {item.action}
           </p>
           {item.detail && <div className="timeline__detail">{item.detail}</div>}
-          {item.rule && <p className="timeline__rule">{t.timeline.rule(item.rule)}</p>}
+          {item.rule && (
+            <p className="timeline__rule">{t.timeline.rule(item.rule)}</p>
+          )}
         </li>
       ))}
     </ol>

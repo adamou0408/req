@@ -330,7 +330,7 @@ export function loadConfig(env: Env = process.env): Config {
     directoryFile: raw('DIRECTORY_FILE') ?? null,
     catalogFile: raw('CATALOG_FILE') ?? null,
 
-    rateLimitMax: int('RATE_LIMIT_MAX', { min: 1, max: 10_000, fallback: 10 }),
+    rateLimitMax: int('RATE_LIMIT_MAX', { min: 1, max: 10_000, fallback: 30 }),
     rateLimitWindowSec: int('RATE_LIMIT_WINDOW_SEC', { min: 1, max: 3600, fallback: 60 }),
 
     schedulerEnabled: bool('SCHEDULER_ENABLED', true),

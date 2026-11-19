@@ -31,7 +31,11 @@ export interface ErrorStateProps {
   onRetry?: () => void;
 }
 
-export function ErrorState({ title = t.state.errorTitle, error, onRetry }: ErrorStateProps) {
+export function ErrorState({
+  title = t.state.errorTitle,
+  error,
+  onRetry,
+}: ErrorStateProps) {
   return (
     <div className="state state--error" role="alert">
       <span className="state__icon">

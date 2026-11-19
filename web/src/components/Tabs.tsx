@@ -24,14 +24,22 @@ export interface TabsProps<T extends string> {
 const STEP: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
 
 /** 清單上方的分類分頁。左右鍵切換，Home／End 跳到頭尾。 */
-export function Tabs<T extends string>({ label, items, value, onChange, panelId }: TabsProps<T>) {
+export function Tabs<T extends string>({
+  label,
+  items,
+  value,
+  onChange,
+  panelId,
+}: TabsProps<T>) {
   const listRef = useRef<HTMLDivElement>(null);
 
   function moveTo(index: number) {
     const target = items[(index + items.length) % items.length];
     if (!target) return;
     onChange(target.value);
-    listRef.current?.querySelectorAll<HTMLElement>('[role="tab"]')[items.indexOf(target)]?.focus();
+    listRef.current
+      ?.querySelectorAll<HTMLElement>('[role="tab"]')
+      [items.indexOf(target)]?.focus();
   }
 
   function onKeyDown(event: KeyboardEvent, index: number) {
@@ -57,7 +65,9 @@ export function Tabs<T extends string>({ label, items, value, onChange, panelId 
           onClick={() => onChange(item.value)}
           onKeyDown={(event) => onKeyDown(event, index)}
         >
-          {item.count === undefined ? item.label : formatCount(item.label, item.count)}
+          {item.count === undefined
+            ? item.label
+            : formatCount(item.label, item.count)}
         </button>
       ))}
     </div>

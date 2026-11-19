@@ -2,9 +2,8 @@ import { useId, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { t } from "../i18n/zh-Hant";
 import { Alert } from "./Alert";
-import { Button } from "./Button";
 import { Field } from "./Field";
-import { Modal } from "./Modal";
+import { DialogActions, Modal } from "./Modal";
 
 export interface ConfirmReasonOptions {
   label?: string;
@@ -64,19 +63,14 @@ function ConfirmDialogContent(props: ContentProps) {
   const formId = useId();
   const form = useConfirmSubmit(props);
   const footer = (
-    <>
-      <Button onClick={onCancel} disabled={form.busy}>
-        {props.cancelLabel ?? t.common.cancel}
-      </Button>
-      <Button
-        type="submit"
-        form={formId}
-        variant={tone === "danger" ? "danger-solid" : "primary"}
-        loading={form.busy}
-      >
-        {props.confirmLabel ?? t.common.confirm}
-      </Button>
-    </>
+    <DialogActions
+      formId={formId}
+      confirmLabel={props.confirmLabel ?? t.common.confirm}
+      cancelLabel={props.cancelLabel}
+      variant={tone === "danger" ? "danger-solid" : "primary"}
+      busy={form.busy}
+      onCancel={onCancel}
+    />
   );
   return (
     <Modal

@@ -83,7 +83,8 @@ export const t = {
   errors: {
     network: "連不上伺服器，請確認網路後再試一次。",
     badResponse: "伺服器回應的格式不正確，請稍後再試。",
-    http: (httpStatus: number) => `伺服器回應錯誤（HTTP ${httpStatus}），請稍後再試。`,
+    http: (httpStatus: number) =>
+      `伺服器回應錯誤（HTTP ${httpStatus}），請稍後再試。`,
     mfaCancelled: "已取消驗證，這個動作沒有送出。",
     unknown: "發生未預期的錯誤，請稍後再試。",
   },

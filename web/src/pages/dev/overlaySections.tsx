@@ -1,5 +1,11 @@
 import { useState } from "react";
-import { ActionBar, Button, ConfirmDialog, MfaDialog, useToast } from "../../components";
+import {
+  ActionBar,
+  Button,
+  ConfirmDialog,
+  MfaDialog,
+  useToast,
+} from "../../components";
 import { DemoLabel, DemoSection } from "./DemoSection";
 import { SAMPLE_MFA_SUMMARY } from "./sampleData";
 
@@ -24,7 +30,12 @@ export function ConfirmDialogSection() {
         </Button>
         <Button onClick={() => setOpen("failing")}>送出失敗</Button>
       </div>
-      <ConfirmDialog open={open === "simple"} title="批次核准 2 張？" onCancel={close} onConfirm={close}>
+      <ConfirmDialog
+        open={open === "simple"}
+        title="批次核准 2 張？"
+        onCancel={close}
+        onConfirm={close}
+      >
         每張單仍會各自留一筆核准紀錄。
       </ConfirmDialog>
       <ConfirmDialog
@@ -32,7 +43,10 @@ export function ConfirmDialogSection() {
         title="撤銷 DA-2026-0077？"
         tone="danger"
         confirmLabel="確認撤銷"
-        reason={{ label: "撤銷原因", hint: "原因會寫進稽核紀錄，並通知申請人和負責人。" }}
+        reason={{
+          label: "撤銷原因",
+          hint: "原因會寫進稽核紀錄，並通知申請人和負責人。",
+        }}
         onCancel={close}
         onConfirm={async (reason) => {
           await wait();
@@ -77,7 +91,9 @@ export function MfaDialogSection() {
 
   return (
     <DemoSection title="MfaDialog">
-      <DemoLabel>展示用：輸入 123456 會通過，其他會被拒絕。手機寬度時佔滿整個畫面。</DemoLabel>
+      <DemoLabel>
+        展示用：輸入 123456 會通過，其他會被拒絕。手機寬度時佔滿整個畫面。
+      </DemoLabel>
       <div className="cluster">
         <Button variant="primary" onClick={() => setOpen(true)}>
           核准（需要 MFA）
@@ -106,8 +122,14 @@ export function ToastSection() {
     <DemoSection title="Toast">
       <div className="cluster">
         <Button onClick={() => toast.show("草稿已儲存")}>一般</Button>
-        <Button onClick={() => toast.success("已核准 DA-2026-0139")}>成功</Button>
-        <Button onClick={() => toast.error("連不上伺服器，請確認網路後再試一次。")}>錯誤（不會自動消失）</Button>
+        <Button onClick={() => toast.success("已核准 DA-2026-0139")}>
+          成功
+        </Button>
+        <Button
+          onClick={() => toast.error("連不上伺服器，請確認網路後再試一次。")}
+        >
+          錯誤（不會自動消失）
+        </Button>
       </div>
     </DemoSection>
   );

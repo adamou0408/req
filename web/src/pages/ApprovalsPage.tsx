@@ -12,10 +12,14 @@ export default function ApprovalsPage() {
   return (
     <>
       <PageHeader
-        title={isMobile ? t.pages.approvals.mobileTitle : t.pages.approvals.title}
+        title={
+          isMobile ? t.pages.approvals.mobileTitle : t.pages.approvals.title
+        }
       />
       <PagePlaceholder
-        wireframes={[isMobile ? "Mobile-Inbox.dc.html" : "Approver-Inbox.dc.html"]}
+        wireframes={[
+          isMobile ? "Mobile-Inbox.dc.html" : "Approver-Inbox.dc.html",
+        ]}
       />
     </>
   );

@@ -12,7 +12,10 @@ export function useMediaQuery(query: string): boolean {
     },
     [query],
   );
-  return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches);
+  return useSyncExternalStore(
+    subscribe,
+    () => window.matchMedia(query).matches,
+  );
 }
 
 export function useIsMobile(): boolean {

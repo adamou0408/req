@@ -41,7 +41,9 @@ describe("日期", () => {
   });
 
   it("起迄", () => {
-    expect(formatDateRange("2026-12-01", "2027-04-30")).toBe("2026-12-01～2027-04-30");
+    expect(formatDateRange("2026-12-01", "2027-04-30")).toBe(
+      "2026-12-01～2027-04-30",
+    );
     expect(formatDateRange("2026-12-01", null)).toBe("2026-12-01～—");
     expect(formatDateRange(null, null)).toBe("—");
   });
@@ -79,14 +81,22 @@ describe("級別、狀態、角色", () => {
 
   it("狀態對應文案與色調", () => {
     expect(formatStatus("draft")).toEqual({ label: "草稿", tone: "neutral" });
-    expect(formatStatus("verifying")).toEqual({ label: "驗證中", tone: "warn" });
+    expect(formatStatus("verifying")).toEqual({
+      label: "驗證中",
+      tone: "warn",
+    });
     expect(formatStatus("active")).toEqual({ label: "生效中", tone: "ok" });
-    expect(formatStatus("revoked")).toEqual({ label: "已撤銷", tone: "danger" });
+    expect(formatStatus("revoked")).toEqual({
+      label: "已撤銷",
+      tone: "danger",
+    });
   });
 
   it("角色、被授權者、件數", () => {
     expect(formatRole("mis_admin")).toBe("MIS 系統管理員");
-    expect(formatGrantee("project", "北區客戶流失分析")).toBe("專案：北區客戶流失分析");
+    expect(formatGrantee("project", "北區客戶流失分析")).toBe(
+      "專案：北區客戶流失分析",
+    );
     expect(formatCount("待我簽", 6)).toBe("待我簽（6）");
   });
 });

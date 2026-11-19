@@ -40,7 +40,8 @@ export function MfaProvider({ children }: { children: ReactNode }) {
   function answer(code: string | null) {
     resolver.current?.(code);
     resolver.current = null;
-    if (code !== null) setDialog((current) => current && { ...current, busy: true });
+    if (code !== null)
+      setDialog((current) => current && { ...current, busy: true });
   }
 
   const prompt = dialog?.challenge.prompt;

@@ -38,9 +38,16 @@ function People({ people }: { people: readonly StepPerson[] }) {
   return (
     <ul className="stepper__people">
       {people.map((person) => (
-        <li key={person.name} className={`stepper__person stepper__person--${person.state ?? "todo"}`}>
+        <li
+          key={person.name}
+          className={`stepper__person stepper__person--${person.state ?? "todo"}`}
+        >
           {person.name}
-          {person.state && <span className="stepper__person-state">{t.stepper.state[person.state]}</span>}
+          {person.state && (
+            <span className="stepper__person-state">
+              {t.stepper.state[person.state]}
+            </span>
+          )}
         </li>
       ))}
     </ul>
@@ -62,9 +69,13 @@ export function Stepper({ label, steps }: StepperProps) {
           <div className="stepper__text">
             <span className="stepper__label">
               {step.label}
-              <span className="visually-hidden">（{t.stepper.state[step.state]}）</span>
+              <span className="visually-hidden">
+                （{t.stepper.state[step.state]}）
+              </span>
             </span>
-            {step.detail && <span className="stepper__detail">{step.detail}</span>}
+            {step.detail && (
+              <span className="stepper__detail">{step.detail}</span>
+            )}
             {step.people && <People people={step.people} />}
           </div>
         </li>

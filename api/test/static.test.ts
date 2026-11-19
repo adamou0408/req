@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { request } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -80,27 +81,62 @@ describe('WEB_DIST：靜態檔與 SPA fallback', () => {
     }
   });
 
-  it('拿不到 WEB_DIST 以外的檔案', async () => {
+  it('拿不到 WEB_DIST 以外的檔案：可疑的路徑一律 4xx，連 index.html 都不回', async () => {
     const attempts = [
       '/../outside.txt',
       '/assets/../../outside.txt',
       '/%2e%2e/outside.txt',
+      '/%2e%2e/%2e%2e/etc/passwd',
       '/assets/%2e%2e%2f%2e%2e%2foutside.txt',
       '/..%2foutside.txt',
       '/assets/..%5c..%5coutside.txt',
-      '//etc/passwd',
       '/%00',
+      '/inbox%00.html',
+      '/%E0%A4%A', // 壞掉的編碼
       '/link.txt', // 指向外面的符號連結
       '/.env', // 隱藏檔
+      '/.git/config',
     ];
     for (const url of attempts) {
       const res = await get(url);
+      expect([400, 404], `${url} → ${res.statusCode}`).toContain(res.statusCode);
       expect(res.body, url).not.toContain('outside the web root');
       expect(res.body, url).not.toContain('SECRET=in-dist');
-      expect(res.body, url).not.toContain('root:');
-      expect([200, 400, 404], url).toContain(res.statusCode);
-      if (res.statusCode === 200) expect(res.body, url).toContain('<div id="root">'); // 只可能是 SPA fallback
+      expect(res.body, url).not.toContain('<div id="root">');
     }
+    // 多一個斜線只是一般路徑，照 SPA fallback 處理，拿不到系統檔案。
+    const doubled = await get('//etc/passwd');
+    expect(doubled.body).not.toContain('root:');
+  });
+
+  it('真的走 HTTP、路徑不經過任何正規化時也一樣', async () => {
+    await t.app.listen({ host: '127.0.0.1', port: 0 });
+    const { port } = t.app.server.address() as { port: number };
+    const raw = (rawPath: string) =>
+      new Promise<{ status: number; body: string }>((resolve, reject) => {
+        const req = request({ host: '127.0.0.1', port, path: rawPath, method: 'GET' }, (res) => {
+          let body = '';
+          res.on('data', (c) => (body += c));
+          res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+        });
+        req.on('error', reject);
+        req.end();
+      });
+    for (const rawPath of [
+      '/assets/../../outside.txt',
+      '/assets/../../../../../../etc/passwd',
+      '/../../../../etc/passwd',
+      '/assets/..%2f..%2foutside.txt',
+      '/.env',
+    ]) {
+      const res = await raw(rawPath);
+      expect([400, 404], `${rawPath} → ${res.status}`).toContain(res.status);
+      expect(res.body, rawPath).not.toContain('outside the web root');
+      expect(res.body, rawPath).not.toContain('root:');
+      expect(res.body, rawPath).not.toContain('<div id="root">');
+    }
+    expect((await raw('/assets/index-abc123.js')).body).toBe('console.log("app")');
+    expect((await raw('/inbox')).body).toContain('<div id="root">');
   });
 
   it('.well-known 可以提供', async () => {

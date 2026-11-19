@@ -31,7 +31,10 @@ import "./ComponentsPage.css";
 export default function ComponentsPage() {
   return (
     <main className="devpage">
-      <PageHeader title="共用元件" meta="開發用展示頁：每個元件的各種狀態。深色主題跟隨系統設定。" />
+      <PageHeader
+        title="共用元件"
+        meta="開發用展示頁：每個元件的各種狀態。深色主題跟隨系統設定。"
+      />
       <ButtonSection />
       <TagSection />
       <AlertSection />

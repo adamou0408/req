@@ -4,7 +4,13 @@ import type { TagTone } from "./Tag";
 import "./DiffList.css";
 
 /** 差異的種類由後端判定（擴大就要重簽是業務規則），元件只負責標示。 */
-export type DiffKind = "added" | "expanded" | "narrowed" | "removed" | "changed" | "same";
+export type DiffKind =
+  | "added"
+  | "expanded"
+  | "narrowed"
+  | "removed"
+  | "changed"
+  | "same";
 
 export interface DiffItem {
   key: string;

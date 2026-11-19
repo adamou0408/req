@@ -44,7 +44,7 @@ const iso = (sec: number): string => new Date(sec * 1000).toISOString();
 
 /** 登入後要導回的位置只接受本站的相對路徑，避免被拿來當跳板。 */
 export function safeReturnTo(v: unknown): string {
-  if (typeof v !== 'string' || v.length > 2000) return '/';
+  if (typeof v !== 'string' || v.length > 512) return '/';
   if (!v.startsWith('/') || v.startsWith('//') || /[\\\u0000-\u001f]/.test(v)) return '/';
   return v;
 }

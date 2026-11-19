@@ -5,8 +5,12 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
-import { baseEnv } from './helpers.ts';
+import { describe, expect, inject, it } from 'vitest';
+import { baseEnv as sharedEnv } from './helpers.ts';
+
+/** 這裡啟動的是真的程式（含背景 worker），所以用專屬的資料庫。 */
+const baseEnv = (overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> =>
+  sharedEnv({ DATABASE_URL: inject('procDbUrl'), ...overrides });
 
 const entry = fileURLToPath(new URL('../src/server.ts', import.meta.url));
 

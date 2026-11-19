@@ -45,24 +45,27 @@ export function createStaticSite(webDist: string): StaticSite {
   const indexFile = path.join(root, 'index.html');
   if (!existsSync(indexFile)) throw new Error(`WEB_DIST 裡找不到 index.html：${root}`);
 
-  /** 把網址路徑對到 root 底下的實體檔案；任何可疑的都回 null。 */
-  async function locate(urlPath: string): Promise<{ file: string; size: number; mtimeMs: number } | null> {
+  /**
+   * 把網址路徑對到 root 底下的實體檔案。
+   * 回 null＝沒有這個檔案；回 'rejected'＝路徑可疑（..、隱藏檔、跳出 root 的連結），連 SPA fallback 都不給。
+   */
+  async function locate(urlPath: string): Promise<{ file: string; size: number; mtimeMs: number } | 'rejected' | null> {
     let decoded: string;
     try {
       decoded = decodeURIComponent(urlPath);
     } catch {
-      return null;
+      return 'rejected';
     }
-    if (decoded.includes('\0') || decoded.includes('\\')) return null;
+    if (decoded.includes('\0') || decoded.includes('\\')) return 'rejected';
     const segments = decoded.split('/').filter((s) => s !== '');
     // 不給 ..，也不給隱藏檔（.env、.git…）。
-    if (segments.some((s) => s === '..' || (s.startsWith('.') && s !== '.well-known'))) return null;
+    if (segments.some((s) => s === '..' || (s.startsWith('.') && s !== '.well-known'))) return 'rejected';
     if (segments.length === 0) return null;
     const candidate = path.join(root, ...segments);
     try {
       // 解開符號連結後還必須在 root 底下。
       const real = await realpath(candidate);
-      if (real !== root && !real.startsWith(root + path.sep)) return null;
+      if (real !== root && !real.startsWith(root + path.sep)) return 'rejected';
       const info = await stat(real);
       if (!info.isFile()) return null;
       return { file: real, size: info.size, mtimeMs: info.mtimeMs };
@@ -99,6 +102,7 @@ export function createStaticSite(webDist: string): StaticSite {
       if (req.method !== 'GET' && req.method !== 'HEAD') return false;
       const urlPath = (req.url.split('?')[0] ?? '/').split('#')[0] ?? '/';
       const found = await locate(urlPath);
+      if (found === 'rejected') return false;
       if (found) {
         // Vite 產生的 /assets/* 檔名帶雜湊，可以永久快取；其餘每次都要重新確認。
         const immutable = urlPath.startsWith('/assets/');
@@ -110,7 +114,7 @@ export function createStaticSite(webDist: string): StaticSite {
       if (/\.[A-Za-z0-9]{1,8}$/.test(last)) return false;
       // SPA fallback：其餘路徑都交給前端路由。
       const index = await locate('/index.html');
-      if (!index) return false;
+      if (!index || index === 'rejected') return false;
       send(req, reply, index, 'no-cache');
       return true;
     },

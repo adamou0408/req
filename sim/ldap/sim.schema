@@ -1,0 +1,16 @@
+# sim 專用的 schema：讓同一個人可以用 uid 或 email 登入。
+# 身分提供者（Dex）的 LDAP connector 只能用單一屬性比對登入名稱，
+# 所以把兩種登入名稱都放進 simLoginName，而不去污染 uid 或 mail。
+# OID 使用 OpenLDAP 的實驗用區段（1.3.6.1.4.1.4203.666），只在本模擬環境有效。
+attributetype ( 1.3.6.1.4.1.4203.666.11.4711.1.1
+    NAME 'simLoginName'
+    DESC 'sim only: names accepted at login (uid and mail)'
+    EQUALITY caseIgnoreMatch
+    SUBSTR caseIgnoreSubstringsMatch
+    SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 )
+
+objectclass ( 1.3.6.1.4.1.4203.666.11.4711.2.1
+    NAME 'simAccount'
+    DESC 'sim only: login names of a person'
+    SUP top AUXILIARY
+    MAY simLoginName )

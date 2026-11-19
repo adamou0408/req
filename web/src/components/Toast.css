@@ -2,7 +2,9 @@
 .toasts {
   position: fixed;
   right: var(--space-3);
-  bottom: calc(var(--bottomnav-h) + env(safe-area-inset-bottom) + var(--space-3));
+  bottom: calc(
+    var(--bottomnav-h) + env(safe-area-inset-bottom) + var(--space-3)
+  );
   left: var(--space-3);
   z-index: var(--z-toast);
   display: flex;

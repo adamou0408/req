@@ -22,7 +22,11 @@ function evaluate(query: string): boolean {
 }
 
 function createList(query: string): MediaQueryList {
-  const list: FakeList = { query, matches: evaluate(query), listeners: new Set() };
+  const list: FakeList = {
+    query,
+    matches: evaluate(query),
+    listeners: new Set(),
+  };
   lists.add(list);
   return {
     media: query,
@@ -30,8 +34,10 @@ function createList(query: string): MediaQueryList {
       return list.matches;
     },
     onchange: null,
-    addEventListener: (_type: string, listener: Listener) => list.listeners.add(listener),
-    removeEventListener: (_type: string, listener: Listener) => list.listeners.delete(listener),
+    addEventListener: (_type: string, listener: Listener) =>
+      list.listeners.add(listener),
+    removeEventListener: (_type: string, listener: Listener) =>
+      list.listeners.delete(listener),
     addListener: (listener: Listener) => list.listeners.add(listener),
     removeListener: (listener: Listener) => list.listeners.delete(listener),
     dispatchEvent: () => true,

@@ -82,12 +82,15 @@ export function TagSection() {
 export function AlertSection() {
   return (
     <DemoSection title="Alert">
-      <Alert tone="info">縮小範圍或期間只需通知；任何擴大都從第一關重簽。</Alert>
+      <Alert tone="info">
+        縮小範圍或期間只需通知；任何擴大都從第一關重簽。
+      </Alert>
       <Alert tone="ok" title="紀錄完整性：驗證通過。">
         雜湊鏈上全部事件都沒有被修改或刪除的跡象。
       </Alert>
       <Alert tone="warn" title="部分重疊">
-        同一個專案已有生效中的 DA-2026-0098，涵蓋「銷售訂單：訂單編號、訂單金額｜北區｜2024」。
+        同一個專案已有生效中的
+        DA-2026-0098，涵蓋「銷售訂單：訂單編號、訂單金額｜北區｜2024」。
       </Alert>
       <Alert tone="danger">寬限期已過，這些授權已自動撤銷。</Alert>
     </DemoSection>
@@ -110,16 +113,34 @@ export function FieldSection() {
           { value: "other", label: "其他（需說明）" },
         ]}
       />
-      <Field as="textarea" label="說明" hint="說明資料要用在哪裡。" defaultValue="分析北區客戶續約率下降的原因。" />
-      <Field as="textarea" label="為什麼還需要這次申請" required error="請填寫理由。" />
-      <Field type="date" label="授權迄（你已修改）" changed defaultValue="2027-04-30" hint="申請人原填 2027-05-31" />
+      <Field
+        as="textarea"
+        label="說明"
+        hint="說明資料要用在哪裡。"
+        defaultValue="分析北區客戶續約率下降的原因。"
+      />
+      <Field
+        as="textarea"
+        label="為什麼還需要這次申請"
+        required
+        error="請填寫理由。"
+      />
+      <Field
+        type="date"
+        label="授權迄（你已修改）"
+        changed
+        defaultValue="2027-04-30"
+        hint="申請人原填 2027-05-31"
+      />
       <Field label="負責人" defaultValue="林怡君（在職）" disabled />
     </DemoSection>
   );
 }
 
 export function ChoiceSection() {
-  const [grantee, setGrantee] = useState<"team" | "project" | "agent">("project");
+  const [grantee, setGrantee] = useState<"team" | "project" | "agent">(
+    "project",
+  );
   const [fields, setFields] = useState(new Set(["客戶編號", "客戶名稱"]));
   function toggle(name: string) {
     const next = new Set(fields);
@@ -149,7 +170,12 @@ export function ChoiceSection() {
             onChange={() => toggle(name)}
           />
         ))}
-        <Checkbox label="產業別" suffix={<Tag>L1 自動給</Tag>} disabled hint="L1 欄位不需要申請。" />
+        <Checkbox
+          label="產業別"
+          suffix={<Tag>L1 自動給</Tag>}
+          disabled
+          hint="L1 欄位不需要申請。"
+        />
       </div>
     </DemoSection>
   );
@@ -183,8 +209,14 @@ export function KeyValueSection() {
     <DemoSection title="KeyValue">
       <KeyValue
         items={[
-          { label: "被授權者", value: "專案：北區客戶流失分析（負責人 林怡君）" },
-          { label: "資料範圍", value: "客戶主檔：客戶編號、客戶名稱、合約到期日" },
+          {
+            label: "被授權者",
+            value: "專案：北區客戶流失分析（負責人 林怡君）",
+          },
+          {
+            label: "資料範圍",
+            value: "客戶主檔：客戶編號、客戶名稱、合約到期日",
+          },
           { label: "列條件", value: "區域 屬於 北區" },
           { label: "授權起迄", value: "2026-12-01～2027-04-30" },
         ]}
@@ -202,7 +234,10 @@ export function StateSection() {
         action={<Button>重新整理</Button>}
       />
       <ErrorState
-        error={{ code: "CLIENT_NETWORK_ERROR", message: "連不上伺服器，請確認網路後再試一次。" }}
+        error={{
+          code: "CLIENT_NETWORK_ERROR",
+          message: "連不上伺服器，請確認網路後再試一次。",
+        }}
         onRetry={() => undefined}
       />
       <Skeleton count={3} />
@@ -228,7 +263,10 @@ export function PageHeaderSection() {
         actions={<Button variant="danger">撤銷申請</Button>}
       />
       <Card title="時限" actions={<Button size="sm">催辦</Button>}>
-        <p>已等待 1 個工作天。3 個工作天未簽會催辦，再 2 個工作天未簽會升級給你的主管。</p>
+        <p>
+          已等待 1 個工作天。3 個工作天未簽會催辦，再 2
+          個工作天未簽會升級給你的主管。
+        </p>
       </Card>
     </DemoSection>
   );

@@ -16,7 +16,13 @@ export interface PageHeaderProps {
   actions?: ReactNode;
 }
 
-export function PageHeader({ title, back, tags, meta, actions }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  back,
+  tags,
+  meta,
+  actions,
+}: PageHeaderProps) {
   useDocumentTitle(title);
   return (
     <header className="pagehead">

@@ -1,9 +1,8 @@
 import { useEffect, useId, useState } from "react";
 import type { FormEvent } from "react";
 import { t } from "../i18n/zh-Hant";
-import { Button } from "./Button";
 import { Field } from "./Field";
-import { Modal } from "./Modal";
+import { DialogActions, Modal } from "./Modal";
 import "./MfaDialog.css";
 
 export const MFA_CODE_LENGTH = 6;
@@ -23,6 +22,17 @@ export interface MfaDialogProps {
 }
 
 type ContentProps = Omit<MfaDialogProps, "open">;
+
+function MfaSummary({ lines }: { lines: readonly string[] }) {
+  if (lines.length === 0) return null;
+  return (
+    <p className="mfa__summary">
+      {lines.map((line, index) => (
+        <span key={`${index}-${line}`}>{line}</span>
+      ))}
+    </p>
+  );
+}
 
 function MfaDialogContent(props: ContentProps) {
   const { summary, error, busy = false, onSubmit, onCancel } = props;
@@ -44,25 +54,25 @@ function MfaDialogContent(props: ContentProps) {
   }
 
   const footer = (
-    <>
-      <Button onClick={onCancel} disabled={busy}>
-        {t.common.cancel}
-      </Button>
-      <Button type="submit" form={formId} variant="primary" loading={busy} disabled={!complete}>
-        {props.confirmLabel ?? t.mfa.confirm}
-      </Button>
-    </>
+    <DialogActions
+      formId={formId}
+      confirmLabel={props.confirmLabel ?? t.mfa.confirm}
+      busy={busy}
+      disabled={!complete}
+      onCancel={onCancel}
+    />
   );
   return (
-    <Modal open title={props.title ?? t.mfa.title} onClose={onCancel} busy={busy} footer={footer} mobile="fullscreen">
+    <Modal
+      open
+      title={props.title ?? t.mfa.title}
+      onClose={onCancel}
+      busy={busy}
+      footer={footer}
+      mobile="fullscreen"
+    >
       <form id={formId} className="mfa" onSubmit={submit} noValidate>
-        {summary && summary.length > 0 && (
-          <p className="mfa__summary">
-            {summary.map((line, index) => (
-              <span key={`${index}-${line}`}>{line}</span>
-            ))}
-          </p>
-        )}
+        {summary && <MfaSummary lines={summary} />}
         <Field
           id={inputId}
           className="mfa__field"

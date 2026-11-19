@@ -85,7 +85,12 @@ export const SAMPLE_STEPS_PROGRESS: readonly StepItem[] = [
 export const SAMPLE_STEPS_RETURNED: readonly StepItem[] = [
   { key: "manager", label: "主管", state: "done", detail: "陳建宏・11-11" },
   { key: "owner", label: "資料擁有者", state: "done", detail: "張美玲・11-12" },
-  { key: "ciso", label: "資安長", state: "rejected", detail: "賴政達・11-13 退回" },
+  {
+    key: "ciso",
+    label: "資安長",
+    state: "rejected",
+    detail: "賴政達・11-13 退回",
+  },
   { key: "mis", label: "MIS", state: "todo", detail: "群組認領" },
 ];
 
@@ -126,10 +131,27 @@ export const SAMPLE_TIMELINE: readonly TimelineItem[] = [
 ];
 
 export const SAMPLE_DIFF: readonly DiffItem[] = [
-  { key: "a", kind: "added", label: "客戶主檔", text: "客戶編號、客戶名稱、合約到期日" },
+  {
+    key: "a",
+    kind: "added",
+    label: "客戶主檔",
+    text: "客戶編號、客戶名稱、合約到期日",
+  },
   { key: "b", kind: "added", label: "銷售訂單", text: "客戶編號、訂單日期" },
-  { key: "c", kind: "expanded", label: "資料期間", before: "2024", after: "2024–2025" },
-  { key: "d", kind: "narrowed", label: "授權迄", before: "2027-05-31", after: "2027-04-30" },
+  {
+    key: "c",
+    kind: "expanded",
+    label: "資料期間",
+    before: "2024",
+    after: "2024–2025",
+  },
+  {
+    key: "d",
+    kind: "narrowed",
+    label: "授權迄",
+    before: "2027-05-31",
+    after: "2027-04-30",
+  },
   { key: "e", kind: "same", label: "列條件", text: "區域 屬於 北區" },
   { key: "f", kind: "same", label: "使用情境", text: "報表與分析" },
 ];

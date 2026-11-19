@@ -47,7 +47,9 @@ export interface DataListProps<T> {
 }
 
 function primaryKeys<T>(columns: readonly DataListColumn<T>[]): Set<string> {
-  const marked = columns.filter((column) => column.primary).map((column) => column.key);
+  const marked = columns
+    .filter((column) => column.primary)
+    .map((column) => column.key);
   const first = columns[0]?.key;
   return new Set(marked.length > 0 || first === undefined ? marked : [first]);
 }
@@ -104,7 +106,15 @@ function SelectAllCheckbox<T>({ props }: { props: DataListProps<T> }) {
   );
 }
 
-function RowTitle<T>({ row, props, children }: { row: T; props: DataListProps<T>; children: ReactNode }) {
+function RowTitle<T>({
+  row,
+  props,
+  children,
+}: {
+  row: T;
+  props: DataListProps<T>;
+  children: ReactNode;
+}) {
   if (!props.rowHref) return <>{children}</>;
   return (
     <Link className="datalist__link" to={props.rowHref(row)}>
@@ -187,12 +197,16 @@ function CardItem<T>({ row, props }: { row: T; props: DataListProps<T> }) {
   const { columns, rowActions, selection } = props;
   const primary = primaryKeys(columns);
   const titles = columns.filter((column) => primary.has(column.key));
-  const details = columns.filter((column) => !primary.has(column.key) && !column.hideOnMobile);
+  const details = columns.filter(
+    (column) => !primary.has(column.key) && !column.hideOnMobile,
+  );
   const actions = rowActions?.(row);
   return (
     <li className="datalist__card">
       <div className="datalist__card-head">
-        {selection && !selection.desktopOnly && <RowCheckbox row={row} props={props} />}
+        {selection && !selection.desktopOnly && (
+          <RowCheckbox row={row} props={props} />
+        )}
         <div className="datalist__card-title">
           {titles.map((column, index) =>
             index === 0 ? (

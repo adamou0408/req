@@ -43,7 +43,10 @@ type TextareaFieldProps = FieldBaseProps & { as: "textarea" } & Omit<
     "children"
   >;
 
-export type FieldProps = InputFieldProps | SelectFieldProps | TextareaFieldProps;
+export type FieldProps =
+  | InputFieldProps
+  | SelectFieldProps
+  | TextareaFieldProps;
 
 type ControlProps =
   | Omit<InputFieldProps, keyof FieldBaseProps>
@@ -64,7 +67,11 @@ function renderControl(control: ControlProps, shared: SharedControlProps) {
       <select {...rest} {...shared}>
         {placeholder !== undefined && <option value="">{placeholder}</option>}
         {options.map((option) => (
-          <option key={option.value} value={option.value} disabled={option.disabled}>
+          <option
+            key={option.value}
+            value={option.value}
+            disabled={option.disabled}
+          >
             {option.label}
           </option>
         ))}
@@ -89,13 +96,16 @@ export function Field(props: FieldProps) {
     id,
     className: cx("field__control", changed && "field__control--changed"),
     "aria-invalid": error ? true : undefined,
-    "aria-describedby": [hintId, errorId].filter(Boolean).join(" ") || undefined,
+    "aria-describedby":
+      [hintId, errorId].filter(Boolean).join(" ") || undefined,
   };
   return (
     <div className={cx("field", error && "field--error", className)}>
       <label className="field__label" htmlFor={id}>
         {label}
-        {control.required && <span className="field__required">{t.common.requiredMark}</span>}
+        {control.required && (
+          <span className="field__required">{t.common.requiredMark}</span>
+        )}
       </label>
       {renderControl(control, shared)}
       {hint && (

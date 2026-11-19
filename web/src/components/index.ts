@@ -3,7 +3,12 @@ export type { ActionBarProps } from "./ActionBar";
 export { Alert } from "./Alert";
 export type { AlertProps, AlertTone } from "./Alert";
 export { Button, ButtonLink } from "./Button";
-export type { ButtonLinkProps, ButtonProps, ButtonSize, ButtonVariant } from "./Button";
+export type {
+  ButtonLinkProps,
+  ButtonProps,
+  ButtonSize,
+  ButtonVariant,
+} from "./Button";
 export { Card } from "./Card";
 export type { CardProps } from "./Card";
 export { Checkbox, Segmented } from "./Choice";
@@ -11,7 +16,11 @@ export type { CheckboxProps, SegmentedOption, SegmentedProps } from "./Choice";
 export { ConfirmDialog } from "./ConfirmDialog";
 export type { ConfirmDialogProps, ConfirmReasonOptions } from "./ConfirmDialog";
 export { DataList } from "./DataList";
-export type { DataListColumn, DataListProps, DataListSelection } from "./DataList";
+export type {
+  DataListColumn,
+  DataListProps,
+  DataListSelection,
+} from "./DataList";
 export { DiffList } from "./DiffList";
 export type { DiffItem, DiffKind, DiffListProps } from "./DiffList";
 export { Field } from "./Field";

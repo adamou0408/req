@@ -8,7 +8,9 @@ export interface PagePlaceholderProps {
 
 /** 頁面骨架的佔位內容：標明這一頁對應哪一張 wireframe，實作後整個換掉。 */
 export function PagePlaceholder({ wireframes }: PagePlaceholderProps) {
-  const files = wireframes.map((file) => `${t.pages.wireframeDir}${file}`).join("、");
+  const files = wireframes
+    .map((file) => `${t.pages.wireframeDir}${file}`)
+    .join("、");
   return (
     <EmptyState
       title={t.pages.placeholderTitle}

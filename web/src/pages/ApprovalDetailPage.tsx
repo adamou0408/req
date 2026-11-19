@@ -4,7 +4,10 @@ import { useIsMobile } from "../lib/useMediaQuery";
 import { t } from "../i18n/zh-Hant";
 import { PagePlaceholder } from "./PagePlaceholder";
 
-const MOBILE_WIREFRAMES = ["Mobile-Review.dc.html", "Mobile-MFA.dc.html"] as const;
+const MOBILE_WIREFRAMES = [
+  "Mobile-Review.dc.html",
+  "Mobile-MFA.dc.html",
+] as const;
 const DESKTOP_WIREFRAMES = ["Approver-Review.dc.html"] as const;
 
 /**
@@ -19,10 +22,15 @@ export default function ApprovalDetailPage() {
     <>
       <PageHeader
         title={t.pages.approvalDetail.title}
-        back={{ to: "/approvals", label: isMobile ? list.mobileTitle : list.title }}
+        back={{
+          to: "/approvals",
+          label: isMobile ? list.mobileTitle : list.title,
+        }}
         meta={t.pages.approvalDetail.meta(id)}
       />
-      <PagePlaceholder wireframes={isMobile ? MOBILE_WIREFRAMES : DESKTOP_WIREFRAMES} />
+      <PagePlaceholder
+        wireframes={isMobile ? MOBILE_WIREFRAMES : DESKTOP_WIREFRAMES}
+      />
     </>
   );
 }
