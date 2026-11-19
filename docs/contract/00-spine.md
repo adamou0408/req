@@ -970,7 +970,7 @@ docs/                 文件；docs/reference/ 為自動產生
 | 角色 | 不得同時持有 |
 |---|---|
 | `tech_ops` | `process_admin`、`control_owner`、`key_custodian`、`auditor` |
-| `auditor` | 其他任何平台管理角色、控制角色、系統管理人、對帳執行人 |
+| `auditor` | `audit_head` 以外的任何平台管理角色、控制角色、治理角色、系統管理人、對帳執行人 |
 | `process_admin` | 同一範圍的 `control_owner` |
 | `system_custodian` | 同一受管系統的 `reconciler` |
 | `security_responder` | 覆核其暫停的角色（`ciso`） |
