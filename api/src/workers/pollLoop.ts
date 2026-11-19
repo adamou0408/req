@@ -72,13 +72,12 @@ export class PollLoop {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => {
-      const timer = setTimeout(done, ms);
-      const self = this;
-      function done(): void {
+      const done = (): void => {
         clearTimeout(timer);
-        self.wake = null;
+        this.wake = null;
         resolve();
-      }
+      };
+      const timer = setTimeout(done, ms);
       this.wake = done;
     });
   }

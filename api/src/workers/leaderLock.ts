@@ -34,27 +34,31 @@ export class LeaderLock {
    */
   async ensure(): Promise<boolean> {
     try {
-      if (this.client === null) {
-        const client = new pg.Client({
+      let client = this.client;
+      if (client === null) {
+        const fresh = new pg.Client({
           connectionString: this.connectionString,
           application_name: 'das-api-lock',
           connectionTimeoutMillis: 5_000,
+          query_timeout: 5_000,
+          keepAlive: true,
         });
         // 連線斷掉＝鎖也沒了。
-        client.on('error', () => this.drop(client));
-        client.on('end', () => this.drop(client));
-        await client.connect();
-        this.client = client;
+        fresh.on('error', () => this.drop(fresh));
+        fresh.on('end', () => this.drop(fresh));
+        await fresh.connect();
+        this.client = client = fresh;
       }
       if (this.held) {
         // 連線還活著，鎖就還在。
-        await this.client.query('select 1');
-        return this.held;
+        await client.query('select 1');
+        return this.client === client && this.held;
       }
-      const res = await this.client.query<{ locked: boolean }>('select pg_try_advisory_lock($1, $2) as locked', [
+      const res = await client.query<{ locked: boolean }>('select pg_try_advisory_lock($1, $2) as locked', [
         LOCK_NAMESPACE,
         this.key,
       ]);
+      if (this.client !== client) return false;
       this.held = res.rows[0]?.locked === true;
       return this.held;
     } catch (err) {
