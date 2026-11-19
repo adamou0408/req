@@ -1,0 +1,108 @@
+{
+  "description": "真實 Chromium（CDP 虛擬驗證器，ctap2/internal/UV）產生的 WebAuthn 簽署資料。由 probe/e2e/frontdoor/passkey.test.ts 自動產生，請勿手改。二進位值皆為 base64url（無 padding）。被簽的資料＝authenticatorData || SHA-256(clientDataJSON)；ES256 簽章為 DER。",
+  "generatedAt": "2026-11-19T16:49:58.249Z",
+  "rpId": "localhost",
+  "origin": "http://localhost:3000",
+  "requireUserVerification": true,
+  "credential": {
+    "credentialId": "ZKGk2EJRWAurAG3r9OClLJUVwWccH0xZVtkP28sPp7k",
+    "alg": -7,
+    "publicKeyCose": "pQECAyYgASFYII6EccX3Eco3u083drxYc9ZBjDYTsN0-rAAF02jhmOJ6IlggVoFmQPck2BYEAmS6To8mEIrLKc5AKQ7FYZEMuq4_DNw",
+    "publicKeySpki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjoRxxfcRyje7Tzd2vFhz1kGMNhOw3T6sAAXTaOGY4npWgWZA9yTYFgQCZLpOjyYQisspzkApDsVhkQy6rj8M3A",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEjoRxxfcRyje7Tzd2vFhz1kGMNhOw\n3T6sAAXTaOGY4npWgWZA9yTYFgQCZLpOjyYQisspzkApDsVhkQy6rj8M3A==\n-----END PUBLIC KEY-----\n",
+    "registration": {
+      "challengeId": "5f9c85eb-6aef-4707-b0e7-46b24ec03eb2",
+      "challenge": "b4c_PubwnsSSwrd-mO66Ag6goNN2t3AAeTJmSjJzmwQ",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uY3JlYXRlIiwiY2hhbGxlbmdlIjoiYjRjX1B1Ynduc1NTd3JkLW1PNjZBZzZnb05OMnQzQUFlVEptU2pKem13USIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+      "attestationObject": "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVikSZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2NFAAAAAQECAwQFBgcIAQIDBAUGBwgAIGShpNhCUVgLqwBt6_TgpSyVFcFnHB9MWVbZD9vLD6e5pQECAyYgASFYII6EccX3Eco3u083drxYc9ZBjDYTsN0-rAAF02jhmOJ6IlggVoFmQPck2BYEAmS6To8mEIrLKc5AKQ7FYZEMuq4_DNw",
+      "attestationFormat": "none",
+      "aaguid": "AQIDBAUGBwgBAgMEBQYHCA",
+      "flags": 69,
+      "transports": [
+        "internal"
+      ]
+    }
+  },
+  "vectors": [
+    {
+      "name": "valid",
+      "description": "有效的簽署",
+      "expectedChallenge": "ax6632N5pa-ajkJBfjTkVmRrjF2Y60bI_iqe4M3ZXAI",
+      "binding": {
+        "purpose": "confirm",
+        "demo": "示範確認"
+      },
+      "storedSignCountBefore": 1,
+      "credentialId": "ZKGk2EJRWAurAG3r9OClLJUVwWccH0xZVtkP28sPp7k",
+      "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAAAg",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoiYXg2NjMyTjVwYS1hamtKQmZqVGtWbVJyakYyWTYwYklfaXFlNE0zWlhBSSIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+      "clientDataJSONText": "{\"type\":\"webauthn.get\",\"challenge\":\"ax6632N5pa-ajkJBfjTkVmRrjF2Y60bI_iqe4M3ZXAI\",\"origin\":\"http://localhost:3000\",\"crossOrigin\":false}",
+      "clientDataHash": "QnyDlI1Lv8SmwBMdMJKSpkBS4PjYc0NAS6CnuO3542s",
+      "signature": "MEQCIEgAoq7Gj-NVaq7DbhRGLtgYskt0T1DanRvzMoab7HI5AiAag-HUIZUQnIurNEA6FDIEYYH4gkAX9rjJULOGe8ZyJQ",
+      "expected": {
+        "ok": true,
+        "signCount": 2
+      }
+    },
+    {
+      "name": "tampered-signature",
+      "description": "signature 最後一個 byte 被翻轉",
+      "expectedChallenge": "swCfGkqyYQDFsGk55VoFEBvuo7UztkbO_LbjgrmNq2w",
+      "binding": {
+        "purpose": "confirm",
+        "case": "tamper-signature"
+      },
+      "storedSignCountBefore": 2,
+      "credentialId": "ZKGk2EJRWAurAG3r9OClLJUVwWccH0xZVtkP28sPp7k",
+      "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAAAw",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoic3dDZkdrcXlZUURGc0drNTVWb0ZFQnZ1bzdVenRrYk9fTGJqZ3JtTnEydyIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+      "clientDataJSONText": "{\"type\":\"webauthn.get\",\"challenge\":\"swCfGkqyYQDFsGk55VoFEBvuo7UztkbO_LbjgrmNq2w\",\"origin\":\"http://localhost:3000\",\"crossOrigin\":false}",
+      "clientDataHash": "pNRf-dcGcwUI999o_LIqDjUUIWVmSP0dXfG45lv5mSo",
+      "signature": "MEUCIHVQb0EMWpR1OQdAzRJGhMJAX68iW5VQErbe3vjZJT2yAiEAwmPkrHPTMf4PUR2Ri6yu8LT_458LgXGUlOYWU0NHbCM",
+      "expected": {
+        "ok": false,
+        "code": "SIGNATURE_INVALID"
+      }
+    },
+    {
+      "name": "tampered-clientDataJSON",
+      "description": "clientDataJSON 的 type 後多一個空白（JSON 語意相同，bytes 不同）",
+      "expectedChallenge": "PzwGwq9dCnlpFC_ktuZniXDFoct7Nx9DNMoet7crl40",
+      "binding": {
+        "purpose": "confirm",
+        "case": "tamper-client-data"
+      },
+      "storedSignCountBefore": 2,
+      "credentialId": "ZKGk2EJRWAurAG3r9OClLJUVwWccH0xZVtkP28sPp7k",
+      "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAABA",
+      "clientDataJSON": "eyJ0eXBlIjogIndlYmF1dGhuLmdldCIsImNoYWxsZW5nZSI6IlB6d0d3cTlkQ25scEZDX2t0dVpuaVhERm9jdDdOeDlETk1vZXQ3Y3JsNDAiLCJvcmlnaW4iOiJodHRwOi8vbG9jYWxob3N0OjMwMDAiLCJjcm9zc09yaWdpbiI6ZmFsc2UsIm90aGVyX2tleXNfY2FuX2JlX2FkZGVkX2hlcmUiOiJkbyBub3QgY29tcGFyZSBjbGllbnREYXRhSlNPTiBhZ2FpbnN0IGEgdGVtcGxhdGUuIFNlZSBodHRwczovL2dvby5nbC95YWJQZXgifQ",
+      "clientDataJSONText": "{\"type\": \"webauthn.get\",\"challenge\":\"PzwGwq9dCnlpFC_ktuZniXDFoct7Nx9DNMoet7crl40\",\"origin\":\"http://localhost:3000\",\"crossOrigin\":false,\"other_keys_can_be_added_here\":\"do not compare clientDataJSON against a template. See https://goo.gl/yabPex\"}",
+      "clientDataHash": "mIt-xmow31B6o_0pWuQUTqujg-Zifu2ccBv4psWWYNo",
+      "signature": "MEUCID-NxWExIkUQrHEmBVzhb8ySXM3h-n4f7O9Ls4nQkb2VAiEAxDoZx4OkZNlXPG9Bvn-EWqfslafmLn_BL04HwDG0x0M",
+      "expected": {
+        "ok": false,
+        "code": "SIGNATURE_INVALID"
+      }
+    },
+    {
+      "name": "replay-other-challenge",
+      "description": "對挑戰值 A 的有效簽署，拿來回應挑戰值 B（expectedChallenge 是 B）",
+      "expectedChallenge": "DzNr9Ty7pdpZZ8r2GPhZsrPu_Fb9YYjjdMBmnS0J2NM",
+      "binding": {
+        "purpose": "confirm",
+        "case": "replay-B"
+      },
+      "storedSignCountBefore": 5,
+      "credentialId": "ZKGk2EJRWAurAG3r9OClLJUVwWccH0xZVtkP28sPp7k",
+      "authenticatorData": "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MFAAAABQ",
+      "clientDataJSON": "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0IiwiY2hhbGxlbmdlIjoid2xJWndBNEZET2VkZVQ3TVlrN3BZZDJNUnFOckl5enRjZmJ1NDg3ZDFZNCIsIm9yaWdpbiI6Imh0dHA6Ly9sb2NhbGhvc3Q6MzAwMCIsImNyb3NzT3JpZ2luIjpmYWxzZX0",
+      "clientDataJSONText": "{\"type\":\"webauthn.get\",\"challenge\":\"wlIZwA4FDOedeT7MYk7pYd2MRqNrIyztcfbu487d1Y4\",\"origin\":\"http://localhost:3000\",\"crossOrigin\":false}",
+      "clientDataHash": "ydtYiNDpkaRaA2oVHKzEf2eOSz_5FxIn_wpufU9oKPY",
+      "signature": "MEUCIHJRZlEjeWDohdJzlwc4RQzeUbyt2_q4UhR4-WYBBEJnAiEAqwBvSx4Qw2tVelkQyt-OxW1OUV7M4uJnv-bREzmTKes",
+      "expected": {
+        "ok": false,
+        "code": "CHALLENGE_MISMATCH"
+      }
+    }
+  ]
+}

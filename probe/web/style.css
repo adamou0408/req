@@ -49,3 +49,4 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .mono { font-family: ui-monospace, monospace; font-size: 13px; }
 ol.events { padding-left: 20px; }
 ol.events li { margin: 6px 0; }
+.sheet-buttons { margin-top: 16px; }

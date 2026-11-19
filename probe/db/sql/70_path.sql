@@ -185,7 +185,13 @@ begin
         perform sgn_internal.raise_error('CASE_UNKNOWN');
     end if;
     return jsonb_build_object(
-        'case', sgn_internal.case_summary(v_case, null) - 'actions',
+        -- content_text 是算內容指紋用的原文（jsonb 的文字輸出），稽核端自己重算 sha256 比對。
+        'case', (sgn_internal.case_summary(v_case, null) - 'actions') || jsonb_build_object(
+            'content_text', (
+                select v.content::text from sgn.case_version v
+                where v.case_id = v_case.id and v.version = v_case.current_version
+            )
+        ),
         'events', (
             select jsonb_agg(jsonb_build_object(
                 'seq', e.seq,

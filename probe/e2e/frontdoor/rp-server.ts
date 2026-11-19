@@ -11,6 +11,18 @@ import { WebAuthnError } from '../../api/src/frontdoor/webauthn/verify.ts';
 const page = readFileSync(new URL('./fixture/page.html', import.meta.url));
 const user = { iss: 'urn:probe:test', sub: 'p04', uid: 'p04', name: '林怡君', email: 'p04@sim.example', groups: [] };
 
+const PREFERRED_PORT = Number(process.env.FRONTDOOR_PORT ?? 3000);
+
+function listen(server: Server, port: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', () => {
+            server.off('error', reject);
+            resolve();
+        });
+    });
+}
+
 export interface RunningRp {
     origin: string;
     service: PasskeyService;
@@ -58,7 +70,8 @@ export async function startRp(): Promise<RunningRp> {
             throw error;
         }
     });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    // 優先用 3000：資料庫探針的 webauthn origin 設定是 http://localhost:3000，向量才能直接拿去驗。被占用就改用隨機埠。
+    await listen(server, PREFERRED_PORT).catch(() => listen(server, 0));
     // rpId 不能是 IP，所以瀏覽器用 localhost 連（Chromium 會把 localhost 解析到 127.0.0.1）。
     origin = `http://localhost:${(server.address() as AddressInfo).port}`;
     service = new PasskeyService({ rpId: 'localhost', rpName: 'probe frontdoor', origin }, new ChallengeRegistry(), new CredentialStore());
