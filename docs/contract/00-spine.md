@@ -195,8 +195,8 @@
 | `confirmation_prompt` | 確認畫面的文字 key | 通用文字 | 包自訂 | 包自訂 |
 | `revocable_after_fulfilment` | 執行後可否撤銷。為否時，執行完成後的取消與撤銷一律拒絕 | 是 | 是 | 否 |
 | `batch_kinds` | 允許的批次種類：`renewal_identical`、`template_identical`（後者開啟屬放寬類設定變更） | 無 | renewal_identical | 無 |
-| `confidential_case` | 保密流程（第 20 節） | 否 | 依資料領域 | 否 |
-| `allows_urgent` | 可標急件 | 否 | 是 | 是 |
+| `confidential_case` | 保密流程（第 20 節）：`never`、`always`、`by_resource`（涉及的資源或受管系統要求保密時） | never | by_resource | never |
+| `allows_urgent` | 可標急件 | 否 | 是 | 包決定 |
 | `allows_emergency_path` | 可先執行後覆核；必須同時是可收回的權限 | 否 | 否（固定） | 否 |
 | `allows_recusal_list` | 可設迴避名單 | 否 | 是 | 否 |
 | `allows_external_members` | 被授權者可含外部成員 | 否 | 包決定 | — |
@@ -1050,7 +1050,7 @@ docs/                 文件；docs/reference/ 為自動產生
 
 | 層次 | 做法 |
 |---|---|
-| 保密流程（`confidential_case`） | 可見範圍依 `K-CONFIDENTIAL`；清單、通知與任何通道只顯示「你有一張待簽」；群組未認領前只看得到流程類型、級別與時限；手機預設遮罩、按住顯示並寫查閱紀錄 |
+| 保密流程（`confidential_case`） | 整個流程類型（`always`）或依涉及的資源與受管系統（`by_resource`）判定；可見範圍依 `K-CONFIDENTIAL`；清單、通知與任何通道只顯示「你有一張待簽」；群組未認領前只看得到流程類型、級別與時限；手機預設遮罩、按住顯示並寫查閱紀錄 |
 | 保密的被授權者 | 對外一律顯示代號，真實名稱存機密欄位；名稱相似比對只在保密的被授權者之間進行且不顯示名稱 |
 | 機密欄位（`form_schema` 的 `confidential`） | 讀寫不經平台後端：瀏覽器憑資料庫簽發、綁定人、單號與用途的一次性許可，直接向機密內容服務（`vault/`）讀寫機密欄位與附件 |
 | 衍生值 | 分級與摘要只能使用非機密欄位，或由機密內容服務依流程定義算出並附鑑別碼的衍生值；資料庫驗過才採用。不在瀏覽器端計算 |

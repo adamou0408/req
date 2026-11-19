@@ -33,5 +33,6 @@
 |---|---|
 | C1 | 骨幹附錄 B 的十七項「與流程包規則的出入」：其中標「需確認」的五項（改組是否算解散、完全涵蓋的範圍、上線範圍、印鑑管理人能否取消、金額調降後略過財務長關）需要決定 |
 | C2 | 00-decisions 第 5 節的十項取捨（全員登記 passkey、預設保存 5 年、多一個機密內容服務、卡住的單不能靠管理員解、資料授權沒有先給後審、批次與複查沒有全選等） |
-| C3 | 骨幹為補足裁決沒有命名的規則而新增的代碼與預設值（清單見本次改寫的回報）：不同意時指出代碼即可 |
+| C3 | 骨幹為裁決已決定但沒有命名的規則補上的 33 個代碼：`K-SESSION`、`K-NAMED-ACCOUNT`、`K-EXTERNAL-SPONSOR`、`K-PRIVACY-NOTICE`、`K-SOD-CONFLICT`、`K-ROLE-SOURCE`、`K-AUTHORITY-MATRIX`、`K-ASSISTANT`、`K-RECALL`、`K-CANCEL`、`K-CONVERT`、`K-RENEW`、`K-REUSE`、`K-PRINCIPAL`、`K-EFFECTIVE-DELAY`、`K-GRANT-REDUCE`、`K-RECLAIM`、`K-REAPPROVE`、`K-INACTIVE`、`K-AUDIT-SNAPSHOT`、`K-ACCESS-LOG`、`K-SUBJECT-RESTRICT`、`K-EXPORT`、`K-CONFIDENTIAL`、`K-KEY-CUSTODY`、`K-ROLLOUT`、`K-CORRECTION`、`K-BREAKGLASS`、`K-NOTIFY-DELIVERY`、`K-REVIEW-CYCLE`、`K-CHECK`、`K-EVENT-DELIVERY`、`K-RECON-COVERAGE`；以及 `K-HR-*`、`K-DETECT-*` 兩個系列的個別代碼。不同意時指出代碼即可 |
+| C5 | 骨幹自行決定、裁決沒有明文的設計：(1) 申請人「撤回」是把單取回成 `returned`，不是終止；(2) 存續型授權在執行完成且驗證通過時建立，確認在生效後進行；一次性許可在核准完成時建立；(3) 技術維運角色的持有人不會被解析為任何關卡的決定者；(4) 縮小使級別降低時，尚未開始的關卡依新級別重新套用；(5) 生效中的授權可以縮小（`K-GRANT-REDUCE`）；(6) 職責衝突矩陣的實體 `sod_conflict_rule` 與規則 `K-SOD-CONFLICT`；(7) 沒有依據的新預設值：`grant.reapproval_grace_days` 30、`grant.one_time_max_hours` 72、`confirmation.remind_every_workdays` 2；(8) 資料表實體名稱 `case_file`、`grant_record`，`error_catalog` 改名 `message_catalog`，流程包只經 `sgn_sdk` 接觸核心 |
 | C4 | 資料庫內以 PL/pgSQL 驗章的效能技術驗證（門檻：單次 p95 小於 150 毫秒）；不達標時要放寬工程規範 |
