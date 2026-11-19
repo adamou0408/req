@@ -4,7 +4,7 @@
 
 命名、實體、狀態、hook 以 [00-spine.md](00-spine.md) 為準。本文件屬於核心：不得出現任何流程包的代號（範例除外，範例只出現在文件裡，不進 `db/kernel`）。
 
-閱讀順序：第 1 節是採用哪些標準；第 2 節是本模組與核心其他部分的接點；第 3 節是通用模型；第 4 到 10 節逐項說明行為；第 11 到 15 節是實作清單（DDL、function、端點、代碼、參數、排程）；第 16 到 18 節是安全、檔案切分、測試與模擬環境。
+閱讀順序：第 1 節是採用哪些標準；第 2 節是本模組與核心其他部分的接點；第 3 節是通用模型；第 4 到 10 節逐項說明行為；第 11 到 15 節是實作清單（DDL、function、端點、代碼、參數、排程）；第 16 到 18 節是安全、檔案切分、測試與模擬環境。附錄 A 是骨幹修改建議，附錄 C 是已知限制，附錄 D 是需要其他契約配合的事項。
 
 ## 1. 採用的公開標準
 
@@ -19,7 +19,7 @@
 | CloudEvents | 1.0.2（規格庫最新的正式標籤） | 事件的格式：必要屬性 `id`、`source`、`specversion`、`type`；選用屬性 `time`、`subject`、`datacontenttype`；`sequence` 擴充屬性；HTTP structured mode（`application/cloudevents+json`） |
 | Standard Webhooks | 1.0.0（社群規格，Apache 2.0；不是標準組織的標準） | 標頭 `webhook-id`、`webhook-timestamp`、`webhook-signature`；簽章 `v1`（HMAC-SHA256）與 `v2a`（ed25519）；重試、成功與失敗的判定、`410 Gone` 停用 |
 | OAuth 2.0 | RFC 6749 第 4.4 節 client credentials；RFC 6750 Bearer token；RFC 9700（BCP 240，2025-01）安全實務 | 系統身分的驗證與 token 發放 |
-| OCSF | 1.9.0（schema.ocsf.io 目前的預設版本；1.10.0 開發中） | 給 SIEM 的輸出格式：類別 3005 User Access Management、3004 Entity Management |
+| OCSF | 1.9.0（schema.ocsf.io 目前的預設版本；1.10.0 開發中） | 給 SIEM 的輸出格式：類別 3005 User Access Management、3004 Entity Management、6003 API Activity |
 | JOSE | RFC 7515（JWS）、RFC 7517（JWK）、RFC 8037（OKP／Ed25519 金鑰）、RFC 9864（2025-10，以 `Ed25519` 取代多型的 `EdDSA` 演算法代號） | 檢查點的簽章、公開金鑰的發布 |
 | RFC 3161 | Time-Stamp Protocol（2001-08） | 檢查點的外部時間戳記（選用） |
 
@@ -32,8 +32,9 @@
 - Standard Webhooks 建議的內容欄位是 `type`、`timestamp`、`data`；CloudEvents 的時間欄位叫 `time`。兩者不完全相同（見 1.2 的取捨）。
 - OCSF 3005 的必要屬性是 `time`、`user`、`metadata`、`category_uid`、`activity_id`、`severity_id`、`class_uid`、`type_uid`；`activity_id` 1 是 Assign Privileges、2 是 Revoke Privileges；`resource` 自 1.5.0 起改用 `resources`。3004 另外必要 `entity`。`metadata.version` 與 `metadata.product` 必填；`type_uid = class_uid * 100 + activity_id`；`time` 是毫秒的 UTC epoch。
 - SCIM 使用者的 `entitlements` 屬性，RFC 7643 明文寫「No vocabulary or syntax is specified」，沒有資源、動作、限制條件的結構。
+- OCSF 6003 API Activity（`category_uid` 6）的必要屬性是 `actor`、`api`、`src_endpoint` 加上各類別共通的 `time`、`metadata`、`category_uid`、`class_uid`、`activity_id`、`type_uid`、`severity_id`；`activity_id` 是 1 Create、2 Read、3 Update、4 Delete、99 Other。schema 的查詢介面另外把 `cloud`、`osint` 列為必要，這兩個屬性來自 profile，本平台不宣告這些 profile。`user` 物件的 `type_id` 是 0 Unknown、1 User、2 Admin、3 System、4 Service、99 Other，`type` 是它的名稱。
 
-沒有查證的部分：各標準的認證測試（conformance suite）是否存在與涵蓋範圍；各廠牌 SIEM、IGA 產品實際支援到哪個版本。導入時要對實際對接的產品再確認。
+沒有查證的部分：各標準的認證測試（conformance suite）是否存在與涵蓋範圍；各廠牌 SIEM、IGA 產品實際支援到哪個版本；`cloud`、`osint` 在沒有宣告 profile 時是否會被個別 SIEM 產品的驗證器要求。導入時要對實際對接的產品再確認。
 
 ### 1.2 必須採用
 
@@ -43,7 +44,7 @@
 | OAuth 2.0 client credentials（RFC 6749 4.4）＋ Bearer（RFC 6750） | 系統身分的驗證 | 機器對機器最普遍的做法；token 短效，密鑰不隨每次呼叫傳送 | 自建 token 端點要自己顧安全。處理：見第 4 節與第 16 節；之後可改接公司的身分提供者（見 1.3） |
 | CloudEvents 1.0.2（JSON 格式） | 事件串流與 webhook 的事件格式 | 事件匯流排、閘道、SIEM 收集器普遍認得；推送與拉取用同一種格式 | `type` 建議以反向網域開頭，本平台沒有固定網域，用 `sgn.` 開頭。屬於 SHOULD，不影響相容 |
 | Standard Webhooks 1.0.0 | webhook 的標頭、簽章、重試、停用條件 | 各語言有現成的驗證函式庫；簽章涵蓋 id、時間與內容，能防重放 | 不是標準組織的規格。內容欄位用 CloudEvents 的 `time`，不是它建議的 `timestamp`；驗證函式庫只看標頭與原始內容，不受影響。`v2a` 是規格較新的部分，函式庫支援可能落後，所以同時送 `v1` 與 `v2a` |
-| OCSF 1.9.0 | 稽核事件給 SIEM 的輸出格式（`format=ocsf`） | 主要 SIEM 與資安資料湖的共通格式 | OCSF 沒有「簽核」的類別，只能對應到 3005 與 3004，細節放在 `unmapped`。平台原生格式仍是完整來源 |
+| OCSF 1.9.0 | 稽核事件與呼叫紀錄給 SIEM 的輸出格式（`format=ocsf`） | 主要 SIEM 與資安資料湖的共通格式 | OCSF 沒有「簽核」的類別，稽核事件只能對應到 3005 與 3004，細節放在 `unmapped`；呼叫紀錄對應到 6003。平台原生格式仍是完整來源 |
 | JWS／JWK（Ed25519） | 檢查點簽章、公開金鑰發布 | 第三方用任何 JOSE 函式庫都能驗 | RFC 9864 剛把演算法代號從 `EdDSA` 改成 `Ed25519`。本平台簽章用 `Ed25519`；驗證工具兩個代號都接受 |
 
 ### 1.3 選用（介面已留位置，第一版不實作）
@@ -54,7 +55,7 @@
 | AuthZEN Search API（subject、resource、action 三個搜尋） | 之後加在 `/access/v1/search/*`；中繼資料目前不列這三個端點，依規格代表不支援 | `grants` 查詢已涵蓋需求，而且回的資訊更多 |
 | SSF 1.0 發送端（以 SET 傳送事件） | 之後可以把同一批事件用自訂的事件類型 URI 包成 SET | 接收端多半是身分提供者，只認 CAEP、RISC 的事件類型；本平台的事件不屬於這些類型 |
 | 改由公司的身分提供者發 token（JWT，RFC 9068） | `api_client` 對應到身分提供者的 client | 身分提供者尚未確認 |
-| `private_key_jwt`（RFC 7523）、mTLS（RFC 8705）的 client 驗證 | `api_client_credential` 之後加憑證種類 | 第一版先求能上線；密鑰只在 token 端點出現一次 |
+| `private_key_jwt`（RFC 7523）、mTLS（RFC 8705）的 client 驗證與憑證綁定的 token | `api_client_credential` 之後加憑證種類 | 第一版以來源位址限制加上 token 綁定位址處理密鑰與 token 外洩的風險（4.10）；密鑰只在 token 端點出現 |
 | Standard Webhooks 的 endpoint verification 擴充 | 之後以 `webhook-challenge` 標頭取代 ping | 第一版的 webhook 網址來源已由系統管理員事先登記，ping 足夠 |
 
 ### 1.4 不採用
@@ -135,7 +136,7 @@ sgn_internal.integration_auditor_role() returns text   -- immutable；目前回 
 
 一致性檢查（規則 `K-INT-CONSISTENCY`）：排程 `job_integration_consistency` 對每一張「有未結束的權限項目」或「`grant` 是 `active`」的申請單，比較 `sgn.entitlement` 與 3.4 的推導結果。不一致時立即重投影，寫一筆稽核事件（動作 `integration.projection_repaired`，內容是申請單號與修正前後的狀態），並通知稽核角色。正常情況下這個工作永遠找不到差異；找到就代表有人繞過觸發程序改了資料，或觸發程序被停用。
 
-migration 的順序要求：定義投影 function 與觸發程序的檔案，必須排在建立核心資料表的檔案之後（見第 17 節）。架構測試檢查上表六個觸發程序都存在而且是啟用的。
+migration 的順序要求：定義投影 function 與觸發程序的檔案，必須排在建立核心資料表與基礎函式的檔案之後（見第 17 節）。架構測試檢查上表六個觸發程序都存在而且是啟用的。
 
 ## 3. 通用模型
 
@@ -555,7 +556,7 @@ Cache-Control: no-store
 2. 任何一項不通過：
    - 在 `sgn.api_auth_failure_counter` 累加兩個鍵：`('client', sha256(收到的 client_id 字串))` 與 `('ip', sha256(來源位址的文字))`。這張表的鍵是雜湊，不引用 `api_client`，所以代碼存在與不存在的處理完全相同。
    - 一律回相同的 401 `invalid_client`。不論失敗幾次，都不會變成 429，也不會影響這個系統以正確密鑰換發。
-   - 呼叫紀錄：同一個來源位址在同一分鐘內的失敗，只有前 `integration.unauth_log_per_ip_per_minute` 次各寫一筆；超過的只累加計數（次數仍在 `api_auth_failure_counter`，不會遺失）。
+   - 呼叫紀錄：同一個來源位址在同一分鐘內的失敗，只有前 `integration.unauth_log_per_ip_per_minute` 次各寫一筆；超過的只累加計數（次數仍在 `api_auth_failure_counter`，不會遺失）。紀錄的 `internal_reason` 寫實際原因（`client_unknown`、`secret_mismatch`、`credential_expired`、`credential_revoked`、`credential_unclaimed`、`client_not_active`、`source_not_allowed`）；代碼對應到存在的系統時填 `api_client_id`。這些只在內部的紀錄裡，不影響對外的回應。
    - 代碼對應到存在的 `api_client`，而 `client` 鍵在這一分鐘的次數達到 `integration.auth_failure_alert_per_minute`：通知該系統的負責人與系統管理員（同一個系統每小時最多一次），寫一筆稽核事件（動作 `integration.auth_failure_alert`），並顯示在整合狀態。
 3. 全部通過：累加 `sgn.api_rate_counter` 的 `token` 計數（鍵是 `api_client`）。超過 `integration.token_rate_limit_per_minute` 回 429；否則發 token。
 
@@ -614,11 +615,11 @@ Cache-Control: no-store
 
 ### 4.7 每次呼叫的紀錄
 
-規則 `K-INT-CALL-LOG`：對 `/integration/v1/` 的每一次已驗證的呼叫，不論成功或失敗，都在 `sgn.api_call_log` 留一筆。
+規則 `K-INT-CALL-LOG`：對 `/integration/v1/` 的每一次通過驗證的呼叫，不論成功或失敗，都在 `sgn.api_call_log` 留一筆。
 
 - 成功的呼叫：由被呼叫的 `api` function 在同一個交易內寫入（`sgn_internal.log_api_call`）。
 - 失敗的呼叫（function 丟出錯誤，交易已回復）：由後端另外呼叫 `api.integration_record_failure`，在獨立的交易裡寫入並累加失敗計數（4.8）。它會重新判斷失敗的實際原因（token 不存在、過期、系統不是 `active`、來源位址不符等），寫進 `internal_reason`；這個欄位不對外輸出。
-- 沒有通過驗證的呼叫（token 找不到）與 429：為了不讓無效請求灌爆紀錄表，同一個來源位址（沒有通過驗證時）或同一個 `api_client`（429 時）在同一分鐘內，只有前 `integration.unauth_log_per_ip_per_minute` 次各寫一筆，超過的只累加計數。
+- 沒有通過驗證的呼叫（回 401 的）與 429：為了不讓無效請求灌爆紀錄表，同一個來源位址（401 時）或同一個 `api_client`（429 時）在同一分鐘內，只有前 `integration.unauth_log_per_ip_per_minute` 次各寫一筆，超過的只累加計數。「每次呼叫都留紀錄」的保證適用於通過驗證的呼叫；沒有通過驗證的，保證的是次數不遺失。
 - 記錄的內容：時間、`api_client`、token、請求識別碼、function 名稱、HTTP 狀態、錯誤代碼、內部原因、耗時、來源 IP、筆數、摘要。
 - 摘要（`summary`）依端點不同：權限判定記每一筆的主體、動作、資源、結果、原因與依據的權限項目 id；查詢記篩選條件與回傳筆數；對帳記批次與筆數。情境（`context`）不記原文，只記 SHA-256，因為裡面可能有業務資料。
 - 這張表只增不改。
@@ -665,7 +666,7 @@ select count(*),
 | 計數（`api_rate_counter.bucket`） | 鍵與視窗 | 上限（參數） | 在哪裡累加 | 超過時 |
 |---|---|---|---|---|
 | `api` | `api_client`，一分鐘 | `integration.rate_limit_per_minute`（可用 `scope_ref` 值 `api_client:<code>` 對個別系統設定） | 成功的呼叫：`authenticate_client`，與業務邏輯同一個交易。失敗的呼叫：`integration_record_failure`，獨立的交易 | 429 `integration_rate_limited` |
-| `error` | `api_client`，一分鐘 | `integration.error_limit_per_minute`（同上，可對個別系統設定） | `integration_record_failure`：HTTP 狀態是 400 到 499 而且不是 429 的失敗 | 429 `integration_rate_limited`，直到下一個視窗 |
+| `error` | `api_client`，一分鐘 | `integration.error_limit_per_minute`（同上，可對個別系統設定） | `integration_record_failure`：HTTP 狀態是 400 到 499、而且不是 401 與 429 的失敗（也就是通過驗證之後才失敗的請求） | 429 `integration_rate_limited`，直到下一個視窗 |
 | `throttled` | `api_client`，一分鐘 | 無（只用來決定要不要寫呼叫紀錄，見 4.7） | `integration_record_failure`：429 | — |
 | `token` | `api_client`，一分鐘 | `integration.token_rate_limit_per_minute` | `integration_token_issue`，只有密鑰正確時（4.3） | 429 |
 | `webhook_manage` | `api_client`，一小時 | `integration.webhook_manage_limit_per_hour` | `integration_webhook_create`、`_update`、`_delete`、`_rotate_secret`、`_ping` | 429 `integration_rate_limited` |
@@ -673,9 +674,9 @@ select count(*),
 
 - 視窗固定，起點是整分鐘（或整點、UTC 的零時）。超過上限時後端加上 `Retry-After`，值是到下一個視窗的秒數。
 - 批次判定的一次呼叫算一次，不論裡面有幾筆。
-- **失敗的請求也計數。** 業務 function 丟錯時，它所在的交易會回復，連同那一次的 `api` 計數；所以後端在回應任何 4xx 之後呼叫的 `integration_record_failure` 會在自己的交易裡補上 `api` 計數，並累加 `error` 計數。`authenticate_client` 在每次呼叫開始時同時檢查 `api` 與 `error` 兩個計數。持有 token 的人用 404 探測 id、或反覆上傳一定會失敗的大量對帳資料，會在 `integration.error_limit_per_minute` 次之後被擋下。
+- **失敗的請求也計數。** 業務 function 丟錯時，它所在的交易會回復，連同那一次的 `api` 計數；所以後端在回應任何 4xx、5xx 之後呼叫的 `integration_record_failure` 會在自己的交易裡補上 `api` 計數，並累加 `error` 計數（各種狀態碼的處理見 13.2）。`authenticate_client` 在每次呼叫開始時同時檢查 `api` 與 `error` 兩個計數。持有 token 的人用 404 探測 id、或反覆上傳一定會失敗的大量對帳資料，會在 `integration.error_limit_per_minute` 次之後被擋下。
 - `error` 計數第一次達到上限時（每個系統每小時最多一次）：通知負責人、寫稽核事件（動作 `integration.error_limit_reached`），並顯示在整合狀態。
-- 沒有通過驗證的請求不屬於任何 `api_client`，由後端對 `/integration/v1/` 的全部請求（包含 token 端點）套用依來源 IP 的限制；失敗次數另外記在 `api_auth_failure_counter`（4.3）。
+- 沒有通過驗證的請求（401）不計入任何 `api_client` 的 `api` 與 `error` 計數，即使它帶的 token 找得到對應的系統：否則拿到 token 的人可以從別的位址亂試，讓正牌系統被限流。這類請求由後端對 `/integration/v1/` 的全部請求（包含 token 端點）套用依來源 IP 的限制；失敗次數記在 `api_auth_failure_counter`（4.3、13.2）。
 
 ### 4.9 變更申請：兩個人才能完成的管理動作
 
@@ -1270,7 +1271,7 @@ Authorization: Bearer sgn_at_TRVmodff...
 |---|---|---|
 | `sgn.grant.approved` | 申請單核准，權限項目建立但尚未生效（`pending`） | `events.read` |
 | `sgn.grant.activated` | 授權的狀態成為有效。**實際起始時間看 `valid_from`**：它可能在未來，使用方不得因為收到這個事件就立刻放行 | `events.read` |
-| `sgn.grant.changed` | 生效中或待生效的授權，內容、有效期間、負責人或主體的識別碼改變。`change_class` 是 `narrowed`（縮小）、`widened`（擴大）或 `modified`（無法歸類） | `events.read` |
+| `sgn.grant.changed` | 生效中或待生效的授權，內容或有效期間改變。`change_class` 是 `narrowed`（縮小）、`widened`（擴大）或 `modified`（無法歸類）。負責人或識別碼的改變另有 `sgn.principal.*`、`sgn.person.*` 事件，不發這個事件 | `events.read` |
 | `sgn.grant.expiring` | 即將到期：距離到期日剩下 `validity.remind_before_days` 天 | `events.read` |
 | `sgn.grant.expired` | 到期失效（排程把授權改成到期時發出；可能晚於 `valid_until`，見 6.4） | `events.read` |
 | `sgn.grant.revoked` | 撤銷 | `events.read` |
@@ -1297,7 +1298,7 @@ Authorization: Bearer sgn_at_TRVmodff...
 |---|---|
 | 沒有新增的項目；每一筆留下來的項目，動作是原本的子集、限制條件相同；有效期間沒有延後或延長 | `narrowed` |
 | 沒有移除的項目；每一筆原有的項目，動作是原本的超集、限制條件相同；有效期間沒有縮短 | `widened` |
-| 其他（包含限制條件的內容改變、只有負責人或識別碼改變） | `modified` |
+| 其他（包含限制條件的內容改變） | `modified` |
 
 不論哪一種，事件都帶著改變之後的完整狀態，使用方直接覆蓋即可，不需要依 `change_class` 做不同處理。
 
@@ -1495,7 +1496,7 @@ Authorization: Bearer sgn_at_TRVmodff...
 - `next_cursor` 是這次掃描到的位置。即使 `events` 是空的（掃過的事件都不可見或不符合類型），游標也會前進；使用方每次都要保存它。
 - 游標是不透明的字串（內含 `sync_epoch` 與事件序號），不等於事件的 `sequence`。格式錯誤回 400（`integration_cursor_invalid`）。游標指向的位置超過目前最新的事件時，回空陣列，`next_cursor` 是目前最新的位置，`has_more` 是 false。
 - 游標是在可見範圍或身分來源改變之前發出的：回 409（`integration_resync_required`）。使用方重做完整快照（6.4），再以 `after=tail` 取得新的游標。
-- 事件在稽核紀錄的保存年限內保留，可以從任何游標重播。重播時的內容依呼叫方**現在**的可見範圍與身分來源產生。
+- 事件永久保留，任何時候都可以從任何游標重播。重播時的內容依呼叫方**現在**的可見範圍與身分來源產生。
 - 需要 scope `events.read`；其他類別的事件另外需要 7.1 所列的 scope，沒有該 scope 的類型不會出現（不回錯誤）。
 - 建議的輪詢間隔不低於 5 秒；`has_more` 是 true 時可以立即再讀。
 
@@ -1512,7 +1513,7 @@ Authorization: Bearer sgn_at_TRVmodff...
 
 - 授權的事件由延後到提交時才執行的觸發程序發出（2.2），鎖從提交前的投影開始，到提交結束。簽核、執行、撤銷的主要工作都在取鎖之前做完。
 - 其他會發事件的 function（對帳、複查、檢查點）必須把 `emit_integration_event` 放在交易的最後；取鎖之後，同一個交易不得再做對帳比對、不得等待任何外部資源。對帳的比對與發現的產生分成不同的交易（8.5）。
-- 一個交易最多發出 `integration.events_per_transaction_max` 個事件，超過時 `emit_integration_event` 丟出 `integration_too_many_events`。需要發更多事件的工作（例如批次結案對帳發現）必須分成多個交易。
+- 對帳的 `open_items`、`open_missing`、`close` 階段每個交易最多處理 `reconciliation.findings_batch_size` 筆發現，所以每次持有鎖的時間有上限。
 
 ### 7.5 webhook 訂閱
 
@@ -1791,8 +1792,9 @@ worker 連線的規定（防止訂閱網址被用來打平台內部的服務）�
 |---|---|---|
 | `items` | 依 id 取 `reconciliation.compare_batch_size` 筆回報項目，做第一步的逐筆判定，把結果寫回項目 | 不會。這個階段會呼叫流程包的 hook |
 | `count` | 一段做完：算出這個批次會新增幾筆發現（第一步的結果加上第二步的 `missing`，扣掉已有相同指紋的未結案發現）。超過上限就走「異常批次」（見下），否則進下一階段 | 異常時發一個 |
-| `open` | 每段處理 `reconciliation.findings_batch_size` 筆：建立或更新發現（第三步）。先處理回報項目產生的，再處理 `missing` | 每筆新發現一個，放在交易的最後 |
-| `close` | 每段處理 `reconciliation.findings_batch_size` 筆：這次沒有再出現的既有發現（第三步） | 每筆結案一個 |
+| `open_items` | 每段依回報項目的 id 處理 `reconciliation.findings_batch_size` 筆結果是 `exceeds_approved`、`ended_still_present`、`unapproved` 的項目：建立或更新發現（第三步） | 每筆新發現一個，放在交易的最後 |
+| `open_missing` | 每段依權限項目的 id 處理 `reconciliation.findings_batch_size` 筆範圍內的權限項目：建立或更新 `missing` 的發現（第二步、第三步） | 同上 |
+| `close` | 每段依發現的 id 處理 `reconciliation.findings_batch_size` 筆：這次沒有再出現的既有發現（第三步） | 每筆結案一個 |
 | `finalize` | 一段做完：統計、稽核事件、摘要通知、`sgn.reconciliation.run_completed`，狀態改為 `completed` | 一個 |
 
 **第一步：逐筆判定回報的項目。**
@@ -1827,7 +1829,7 @@ worker 連線的規定（防止訂閱網址被用來打平台內部的服務）�
 - 不逐筆建立發現，也不結案任何既有的發現。
 - 建立一筆類型為 `run_anomalous` 的發現（高嚴重度），`detail` 是各類結果的筆數；指派給回報系統的負責人。
 - 批次的狀態改為 `needs_review`，通知負責人與系統管理員，發出一個 `sgn.reconciliation.run_completed` 事件（`status` 是 `needs_review`）。
-- 系統管理員（不得是該系統的負責人）檢視後以 `reconciliation_run_review` 決定：`accept`（資料可信，偏差真的這麼多）→ 批次回到 `comparing`，從 `open` 階段繼續，不再套用上限；`discard`（回報的資料有問題）→ 批次改為 `discarded`。兩種決定都要填說明，都會結案那筆 `run_anomalous` 的發現（原因 `run_reviewed`），並寫稽核事件。
+- 系統管理員（不得是該系統的負責人）檢視後以 `reconciliation_run_review` 決定：`accept`（資料可信，偏差真的這麼多）→ 批次回到 `comparing`，從 `open_items` 階段繼續，不再套用上限；`discard`（回報的資料有問題）→ 批次改為 `discarded`。兩種決定都要填說明，都會結案那筆 `run_anomalous` 的發現（原因 `run_reviewed`），並寫稽核事件。
 
 這條規則的目的：一個有 `reconciliation.write` 的系統（或拿到它 token 的人）送出大量捏造的項目時，不會變成幾十萬筆發現、通知與稽核事件。
 
@@ -1850,7 +1852,7 @@ fingerprint := digest(jsonb_build_array(
 - 主體解析不出來時，指紋不含回報的識別碼：同一個資源、同一個動作上所有解析不出來的回報合成一筆發現，回報的識別碼列在 `detail.reported_subjects`（最多 50 個，另帶總數）。所以每一批換一個假的識別碼，不會讓發現重新開始計時。
 - `p_entitlement_id`：`exceeds_approved` 取對不上的那一筆（項目有 `entitlement_id` 時取它，否則取 A 中 id 最小的）；`ended_still_present` 取 C 中最晚結束的那一筆；`missing` 取 e；`unapproved` 是 null。
 
-`open` 階段，對每一筆要成立的發現：
+`open_items` 與 `open_missing` 階段，對每一筆要成立的發現：
 
 1. 已有相同指紋、未結案（`open`、`acknowledged`、`pending_verification`）的發現：更新「最後出現的批次」與出現次數。原本是 `pending_verification` 的改回 `open`（它又出現了），期限沿用原本的。
 2. 沒有相同指紋，但同一個回報系統、同一種類型、同一個（`resource_type`、`resource_id`、`action`）有一筆未結案、而且這個批次沒有再出現的發現：視為同一件事的延續（只是主體或對應的權限項目變了）。建立新的發現，但 `opened_at`、`due_at`、`escalated_at`、升級對象都沿用舊的那一筆，`continued_from_finding_id` 指向它；舊的那一筆以原因 `superseded` 結案。有多筆符合時取 `opened_at` 最早的。這樣換一個主體回報，不會讓逾期升級重新計時。
@@ -1989,7 +1991,7 @@ principal,channel-sales,data_field,sales_order.amount,read,"{""row_filter"":[{""
 ```
 
   `constraints` 與 `properties` 是 JSON 文字，可以留空（等於 `{}`）；`entitlement_id`、`item_key` 可以留空。主體的識別碼以該系統的 `identity_provider` 解讀。
-- 後端只做機制：計算原始檔案位元組的 SHA-256、把 CSV 轉成 8.3 的 `items` 陣列，然後呼叫 function。欄位不合規定時整個檔案被拒，回報第幾列、哪個欄位。檔案大小上限 20 MB，筆數上限 `reconciliation.max_items`。
+- 後端只做機制：計算原始檔案位元組的 SHA-256、把 CSV 轉成 8.3 的 `items` 陣列，然後呼叫 function。欄位不合規定時整個檔案被拒（`reconciliation_upload_invalid`），訊息帶第幾列、哪個欄位。檔案大小上限 20 MB，筆數上限 `reconciliation.max_items`。
 - 上傳時要填：宣告的範圍（同 8.2）、`observed_at`（匯出清單的時間，不得早於現在減去 `reconciliation.upload_observed_max_age_hours`，其餘條件同 8.2）、說明（清單是怎麼匯出的）。
 - function 在一個交易內建立批次（`origin = 'upload'`，記下 `uploaded_by`、`file_sha256`、說明）、寫入全部項目，並直接把狀態設為 `comparing`。之後與 API 的批次相同。
 - 每天的批次數上限、異常批次的規則同樣適用。
@@ -2583,8 +2585,7 @@ create table sgn.api_client (
     check (identity_provider = any (allowed_providers)),
     check (not ('sgn' = any (allowed_providers)) or provider_sgn_reason is not null),
     check (constraint_mode = 'strict' or constraint_mode_reason is not null),
-    check (created_by <> approved_by),
-    check (owner_person_id <> created_by)
+    check (created_by <> approved_by)
 );
 
 create table sgn.api_client_visibility (
@@ -2866,8 +2867,8 @@ create table sgn.reconciliation_run (
     file_sha256           bytea,                                     -- origin = 'upload' 時必填
     upload_note           text,
     status                sgn.reconciliation_run_status not null default 'collecting',
-    compare_phase         text   check (compare_phase in ('items', 'count', 'open', 'close', 'finalize')),
-    compare_cursor        bigint not null default 0,
+    compare_phase         text   check (compare_phase in ('items', 'count', 'open_items', 'open_missing', 'close', 'finalize')),
+    compare_cursor        bigint not null default 0,                    -- 目前階段已處理到的 id；換階段時歸零
     anomaly_accepted      boolean not null default false,
     reviewed_by           bigint references sgn.person (id),
     reviewed_at           timestamptz,
@@ -3049,7 +3050,7 @@ create table sgn.access_review_item (
     followup_closed_at           timestamptz,
     unique nulls not distinct (campaign_id, grant_id, scope_ref),
     check ((status = 'decided') = (decision is not null)),
-    check ((decision = 'reduce') is not distinct from (reduce_spec is not null) or decision is null and reduce_spec is null)
+    check ((decision is not distinct from 'reduce'::sgn.review_decision) = (reduce_spec is not null))
 );
 create index access_review_item_reviewer_idx on sgn.access_review_item (reviewer_person_id) where status = 'pending';
 create index access_review_item_grant_idx on sgn.access_review_item (grant_id);
@@ -3141,6 +3142,9 @@ create type sgn_internal.client_context as (
     api_client_id      bigint,
     code               text,
     identity_provider  text,
+    allowed_providers  text[],
+    constraint_mode    sgn.constraint_mode,
+    sync_epoch         integer,
     scopes             text[],        -- token 的 scope 與 api_client 目前 scope 的交集
     token_id           bigint
 );
@@ -3157,49 +3161,83 @@ create type sgn_internal.subject_ref as (
 | 簽章 | 行為 |
 |---|---|
 | `project_case(p_case_id bigint, p_rule_code text default null) returns void` | 見 12.5 |
-| `project_principal(p_principal_id bigint, p_event text, p_detail jsonb default '{}') returns void` | `p_event` 是 `owner_changed`、`owner_at_risk`、`member_added`、`member_removed` 之一。發出對應的 `sgn.principal.*` 事件。`p_detail`：`owner_changed` 帶 `old_owner_person_id`、`new_owner_person_id`；`owner_at_risk` 帶 `grace_until`；成員異動帶 `person_id` |
-| `call_describe_entitlements(p_case_id bigint) returns jsonb` | 呼叫流程類型登記的 hook；沒有登記回 `[]`。檢查每個元素的鍵、型別、格式與 (`resource_type`, `resource_id`) 不重複；不合格丟 `entitlement_hook_invalid` 或 `entitlement_duplicate_resource` |
+| `note_projection_rule(p_case_id bigint, p_rule_code text) returns void` | 把（申請單、規則代碼）記在交易層級的設定 `sgn.projection_rules`（JSON 物件的文字，鍵是申請單 id）。`project_case` 沒有收到 `p_rule_code` 時從這裡取 |
+| `project_principal(p_principal_id bigint, p_event text, p_detail jsonb default '{}') returns void` | `p_event` 與行為見下表 |
+| `project_person(p_person_id bigint) returns void` | 人的在職狀態改變時：(1) 對每一張「有未結束的權限項目以他為主體」的申請單呼叫 `project_case`（他不在職時這些項目依 3.4 變成 `ended`，原因 `subject_inactive`，事件是 `sgn.grant.ended`）；(2) 他變成不在職時，對他是有效成員的每一個被授權者發出 `sgn.principal.membership_changed`（`removed` 是他，`reason` 是 `person_inactive`） |
+| `project_person_identity(p_person_id bigint, p_provider text, p_old_external_id text, p_new_external_id text) returns void` | 發出 `sgn.person.identity_changed`，並把以他為主體的未結束權限項目的 `sync_seq` 設為這個事件的序號 |
+| `integration_case_projection_trigger()`、`integration_grant_projection_trigger()`、`integration_person_projection_trigger()`、`integration_person_identity_trigger()`、`integration_principal_projection_trigger()`、`integration_member_projection_trigger()`，都 `returns trigger` | 2.2 的六個觸發函式。只做轉呼叫，不含判斷 |
+| `call_describe_entitlements(p_case_id bigint) returns jsonb` | 呼叫流程類型登記的 hook；沒有登記回 `[]`。檢查每個元素的鍵、型別、格式、(`resource_type`, `resource_id`) 不重複，以及 `has_validity` 為否時不得有 `effective_during = active`；不合格丟 `entitlement_hook_invalid` 或 `entitlement_duplicate_resource` |
 | `call_evaluate_constraints(p_process_type_id bigint, p_constraints jsonb, p_context jsonb) returns boolean` | 依 3.3 的呼叫規則。hook 丟出的例外在這裡攔下並回 false |
-| `emit_integration_event(p_event_type text, p_subject_label text, p_data jsonb, p_process_type_id bigint default null, p_case_id bigint default null, p_grant_id bigint default null, p_principal_id bigint default null, p_api_client_id bigint default null, p_rule_code text default null) returns bigint` | 取 advisory lock（`pg_advisory_xact_lock(sgn_internal.integration_event_lock_key())`）→ 取序號 → 寫入 `sgn.integration_event` → 回傳序號。這是產生事件的唯一入口 |
+| `emit_integration_event(p_event_type text, p_data jsonb, p_process_type_id bigint default null, p_case_id bigint default null, p_grant_id bigint default null, p_principal_id bigint default null, p_person_id bigint default null, p_api_client_id bigint default null, p_ref_id bigint default null, p_rule_code text default null) returns bigint` | 取 advisory lock（`pg_advisory_xact_lock(sgn_internal.integration_event_lock_key())`）→ 取序號 → 寫入 `sgn.integration_event` → 回傳序號。這是產生事件的唯一入口 |
 | `integration_event_lock_key() returns bigint` | `immutable`，回固定值 `5058301` |
 | `integration_forbid_change() returns trigger` | 只增不改的資料表共用的觸發函式 |
 
-### 12.2 主體與可見範圍
+`project_principal` 的事件：
+
+| `p_event` | 誰呼叫 | `p_detail` | 行為 |
+|---|---|---|---|
+| `owner_changed` | 觸發程序 | `old_owner_person_id`、`new_owner_person_id` | 發出 `sgn.principal.owner_changed`；把該被授權者所有未結束權限項目的 `sync_seq` 設為事件的序號，並清掉它們因負責人寬限期設定的 `revoke_risk_at`（重新取「複查追蹤期限」作為值，沒有就是 null） |
+| `owner_at_risk` | 核心 | `grace_until` | 發出 `sgn.principal.owner_at_risk`；把該被授權者所有未結束權限項目的 `revoke_risk_at` 設為「原值」與 `grace_until` 較早的那一個 |
+| `owner_risk_cleared` | 核心 | — | 不發事件；重算 `revoke_risk_at`（同 `owner_changed`） |
+| `member_added`、`member_removed` | 觸發程序 | `person_id`、`valid_from`、`valid_until` | 發出 `sgn.principal.membership_changed` |
+| `identity_changed` | `set_principal_identity`、`remove_principal_identity` | `provider`、`old_external_id`、`new_external_id` | 發出 `sgn.principal.identity_changed`；把該被授權者所有未結束權限項目的 `sync_seq` 設為事件的序號；把以這個被授權者為主體的未結案對帳發現標記 `auto_close_blocked` 並寫歷程 |
+
+### 12.2 主體、身分對應與可見範圍
 
 | 簽章 | 行為 |
 |---|---|
-| `resolve_subject(p_default_provider text, p_subject jsonb) returns sgn_internal.subject_ref` | provider 取 `p_subject.properties.provider`，沒有就取 `p_default_provider`。provider 是 `sgn` 時以內部 id 查；否則查 `person_identity` 或 `principal_identity`。找不到回 null。只回在職的人、未結束的被授權者 |
-| `subject_principals(p_person_id bigint, p_at timestamptz) returns setof bigint` | 這個人在 `p_at` 是有效成員的被授權者。成員關係的唯一解析入口 |
-| `render_subject(p_provider text, p_kind sgn.subject_kind, p_person_id bigint, p_principal_id bigint) returns jsonb` | 依 3.2 輸出 `{"type", "id", "properties"}`；該 provider 沒有對應時改用 `sgn` |
+| `resolve_subject(p_default_provider text, p_allowed_providers text[], p_subject jsonb) returns sgn_internal.subject_ref` | provider 取 `p_subject.properties.provider`，沒有就取 `p_default_provider`。provider 不在 `p_allowed_providers` 裡回 null。provider 是 `sgn` 時以內部 id 查；否則查 `person_identity` 或 `principal_identity`。找不到回 null。只回在職的人、狀態有效且結束日未到的被授權者 |
+| `subject_principals(p_person_id bigint, p_at timestamptz) returns setof bigint` | 這個人在 `p_at` 是有效成員的被授權者（人在職、成員期間涵蓋 `p_at`、被授權者狀態有效且結束日未到）。成員關係的唯一解析入口 |
+| `subject_principals_between(p_person_id bigint, p_from timestamptz, p_to timestamptz) returns setof bigint` | 這個人在這段時間內任何時刻曾是成員的被授權者（成員期間與這段時間有重疊）。只給對帳的容許規則用（8.5 第 6 列） |
+| `member_valid_until(p_person_id bigint, p_principal_id bigint, p_at timestamptz) returns timestamptz` | 這個人在 `p_at` 有效的成員期間的迄；沒有迄回 null。給 `ttl_seconds` 用（5.5） |
+| `subject_is_valid(p_subject sgn_internal.subject_ref, p_at timestamptz) returns boolean` | 人：在職。被授權者：狀態有效，而且結束日是 null 或 `p_at` 早於結束日次日 00:00（`system.business_timezone`）。3.4 第一步與 5.3 第 4 步共用 |
+| `render_subject(p_ctx sgn_internal.client_context, p_kind sgn.subject_kind, p_person_id bigint, p_principal_id bigint) returns jsonb` | 依 3.2 輸出 `{"type", "id", "properties"}`：用呼叫方的 `identity_provider`；沒有對應時，`allowed_providers` 含 `sgn` 就用內部 id，否則用 `anon-` 的代號 |
 | `client_can_see(p_api_client_id bigint, p_process_type_id bigint, p_resource_type text, p_resource_id text) returns boolean` | 依 4.5。`stable`。集合查詢直接與 `api_client_visibility` join，條件必須與這個 function 相同 |
+| `client_can_see_case(p_api_client_id bigint, p_case_id bigint) returns boolean` | 這張申請單至少有一筆權限項目（不論狀態）通過 `client_can_see` |
+| `client_sees_whole_process(p_api_client_id bigint, p_process_type_id bigint) returns boolean` | 4.5 的「整個流程類型可見」 |
+| `client_sees_principal(p_api_client_id bigint, p_principal_id bigint) returns boolean` | 該被授權者有 `pending` 或 `active` 的可見權限項目，或有在 `integration.check_ended_lookback_days` 天內結束的可見項目。`sgn.principal.*` 事件與成員端點共用 |
+| `set_principal_identity(p_principal_id bigint, p_provider text, p_external_id text, p_source text, p_change_request_id bigint, p_actor bigint) returns void` | 建立或取代對應（`K-INT-IDENTITY`）。`(provider, external_id)` 已對應到別的被授權者時丟 `principal_identity_taken`。同一個交易內寫稽核事件（新舊值、來源）並呼叫 `project_principal(…, 'identity_changed', …)`；取代時另外把「主體解析不出來、回報的識別碼等於舊值或新值」的未結案對帳發現標記 `auto_close_blocked`。值沒有改變時不做任何事。`p_source = 'sync'` 由人員與組織 port 的同步呼叫（`p_actor` 是 null） |
+| `remove_principal_identity(p_principal_id bigint, p_provider text, p_source text, p_change_request_id bigint, p_actor bigint) returns void` | 移除對應；其餘同上 |
+| `integration_admin_role() returns text`、`integration_auditor_role() returns text` | 2.1 |
 
 ### 12.3 驗證、紀錄、判定
 
 | 簽章 | 行為 |
 |---|---|
-| `authenticate_client(p_token_sha256 bytea, p_function_name text) returns sgn_internal.client_context` | 依序：(1) 找未過期的 token，找不到丟 `integration_invalid_token`；(2) `api_client.status` 必須是 `active`，換發它的憑證必須未撤銷，否則丟 `integration_invalid_token`；(3) 從 `api_function_scope` 取這個 function 需要的 scope，必須同時在 token 與 `api_client` 目前的 scope 裡，否則丟 `integration_insufficient_scope`；(4) 累加速率計數，超過丟 `integration_rate_limited`。這是整合介面驗證與授權的唯一入口 |
-| `log_api_call(p_ctx sgn_internal.client_context, p_function_name text, p_request_id text, p_ip text, p_http_status integer, p_item_count integer, p_summary jsonb) returns bigint` | 寫入 `api_call_log`，回傳 id。`duration_ms` 取 `clock_timestamp() - statement_timestamp()` |
+| `authenticate_client(p_token_sha256 bytea, p_function_name text, p_ip text) returns sgn_internal.client_context` | 依序：(1) 找未過期的 token，找不到丟 `integration_invalid_token`；(2) `api_client.status` 必須是 `active`，換發它的憑證必須未撤銷，否則丟 `integration_invalid_token`；(3) `p_ip` 必須是合法的位址、落在 `allowed_source_cidrs` 內，而且 `token_binding = 'ip'` 時等於 token 的 `issued_ip`，否則丟 `integration_invalid_token`；(4) 從 `api_function_scope` 取這個 function 需要的 scope，必須同時在 token 與 `api_client` 目前的 scope 裡，否則丟 `integration_insufficient_scope`；(5) 這個視窗的 `error` 計數已達上限，丟 `integration_rate_limited`；(6) 累加 `api` 計數，超過丟 `integration_rate_limited`。這是整合介面驗證與授權的唯一入口 |
+| `explain_auth_failure(p_token_sha256 bytea, p_function_name text, p_ip text) returns text` | 不改變任何狀態，重做上面的 (1) 到 (4)，回傳第一個不通過的原因代碼：`token_unknown`、`token_expired`、`client_not_active`、`credential_revoked`、`source_not_allowed`、`token_ip_mismatch`、`scope_missing`；都通過回 null。給 `integration_record_failure` 寫 `internal_reason` |
+| `count_rate(p_api_client_id bigint, p_bucket text) returns integer` | 依 4.8 的視窗把該計數加一（`insert … on conflict do update`），回傳加完之後的值 |
+| `log_api_call(p_ctx sgn_internal.client_context, p_function_name text, p_request_id text, p_ip text, p_http_status integer, p_item_count integer, p_summary jsonb) returns bigint` | 寫入 `api_call_log`，回傳 id。`duration_ms` 取 `clock_timestamp() - statement_timestamp()`。`p_request_id` 不符合 `^[A-Za-z0-9._-]{1,64}$` 時丟 `integration_invalid_request`（後端已先過濾，這裡是第二道） |
 | `validate_access_request(p_body jsonb, p_batch boolean) returns void` | 依第 16 節的輸入規則檢查；不合格丟 `integration_invalid_request`（說明帶 JSON 路徑）或 `integration_too_many_evaluations` |
 | `evaluate_access(p_ctx sgn_internal.client_context, p_subject jsonb, p_action jsonb, p_resource jsonb, p_context jsonb, p_at timestamptz) returns jsonb` | 依 5.3，回傳 `{"decision", "context"}`（不含 `decision_id`，由呼叫它的 function 補上） |
 | `render_entitlement(p_ctx sgn_internal.client_context, p_entitlement sgn.entitlement, p_inherited boolean default false) returns jsonb` | 6.3 的單筆格式 |
 | `render_integration_event(p_ctx sgn_internal.client_context, p_event sgn.integration_event) returns jsonb` | 7.2 的 CloudEvents 格式；對這個呼叫方不可見時回 null |
-| `decode_sync_cursor(p_cursor text, out seq bigint, out id bigint)` | 解析 `<seq>-<id>`；格式錯誤丟 `integration_cursor_invalid` |
+| `encode_sync_cursor(p_ctx sgn_internal.client_context, p_seq bigint, p_id bigint) returns text`、`decode_sync_cursor(p_ctx sgn_internal.client_context, p_cursor text, out seq bigint, out id bigint)` | 格式 `e<sync_epoch>.<seq>-<id>`。格式錯誤丟 `integration_cursor_invalid`；`sync_epoch` 與 `p_ctx.sync_epoch` 不同丟 `integration_resync_required` |
+| `encode_event_cursor(p_ctx sgn_internal.client_context, p_seq bigint) returns text`、`decode_event_cursor(p_ctx sgn_internal.client_context, p_cursor text) returns bigint` | 格式 `e<sync_epoch>.<seq>`；錯誤處理同上 |
+| `bump_sync_epoch(p_api_client_id bigint) returns void` | `sync_epoch` 加一，並發出只給這個呼叫方的 `sgn.client.visibility_changed`（`K-INT-SYNC-EPOCH`） |
 
-### 12.4 webhook、對帳、複查、證據、排程
+### 12.4 webhook、對帳、複查、變更申請、證據、排程
 
 | 簽章 | 行為 |
 |---|---|
 | `webhook_next_event(p_subscription_id bigint) returns jsonb` | 找出這個訂閱下一個要送的事件（序號大於 `delivered_seq`、類型符合、對呼叫方可見），回傳轉換後的事件；掃過而不符合的事件直接把 `delivered_seq` 往前推。沒有事件回 null |
 | `webhook_retry_delay(p_attempt_no integer) returns interval` | 依 7.6 的公式與參數 |
 | `disable_webhook_subscription(p_subscription_id bigint, p_reason text) returns void` | 改狀態、寫稽核事件、通知負責人與系統管理員 |
-| `compare_reconciliation_run(p_run_id bigint) returns void` | 依 8.5 |
-| `finding_fingerprint(p_api_client_id bigint, p_kind sgn.finding_kind, p_subject_key text, p_resource_type text, p_resource_id text, p_action text, p_entitlement_id bigint) returns bytea` | 依 8.5 |
+| `compare_reconciliation_step(p_run_id bigint) returns boolean` | 依 8.5 做一段；這個批次還有工作沒做完回 true |
+| `finding_fingerprint(p_api_client_id bigint, p_kind sgn.finding_kind, p_subject_key jsonb, p_resource_type text, p_resource_id text, p_action text, p_entitlement_id bigint) returns bytea` | 8.5 第三步的 SQL。`immutable` |
 | `open_access_review_campaign(p_campaign_id bigint) returns void` | 依 9.2 產生工作、通知複查人、發出事件 |
-| `resolve_review_reviewer(p_campaign_id bigint, p_grant_id bigint, p_scope_ref text) returns bigint` | 依 `reviewer_kind` 找人並套用 `K-INT-REVIEW-SOD`；回 null 代表交給系統管理員群組 |
-| `review_snapshot(p_grant_id bigint, p_scope_ref text) returns jsonb` | 回 `{"entitlements": [...], "sha256": "<hex>"}`：該授權（該範圍）目前未結束的權限項目，依 id 排序 |
+| `review_sod_violation(p_person_id bigint, p_grant_id bigint) returns boolean` | `K-INT-REVIEW-SOD` 的唯一判斷：這個人是該授權的申請人、主體本人、或主體（被授權者）現在的有效成員時回 true |
+| `resolve_review_reviewer(p_campaign_id bigint, p_grant_id bigint, p_scope_ref text) returns bigint` | 依 `reviewer_kind` 找人；`review_sod_violation` 為 true 就往上找直屬主管；回 null 代表交給系統管理員群組 |
+| `review_snapshot(p_grant_id bigint, p_scope_ref text) returns jsonb` | 回 `{"entitlements": [...], "sha256": "<hex>"}`，算法見下 |
+| `check_review_followup(p_case_id bigint) returns void` | 9.3 的追蹤核對（第 2 到 5 點）。由 `project_case` 在每次投影有改變時呼叫。追蹤變成 `done` 時，重算該授權各權限項目的 `revoke_risk_at`（只剩負責人寬限期的期限，沒有就是 null） |
 | `close_access_review_campaign_if_done(p_campaign_id bigint) returns void` | 依 9.6 |
-| `audit_event_to_native(p_ctx sgn_internal.client_context, p_seq bigint) returns jsonb` | 10.2 的格式；不可見回 null |
+| `validate_change_request(p_kind sgn.change_request_kind, p_target_id bigint, p_payload jsonb, p_actor bigint) returns jsonb` | 檢查內容是否合法（不合法丟對應的錯誤），並回傳 `impact`。提出與套用時都呼叫 |
+| `change_request_needs_approval(p_kind sgn.change_request_kind, p_target_id bigint, p_payload jsonb) returns boolean` | 4.9 表中「什麼時候需要覆核」的唯一判斷 |
+| `apply_change_request(p_request_id bigint) returns bigint` | 依 `kind` 套用 `payload`、寫該動作的稽核事件、回傳 `result_id`。只由覆核（或不需要覆核時由提出）的 function 呼叫 |
+| `audit_event_to_native(p_ctx sgn_internal.client_context, p_seq bigint) returns jsonb` | 10.2 的格式（依 scope 決定是否遮蔽）；不可見回 null |
 | `audit_event_to_ocsf(p_ctx sgn_internal.client_context, p_seq bigint) returns jsonb` | 10.3 的格式；不可見回 null |
+| `call_log_to_native(p_ctx sgn_internal.client_context, p_id bigint) returns jsonb`、`call_log_to_ocsf(p_ctx sgn_internal.client_context, p_id bigint) returns jsonb` | 10.3 的呼叫紀錄格式 |
+| `job_integration_consistency() returns jsonb` | 見 15.4 |
 | `job_integration_expiring() returns jsonb` | 見 15.4 |
 | `job_integration_client_hygiene() returns jsonb` | 見 15.4 |
 | `job_integration_call_log_seal() returns jsonb` | 見 15.4 |
@@ -3207,60 +3245,85 @@ create type sgn_internal.subject_ref as (
 | `job_access_review() returns jsonb` | 見 15.4 |
 | `job_evidence_checkpoint() returns jsonb` | 見 15.4 |
 
+`review_snapshot` 的算法（`p_scope_ref` 是 null 時不篩選範圍）：
+
+```sql
+select coalesce(jsonb_agg(jsonb_build_object(
+           'entitlement_id', e.id,
+           'revision', e.revision,
+           'resource_type', e.resource_type,
+           'resource_id', e.resource_id,
+           'actions', to_jsonb(e.actions),
+           'constraints', e.constraints,
+           'effective_from', to_char(e.effective_from at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'),
+           'effective_until', to_char(e.effective_until at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')
+       ) order by e.id), '[]'::jsonb)
+  into v_entitlements
+  from sgn.entitlement e
+ where e.grant_id = p_grant_id
+   and e.status <> 'ended'
+   and (p_scope_ref is null or e.scope_ref = p_scope_ref);
+
+v_sha256 := encode(digest(v_entitlements::text, 'sha256'), 'hex');
+```
+
 ### 12.5 `project_case` 的步驟
 
 規則 `K-INT-PROJECT`。
 
 1. 鎖住這張申請單既有的權限項目（`select … for update`），避免同一張單的兩次投影交錯。
-2. 讀申請單狀態、`grant`（如果有）、流程類型的選項。
-3. 申請單在 `draft`、`in_approval`、`returned`：既有未結束的項目全部改為 `ended`（原因 `cancelled`），跳到第 7 步。這種情況只會發生在已核准的單被退回重簽時。
-4. 呼叫 `call_describe_entitlements`，得到目標清單。決定主體：流程類型 `uses_principal` 為是取申請單的被授權者，否則取申請人。
-5. 依 3.4 算出每一筆目標項目的狀態與有效期間。
+2. 讀申請單狀態、`grant`（如果有）、流程類型的選項，決定主體：流程類型 `uses_principal` 為是取申請單的被授權者，否則取申請人。
+3. 申請單在 `draft`、`in_approval`、`returned`：既有未結束的項目全部改為 `ended`（原因 `cancelled`），跳到第 7 步。
+4. 主體無效（`subject_is_valid` 為 false）：既有未結束的項目全部改為 `ended`（原因 `subject_inactive`），跳到第 7 步。這時不呼叫 hook。
+5. 呼叫 `call_describe_entitlements`，得到目標清單；依 3.4 第二步算出每一筆目標項目的狀態與有效期間。
 6. 與既有未結束的項目比對，鍵是 (`resource_type`, `resource_id`)：
-   - 目標有、既有沒有：新增。
+   - 目標有、既有沒有：新增。例外：這張單的同一個資源已有一筆原因為 `subject_inactive` 的已結束項目時不新增（3.4）。
    - 既有有、目標沒有：改為 `ended`，原因 `removed`。
-   - 兩邊都有：動作、限制條件或 `scope_ref` 不同就更新並把 `revision` 加一；狀態、有效期間、`grant_id` 不同就更新。
+   - 兩邊都有：動作、限制條件或 `scope_ref` 不同就更新、把 `revision` 加一、更新 `updated_at`；狀態、有效期間、`grant_id` 不同就更新。
    - 目標狀態是 `ended`：既有的改為 `ended` 並填原因；既有沒有就不新增。
 7. 沒有任何改變就結束，不發事件。
 8. 有改變：依「這張單整體」的前後狀態決定事件類型。整體狀態的定義：有任何一筆 `active` 就是 `active`；否則有任何一筆 `pending` 就是 `pending`；否則是 `ended`（沒有項目也算 `ended`）。
 
 | 前 → 後 | 事件 |
 |---|---|
-| 不是 `active` → `active` | `sgn.grant.activated` |
+| `pending` 或 `ended`（或沒有）→ `active` | `sgn.grant.activated` |
 | `ended`（或沒有）→ `pending` | `sgn.grant.approved` |
+| `active` → `pending`（例如執行內容被退回重做而 `grant` 尚未建立） | `sgn.grant.changed`，`change_class` 是 `narrowed` |
 | 狀態相同（`active` 或 `pending`），項目有改變 | `sgn.grant.changed`，並依 7.1 算出 `change_class` |
 | → `ended`，全部項目的原因都是 `expired` | `sgn.grant.expired` |
 | → `ended`，全部項目的原因都是 `revoked` | `sgn.grant.revoked` |
-| → `ended`，其他 | `sgn.grant.ended` |
+| → `ended`，其他（含 `subject_inactive`） | `sgn.grant.ended` |
 
-9. 呼叫 `emit_integration_event`，把回傳的序號寫進這次所有被改變項目的 `sync_seq`。事件的 `rule_code` 取 `p_rule_code`。
-10. 這張單有複查工作的後續追蹤是 `pending`，而這次的 `change_class` 是 `narrowed` 或整體狀態變成 `ended`：把追蹤改為 `done` 並寫稽核事件。這張單有 `pending` 的複查工作而整體狀態變成 `ended`：工作改為 `not_applicable`。
+   上表涵蓋三種整體狀態的全部九種前後組合（`ended` → `ended` 而項目有改變時不發事件，只更新資料）。
 
-`project_case` 不寫稽核事件：造成改變的那個動作已經由核心寫過了。
+9. 呼叫 `emit_integration_event`，把回傳的序號寫進這次所有被改變項目的 `sync_seq`。事件的 `rule_code` 取 `p_rule_code`，沒有就取 `note_projection_rule` 記下的值。新增的項目如果屬於一筆有 `followup_status = 'pending'` 複查工作的授權，`revoke_risk_at` 設為該工作的 `followup_due_at`；被授權者正在負責人寬限期內時，再與寬限期限取較早的。
+10. 這張單有複查工作的後續追蹤是 `pending` 或 `pending_confirmation`：呼叫 `check_review_followup`。這張單有 `pending` 的複查工作而整體狀態變成 `ended`：工作改為 `not_applicable`。
+
+`project_case` 不寫稽核事件：造成改變的那個動作已經由核心寫過了。例外是 `job_integration_consistency` 發現不一致而重投影時，由那個工作寫稽核事件（2.2）。
 
 ## 13. 對外 function（schema `api`）
 
-共 60 個。全部符合工程規範的架構測試：`SECURITY DEFINER`、固定 `search_path`、第一個參數是 `p_actor`、有 `COMMENT`。
+共 75 個。全部符合工程規範的架構測試：`SECURITY DEFINER`、固定 `search_path`、第一個參數是 `p_actor`、有 `COMMENT`。
 
 三種呼叫者：
 
 | 類別 | `p_actor` | 身分怎麼確認 |
 |---|---|---|
-| 其他系統（27 個） | 一律傳 null；傳了非 null 丟 `integration_invalid_request` | 第二個參數 `p_token_sha256`，由 `sgn_internal.authenticate_client` 驗證 |
-| 後端自己（5 個） | 後端的系統身分（比照核心對寄信佇列 function 的規定） | 只供後端的 worker 與錯誤處理使用，不對應任何路由 |
-| 人（28 個） | 登入者 | 核心的角色檢查 |
+| 其他系統（30 個） | 一律傳 null；傳了非 null 丟 `integration_invalid_request` | 第二個參數 `p_token_sha256`，由 `sgn_internal.authenticate_client` 驗證 |
+| 後端自己（6 個） | 後端的系統身分（比照核心對寄信佇列 function 的規定） | 只供後端的 worker、錯誤處理與身分同步使用，不對應任何路由 |
+| 人（39 個） | 登入者 | 核心的角色檢查 |
 
-給其他系統的 function，除了兩個公開的中繼資料 function 與 token 換發，最後兩個參數固定是 `p_request_id text`（請求識別碼）與 `p_ip text`（來源 IP），而且都依同一個骨架執行：
+給其他系統的 function，除了兩個公開的中繼資料 function 與 token 換發，最後兩個參數固定是 `p_request_id text`（請求識別碼）與 `p_ip text`（來源 IP，取得方式見 4.10），而且都依同一個骨架執行：
 
 ```
-1. v_ctx := sgn_internal.authenticate_client(p_token_sha256, '<自己的名稱>');
+1. v_ctx := sgn_internal.authenticate_client(p_token_sha256, '<自己的名稱>', p_ip);
 2. 檢查輸入；
 3. 執行；
 4. perform sgn_internal.log_api_call(v_ctx, '<自己的名稱>', p_request_id, p_ip, <HTTP 狀態>, <筆數>, <摘要>);
 5. 回傳 jsonb。
 ```
 
-架構測試會檢查這 24 個 function 的原始碼都呼叫了 `authenticate_client` 與 `log_api_call`，而且在 `sgn.api_function_scope` 有一列。
+架構測試會檢查這 27 個 function 的原始碼都呼叫了 `authenticate_client` 與 `log_api_call`，而且在 `sgn.api_function_scope` 有一列。
 
 ### 13.1 給其他系統的 function
 
@@ -3270,24 +3333,27 @@ create type sgn_internal.subject_ref as (
 |---|---|---|---|
 | `integration_check` | `p_body jsonb` | `check` | 5.2、5.3 |
 | `integration_check_batch` | `p_body jsonb` | `check` | 5.4 |
+| `integration_usage_report` | `p_entitlement_id text, p_body jsonb` | `usage.write` | 5.7 |
 | `integration_grants_list` | `p_query jsonb` | `grants.read` | 6.2 到 6.4 |
 | `integration_grant_get` | `p_entitlement_id text` | `grants.read` | 單筆；不存在或不可見丟 `integration_not_found` |
+| `integration_principal_members` | `p_subject_id text, p_query jsonb` | `grants.read` | 6.5。參數 `subject_provider`、`page_token`、`limit` |
 | `integration_events_list` | `p_query jsonb` | `events.read` | 7.3 |
 | `integration_webhook_list` | — | `webhooks.manage` | 自己未刪除的訂閱 |
 | `integration_webhook_create` | `p_body jsonb` | `webhooks.manage` | 7.5。回傳內容另帶 `secret_version`，由後端換成 `secret` |
 | `integration_webhook_get` | `p_endpoint_id text` | `webhooks.manage` | 單筆 |
-| `integration_webhook_update` | `p_endpoint_id text, p_body jsonb` | `webhooks.manage` | 可改 `event_types`、`description`、`status`（`enabled`、`paused`）、`resume_from`。網址不可改（要換網址就刪除重建） |
+| `integration_webhook_update` | `p_endpoint_id text, p_body jsonb` | `webhooks.manage` | 可改 `event_types`、`description`、`status`（`enabled`、`paused`）、`resume_from`；狀態轉移依 7.5 的表。網址不可改（要換網址就刪除重建） |
 | `integration_webhook_delete` | `p_endpoint_id text` | `webhooks.manage` | 軟刪除。回傳 `void` |
 | `integration_webhook_rotate_secret` | `p_endpoint_id text` | `webhooks.manage` | `secret_version` 加一並設定重疊期。回傳內容帶 `secret_version`，由後端換成 `secret` |
-| `integration_webhook_ping` | `p_endpoint_id text` | `webhooks.manage` | 設定 `ping_pending`，由 worker 送出。回傳訂閱內容 |
+| `integration_webhook_ping` | `p_endpoint_id text` | `webhooks.manage` | 設定 `ping_pending`，由 worker 送出。回傳訂閱內容。`disabled` 的訂閱丟 `webhook_status_invalid` |
 | `integration_reconciliation_run_create` | `p_body jsonb` | `reconciliation.write` | 8.2 |
 | `integration_reconciliation_items_add` | `p_run_id text, p_body jsonb` | `reconciliation.write` | 8.3 |
 | `integration_reconciliation_run_complete` | `p_run_id text, p_body jsonb` | `reconciliation.write` | 8.4 |
 | `integration_reconciliation_run_get` | `p_run_id text` | `reconciliation.write` | 只能看自己的批次。`completed` 時 `summary` 有值 |
-| `integration_reconciliation_findings_list` | `p_query jsonb` | `reconciliation.write` | 只能看自己的發現。參數：`status`（預設 `open,acknowledged`）、`kind`、`run_id`、`page_token`、`limit` |
+| `integration_reconciliation_findings_list` | `p_query jsonb` | `reconciliation.write` | 只能看自己的發現，輸出依 8.6 的兩種版本。參數：`status`（預設 `open,acknowledged,pending_verification`）、`kind`、`run_id`、`page_token`、`limit` |
 | `integration_reviews_list` | `p_query jsonb` | `reviews.read` | 可見流程類型的各輪複查（不含工作明細）。參數：`process_type`、`status`、`page_token`、`limit` |
-| `integration_review_get` | `p_review_no text` | `reviews.read` | 一輪複查與每件工作的結果 |
-| `integration_audit_events_list` | `p_query jsonb` | `audit.read` | 10.2、10.3。呼叫方有 `audit.read_all` 時回全部 |
+| `integration_review_get` | `p_review_no text` | `reviews.read` | 一輪複查與可見的工作（9.6） |
+| `integration_audit_events_list` | `p_query jsonb` | `audit.read` | 10.2、10.3。呼叫方有 `audit.read_all` 時回全部、不遮蔽 |
+| `integration_audit_calls_list` | `p_query jsonb` | `audit.read_all` | 10.3 的呼叫紀錄 |
 | `integration_evidence_chain` | `p_query jsonb` | `evidence.read` | 雜湊鏈骨架：`{"items": [{"seq", "prev_hash", "hash"}], "next_cursor", "has_more"}`。參數 `after`、`limit` |
 | `integration_evidence_chain_head` | — | `evidence.read` | 10.4 |
 | `integration_evidence_checkpoints_list` | `p_query jsonb` | `evidence.read` | 已簽章的檢查點，依 id 遞增。參數 `after`（檢查點 id）、`limit` |
@@ -3301,7 +3367,7 @@ api.integration_token_issue(
     p_grant_type text, p_scope text, p_request_id text, p_ip text) returns jsonb
 ```
 
-回傳 `{"http_status": 200, "body": {…}}` 或 `{"http_status": 400|401|429, "body": {"error": "…", "error_description": "…"}}`。失敗時不丟例外，因為失敗的嘗試也要計數並留紀錄（丟例外會讓交易回復）。行為見 4.3。
+回傳 `{"http_status": 200, "body": {…}}` 或 `{"http_status": 400|401|429, "body": {"error": "…", "error_description": "…"}}`。失敗時不丟例外：失敗的嘗試要計數並留紀錄，丟例外會讓交易回復。處理順序與兩種計數見 4.3；來源位址的檢查見 4.10。成功時另外更新憑證的 `last_used_at` 與 `api_client_source_seen`。
 
 ```sql
 api.integration_authzen_metadata(p_actor bigint) returns jsonb    -- 5.1 的中繼資料；公開
@@ -3320,6 +3386,7 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
   "scopes_supported": [
     "check",
     "grants.read",
+    "usage.write",
     "events.read",
     "webhooks.manage",
     "reconciliation.write",
@@ -3339,6 +3406,10 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
     "sgn.principal.owner_changed",
     "sgn.principal.owner_at_risk",
     "sgn.principal.membership_changed",
+    "sgn.principal.identity_changed",
+    "sgn.person.identity_changed",
+    "sgn.client.visibility_changed",
+    "sgn.reconciliation.run_completed",
     "sgn.reconciliation.finding_opened",
     "sgn.reconciliation.finding_closed",
     "sgn.review.campaign_opened",
@@ -3357,11 +3428,25 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 
 | 簽章 | 用途 |
 |---|---|
-| `integration_record_failure(p_actor bigint, p_token_sha256 bytea, p_function_name text, p_http_status integer, p_error_code text, p_request_id text, p_ip text, p_duration_ms integer) returns void` | 整合端點回應 4xx、5xx 時，後端呼叫它補一筆呼叫紀錄。token 找得到就記下 `api_client`，找不到就留 null。不驗證、不計數 |
+| `integration_record_failure(p_actor bigint, p_token_sha256 bytea, p_function_name text, p_http_status integer, p_error_code text, p_request_id text, p_ip text, p_duration_ms integer) returns void` | 整合端點回應 4xx、5xx 時，後端呼叫它（獨立的交易）。處理見下 |
+| `integration_principal_identity_sync(p_actor bigint, p_items jsonb) returns jsonb` | 人員與組織 port 同步被授權者的外部識別碼。`p_items` 是 `[{"principal_id", "provider", "external_id"}]`（`external_id` 為 null 表示移除）；逐筆呼叫 `set_principal_identity` 或 `remove_principal_identity`（`source = 'sync'`）。回傳各筆的結果（`unchanged`、`set`、`removed`、`conflict`）；`conflict`（識別碼已對應到別的被授權者）不套用、寫稽核事件並通知系統管理員 |
 | `integration_webhook_claim(p_actor bigint, p_limit integer) returns jsonb` | 領取要送的 webhook（見下） |
-| `integration_webhook_report(p_actor bigint, p_subscription_id bigint, p_webhook_id text, p_event_seq bigint, p_http_status integer, p_error text, p_retry_after_seconds integer, p_duration_ms integer) returns void` | 回報一次嘗試的結果（見下） |
+| `integration_webhook_report(p_actor bigint, p_subscription_id bigint, p_webhook_id text, p_event_seq bigint, p_http_status integer, p_error_kind text, p_retry_after_seconds integer, p_duration_ms integer) returns void` | 回報一次嘗試的結果（見下） |
 | `evidence_checkpoint_claim(p_actor bigint, p_limit integer) returns jsonb` | 領取尚未簽章的檢查點：`[{"checkpoint_id", "payload"}]`，並設定租約 |
 | `evidence_checkpoint_attach(p_actor bigint, p_checkpoint_id bigint, p_signature_jws text, p_signing_key_id text, p_tsa_token bytea) returns void` | 寫入簽章，然後發出 `sgn.evidence.checkpoint` 事件。已有簽章時不做任何事 |
+
+`integration_record_failure` 的處理：
+
+1. 以 token 的雜湊找 `api_access_token`（包含已過期的），取得 `api_client`；找不到就是 null。
+2. `p_http_status` 是 401 或 403 時，`internal_reason` 取 `sgn_internal.explain_auth_failure` 的結果。
+3. 計數與是否寫呼叫紀錄：
+
+| 情況 | 計數 | 寫呼叫紀錄 |
+|---|---|---|
+| 401（沒有通過驗證；不論 token 找不找得到） | `api_auth_failure_counter` 的 `('ip', sha256(p_ip))`；找得到 `api_client` 時另外累加 `('client', sha256(該系統的代碼))`，並依 4.3 的門檻示警。**不**累加該系統的 `api` 或 `error` 計數：拿著偷來的 token 從別的位址亂試的人，不能讓正牌系統被限流 | 同一個來源位址這一分鐘的次數不超過 `integration.unauth_log_per_ip_per_minute` 時才寫 |
+| 429 | `throttled` | 這一分鐘的 `throttled` 次數不超過 `integration.unauth_log_per_ip_per_minute` 時才寫 |
+| 其他 400 到 499 | `api` 與 `error`。`error` 這一次剛好達到上限、而且 `error_alerted_at` 是 null 或超過一小時：通知負責人、寫稽核事件（`integration.error_limit_reached`）、更新 `error_alerted_at` | 一律寫 |
+| 500 以上 | `api` | 一律寫 |
 
 `integration_webhook_claim` 選出符合下列條件的訂閱（`for update skip locked`，最多 `p_limit` 個）：未刪除；`api_client` 是 `active`；狀態是 `enabled`，或是 `pending_verification` 且 `ping_pending`；`next_attempt_at` 是 null 或已到；`lease_until` 是 null 或已過。對每一個：`ping_pending` 為 true 就送 ping，否則取 `sgn_internal.webhook_next_event`；沒有東西要送就略過。把 `lease_until` 設為現在加上逾時秒數再加 30 秒。回傳：
 
@@ -3385,52 +3470,72 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 
 `integration_webhook_report` 的處理：
 
-1. 寫一筆 `webhook_attempt`。
+1. 寫一筆 `webhook_attempt`（`p_error_kind` 必須是 11.6 列出的值或 null）。
 2. `p_event_seq` 與訂閱目前等待的事件不同（已被別的回報處理）：到此為止。
-3. `p_http_status` 在 200 到 299：ping 就清掉 `ping_pending`，並把 `pending_verification` 改為 `enabled`；事件就把 `delivered_seq` 設為 `p_event_seq`。清掉 `attempt_count`、`next_attempt_at`、`lease_until`，更新 `last_success_at`。
+3. `p_http_status` 在 200 到 299：ping 就清掉 `ping_pending`，並把 `pending_verification` 改為 `enabled`（訂閱有暫存的 `resume_from = 'tail'` 時，同時把 `delivered_seq` 推到目前最新的事件，然後清掉暫存）；事件就把 `delivered_seq` 設為 `p_event_seq`。清掉 `attempt_count`、`next_attempt_at`、`lease_until`，更新 `last_success_at`。
 4. `p_http_status` 是 410：`disable_webhook_subscription(…, 'gone')`。
 5. 其他：`attempt_count` 加一。達到 `integration.webhook_max_attempts` 就 `disable_webhook_subscription(…, 'delivery_exhausted')`；否則 `next_attempt_at` 設為現在加上 `webhook_retry_delay(attempt_count)`，有 `p_retry_after_seconds` 時取兩者較晚的（上限是重試間隔的上限）。清掉 `lease_until`，更新 `last_failure_at`。
 
 ### 13.3 給人使用的 function
 
-回傳物件都帶 `allowed_actions`（登入者對這筆資料可以做的動作），前端依它顯示按鈕。
+回傳物件都帶 `allowed_actions`（登入者對這筆資料可以做的動作），前端依它顯示按鈕。表中的 `sys_admin`、`auditor` 是 2.1 兩個 function 回傳的角色。
+
+需要覆核的動作（4.9）回傳 `{"change_request": {…}, "applied": false}`；不需要覆核而立即套用的回傳 `{"change_request": {…}, "applied": true, "result": {…}}`。
 
 | 簽章 | 誰可以呼叫 | 行為與規則 |
 |---|---|---|
 | `api_client_list(p_actor bigint) returns jsonb` | `sys_admin`、`auditor` | 全部 `api_client` 的摘要 |
-| `api_client_get(p_actor bigint, p_client_id bigint) returns jsonb` | `sys_admin`、`auditor`、該系統的負責人 | 含可見範圍、憑證（只有 `secret_hint` 與日期）、訂閱數 |
-| `api_client_create(p_actor bigint, p_data jsonb, p_reason text) returns jsonb` | `sys_admin` | `p_data`：`code`、`name`、`description`、`owner_person_id`、`identity_provider`、`scopes`、`visibility`（`[{"process_type", "resource_type", "resource_id_prefix"}]`）、`allowed_webhook_origins`。檢查：代碼未被使用；負責人在職；scope 都存在；`audit.read_all` 必須搭配 `audit.read`；`visibility` 至少一列（scope 只包含 `evidence.read`、`audit.read`、`audit.read_all` 時可以沒有）。`K-INT-CLIENT-AUTH` |
-| `api_client_update(p_actor bigint, p_client_id bigint, p_data jsonb, p_reason text) returns jsonb` | `sys_admin` | 可改 `code` 以外的欄位；`visibility` 整組取代。縮小 scope 立即生效（下一次呼叫就檢查）。從 `allowed_webhook_origins` 移除的來源，對應的訂閱被停用 |
+| `api_client_get(p_actor bigint, p_client_id bigint) returns jsonb` | `sys_admin`、`auditor`、該系統的負責人 | 含可見範圍、來源位址、憑證（只有 `secret_hint`、狀態與日期）、訂閱數、進行中的變更申請 |
+| `api_client_create(p_actor bigint, p_data jsonb, p_reason text) returns jsonb` | `sys_admin` | 提出登記的變更申請（一律需要覆核）。`p_data`：`code`、`name`、`description`、`owner_person_id`、`identity_provider`、`allowed_providers`、`provider_sgn_reason`、`scopes`、`visibility`（`[{"process_type", "resource_type", "resource_id_prefix"}]`）、`allowed_source_cidrs`、`source_any_reason`、`token_binding`、`constraint_mode`、`constraint_mode_reason`、`allowed_webhook_origins`、`upload_enabled`、`confirm_limited_audit_scope`。檢查依 4.1、4.10：代碼未被使用；負責人在職而且不是提出人；scope 都存在；`audit.read_all` 必須搭配 `audit.read`；`visibility` 至少一列（scope 只包含 `evidence.read`、`audit.read`、`audit.read_all` 時可以沒有）；來源位址與 `advisory` 的條件。`K-INT-CLIENT-AUTH`、`K-INT-DUAL-CONTROL` |
+| `api_client_update(p_actor bigint, p_client_id bigint, p_data jsonb, p_reason text) returns jsonb` | `sys_admin` | 可改 `code` 以外的欄位；`visibility` 整組取代。只有收緊時立即套用，否則成為變更申請（4.9 的判斷）。套用時：縮小 scope 立即生效（下一次呼叫就檢查）；從 `allowed_webhook_origins` 移除的來源，對應的訂閱被停用；可見範圍、`identity_provider` 或 `allowed_providers` 有改變時呼叫 `bump_sync_epoch` |
 | `api_client_set_status(p_actor bigint, p_client_id bigint, p_status text, p_reason text) returns jsonb` | `sys_admin` | `active` ↔ `suspended`；任何狀態 → `disabled`；`disabled` 不能再改。效果見 4.6 |
-| `api_client_credential_create(p_actor bigint, p_client_id bigint, p_expires_at timestamptz, p_reason text) returns jsonb` | `sys_admin` | 回傳 `{"credential_id", "client_id", "client_secret", "secret_hint", "expires_at"}`；`client_secret` 只出現這一次。檢查到期日上限與有效憑證數上限。`K-INT-CRED-EXPIRE` |
-| `api_client_credential_revoke(p_actor bigint, p_credential_id bigint, p_reason text) returns void` | `sys_admin` | 撤銷憑證與由它換發的 token |
+| `api_client_credential_create(p_actor bigint, p_client_id bigint, p_expires_at timestamptz, p_reason text) returns jsonb` | `sys_admin`、該系統的負責人 | 提出建立憑證的變更申請（一律需要覆核）。檢查到期日上限與有效憑證數上限。套用時建立一筆待領取的憑證並通知負責人。`K-INT-CRED-EXPIRE` |
+| `api_client_credential_claim(p_actor bigint, p_credential_id bigint) returns jsonb` | 只有該系統的負責人（`credential_claim_not_owner`） | 產生密鑰並回傳 `{"credential_id", "client_id", "client_secret", "secret_hint", "expires_at"}`；`client_secret` 只出現這一次。已領取丟 `credential_already_claimed`；超過領取期限或已撤銷丟 `credential_not_claimable`。寫稽核事件 |
+| `api_client_credential_revoke(p_actor bigint, p_credential_id bigint, p_reason text) returns void` | `sys_admin`、該系統的負責人 | 撤銷憑證與由它換發的 token |
+| `integration_change_request_list(p_actor bigint, p_filter jsonb, p_page jsonb) returns jsonb` | `sys_admin`、`auditor`；其他人只看自己提出的 | 篩選：`status`、`kind` |
+| `integration_change_request_get(p_actor bigint, p_request_id bigint) returns jsonb` | 同上 | 含 `payload`、`impact`、與目前設定的差異、各步驟的人與時間 |
+| `integration_change_request_approve(p_actor bigint, p_request_id bigint, p_note text) returns jsonb` | 依 4.9：覆核人要有 `sys_admin`；會簽人要有 `auditor` | 登入者符合覆核人的條件、而且還沒有人覆核：記為覆核。登入者有 `auditor`、申請需要會簽而還沒有會簽：記為會簽。兩者（需要時）都完成的那一次，在同一個交易內呼叫 `apply_change_request`。不符合任何一種丟 `change_request_self_approval` 或 `change_request_approver_not_independent` |
+| `integration_change_request_reject(p_actor bigint, p_request_id bigint, p_note text) returns jsonb` | 可以覆核或會簽的人 | 說明必填。狀態改為 `rejected` |
+| `integration_change_request_withdraw(p_actor bigint, p_request_id bigint, p_note text) returns jsonb` | 提出人 | 狀態改為 `withdrawn` |
 | `api_call_log_search(p_actor bigint, p_filter jsonb, p_page jsonb) returns jsonb` | `sys_admin`、`auditor` | 篩選：`api_client`、期間、function、狀態碼、`request_id` |
-| `integration_status(p_actor bigint) returns jsonb` | `sys_admin`、`auditor` | 設定頁「整合狀態」的資料：每個系統的狀態、憑證到期日、最後呼叫時間、近 24 小時的呼叫數與錯誤數、訂閱狀態、最後完成的對帳與是否逾期、未結案發現數；以及最新檢查點與尚未簽章的檢查點數 |
+| `integration_status(p_actor bigint) returns jsonb` | `sys_admin`、`auditor` | 設定頁「整合狀態」的資料，內容見下 |
 | `webhook_subscription_list(p_actor bigint, p_client_id bigint) returns jsonb` | `sys_admin`、`auditor`、該系統的負責人 | 含最近 20 次嘗試 |
-| `webhook_subscription_set_status(p_actor bigint, p_subscription_id bigint, p_status text, p_reason text) returns jsonb` | `sys_admin` | `enabled`、`paused`、`disabled` |
-| `principal_identity_set(p_actor bigint, p_principal_id bigint, p_provider text, p_external_id text, p_reason text) returns void` | `sys_admin`、該被授權者的負責人 | 每個被授權者每個 provider 一筆；已存在就取代。寫稽核事件 |
-| `principal_identity_remove(p_actor bigint, p_principal_id bigint, p_provider text, p_reason text) returns void` | 同上 | |
+| `webhook_subscription_set_status(p_actor bigint, p_subscription_id bigint, p_status text, p_reason text) returns jsonb` | `sys_admin` | `paused`、`disabled`，以及把 `paused` 改回 `enabled`。把 `disabled` 改回 `enabled` 只能由該系統自己以 7.5 的端點做（要重新驗證） |
+| `principal_identity_set(p_actor bigint, p_principal_id bigint, p_provider text, p_external_id text, p_reason text) returns jsonb` | `sys_admin` | 提出變更申請（一律需要覆核；覆核人不得是該被授權者的負責人或成員）。`impact` 帶要取代的舊值、該識別碼目前是否已對應到別的被授權者、相關的未結案對帳發現數。套用時呼叫 `set_principal_identity`。`K-INT-IDENTITY` |
+| `principal_identity_remove(p_actor bigint, p_principal_id bigint, p_provider text, p_reason text) returns jsonb` | `sys_admin` | 同上，套用時呼叫 `remove_principal_identity` |
 | `reconciliation_run_list(p_actor bigint, p_filter jsonb, p_page jsonb) returns jsonb` | `sys_admin`、`auditor`；負責人只看自己系統的 | |
-| `reconciliation_run_get(p_actor bigint, p_run_id bigint) returns jsonb` | 同上 | 含統計、回報內容的雜湊、產生與結案的發現 |
-| `reconciliation_finding_list(p_actor bigint, p_filter jsonb, p_page jsonb) returns jsonb` | `sys_admin`、`auditor`；負責人與升級對象只看指派給自己的 | 首頁「待我處理」會用到 |
+| `reconciliation_run_get(p_actor bigint, p_run_id bigint) returns jsonb` | 同上 | 含統計、回報內容的雜湊、上傳人與檔案雜湊、產生與結案的發現 |
+| `reconciliation_run_upload(p_actor bigint, p_api_client_id bigint, p_scope jsonb, p_observed_at timestamptz, p_items jsonb, p_file_sha256 text, p_reason text) returns jsonb` | 該系統的負責人，而且該系統 `upload_enabled`（否則 `reconciliation_upload_not_allowed`） | 8.9。`p_scope` 是 `{"process_type", "resource_type", "resource_id_prefix"}`。`K-INT-RECON-UPLOAD` |
+| `reconciliation_run_review(p_actor bigint, p_run_id bigint, p_decision text, p_note text) returns jsonb` | `sys_admin`，而且不是該系統的負責人、不是這個批次的上傳人 | 8.5 的異常批次。`p_decision` 是 `accept` 或 `discard`；說明必填；批次不是 `needs_review` 丟 `reconciliation_run_not_reviewable`。`K-INT-RECON-ANOMALY` |
+| `reconciliation_finding_list(p_actor bigint, p_filter jsonb, p_page jsonb) returns jsonb` | `sys_admin`、`auditor`；負責人與升級對象只看指派給自己的；可以確認的人另外看得到等待自己確認的 | 首頁「待我處理」會用到 |
 | `reconciliation_finding_get(p_actor bigint, p_finding_id bigint) returns jsonb` | 同上 | 含歷程 |
 | `reconciliation_finding_acknowledge(p_actor bigint, p_finding_id bigint, p_note text) returns jsonb` | 負責人、升級對象 | 填寫處理說明，狀態改為 `acknowledged`。說明必填 |
-| `reconciliation_finding_dismiss(p_actor bigint, p_finding_id bigint, p_reason_code text, p_note text) returns jsonb` | `sys_admin`，而且不是這筆發現的負責人 | `K-INT-RECON-CLOSE` |
+| `reconciliation_finding_verify(p_actor bigint, p_finding_id bigint, p_result text, p_note text) returns jsonb` | 8.7「獨立確認」列出的人 | `p_result` 是 `confirmed` 或 `rejected`；說明必填。發現不是 `pending_verification` 丟 `finding_not_pending_verification`；登入者不獨立丟 `finding_verifier_not_independent`。`K-INT-RECON-VERIFY` |
+| `reconciliation_finding_dismiss(p_actor bigint, p_finding_id bigint, p_reason_code text, p_note text) returns jsonb` | `sys_admin`，而且符合 8.7「人工排除」的獨立條件 | `K-INT-RECON-CLOSE` |
 | `access_review_campaign_create(p_actor bigint, p_data jsonb, p_reason text) returns jsonb` | `sys_admin` | 9.1。`starts_at` 已到就立即開始 |
-| `access_review_campaign_cancel(p_actor bigint, p_campaign_id bigint, p_reason text) returns jsonb` | `sys_admin` | 9.6 |
+| `access_review_campaign_cancel(p_actor bigint, p_campaign_id bigint, p_reason text) returns jsonb` | `sys_admin` | 9.6。`scheduled` 的立即取消；`open` 的成為變更申請。`K-INT-REVIEW-CANCEL` |
 | `access_review_campaign_list(p_actor bigint, p_filter jsonb, p_page jsonb) returns jsonb` | `sys_admin`、`auditor` | |
 | `access_review_campaign_get(p_actor bigint, p_campaign_id bigint) returns jsonb` | `sys_admin`、`auditor` | 含統計與全部工作 |
-| `access_review_item_list(p_actor bigint, p_filter jsonb, p_page jsonb) returns jsonb` | 任何登入者 | 預設列出「等我決定」的工作：我是複查人、我是複查人目前的代理人，或工作交給系統管理員群組而我是 `sys_admin` 且不違反職責分離。`sys_admin`、`auditor` 可以依一輪複查篩選全部 |
-| `access_review_item_get(p_actor bigint, p_item_id bigint) returns jsonb` | 可以決定這件工作的人、`sys_admin`、`auditor` | 含授權摘要、目前的權限項目、`snapshot_sha256`、前次複查的決定 |
-| `access_review_item_decide(p_actor bigint, p_item_id bigint, p_decision text, p_note text, p_snapshot_sha256 text, p_ip text, p_device text) returns jsonb` | 可以決定這件工作的人 | 9.3 |
-| `access_review_item_decide_batch(p_actor bigint, p_items jsonb, p_note text, p_ip text, p_device text) returns jsonb` | 同上 | `p_items` 是 `[{"item_id", "snapshot_sha256"}]`；決定固定是 `maintain`。逐件檢查，每件各留一筆稽核事件；任何一件不合格，整批失敗 |
+| `access_review_item_list(p_actor bigint, p_filter jsonb, p_page jsonb) returns jsonb` | 任何登入者 | 預設列出「等我處理」的工作：我是複查人、我是複查人目前的代理人、工作交給系統管理員群組而我是 `sys_admin` 且不違反職責分離、或後續追蹤等我確認。`sys_admin`、`auditor` 可以依一輪複查篩選全部。被授權者的負責人另外看得到自己可以填需求確認的工作 |
+| `access_review_item_get(p_actor bigint, p_item_id bigint) returns jsonb` | 可以決定這件工作的人、該被授權者的負責人、`sys_admin`、`auditor` | 含授權摘要、目前的權限項目、`snapshot_sha256`、負責人的需求確認、前次複查的決定、是否必須填說明 |
+| `access_review_item_attest(p_actor bigint, p_item_id bigint, p_still_needed boolean, p_note text) returns jsonb` | 該授權的被授權者負責人 | 9.2 的需求確認。工作必須是 `pending`；說明必填；可以重填，每次各寫一筆稽核事件 |
+| `access_review_item_decide(p_actor bigint, p_item_id bigint, p_decision text, p_note text, p_reduce_spec jsonb, p_snapshot_sha256 text, p_ip text, p_device text) returns jsonb` | 可以決定這件工作的人（做決定時再檢查一次 `review_sod_violation`） | 9.3。`p_reduce_spec` 只在 `reduce` 時給 |
+| `access_review_item_decide_batch(p_actor bigint, p_items jsonb, p_note text, p_ip text, p_device text) returns jsonb` | 同上 | `p_items` 是 `[{"item_id", "snapshot_sha256"}]`；決定固定是 `maintain`。逐件檢查（含是否必須填說明），每件各留一筆稽核事件；任何一件不合格，整批失敗 |
+| `access_review_followup_confirm(p_actor bigint, p_item_id bigint, p_accept boolean, p_note text) returns jsonb` | 原本做決定的人；他不在職或違反職責分離時是他的直屬主管 | 9.3 第 4 點。追蹤不是 `pending_confirmation` 丟 `review_followup_not_pending_confirmation`；說明必填 |
 | `evidence_checkpoint_list(p_actor bigint, p_page jsonb) returns jsonb` | `sys_admin`、`auditor` | 稽核查詢畫面「雜湊鏈驗證」顯示檢查點與簽章狀態 |
+
+`integration_status` 的內容：
+
+- 每個系統：狀態、負責人、憑證到期日、待領取的憑證、最後呼叫時間、近 24 小時的呼叫數與錯誤數、`no_entitlement` 的比例、今天查詢的不同主體數（超過 `integration.distinct_subjects_alert_per_day` 時標示，並在第一次超過時通知系統管理員、寫稽核事件）、驗證失敗示警、失敗上限示警、近 30 天第一次出現的來源位址、`constraint_mode`、訂閱狀態、最後完成的對帳與是否逾期、8.8 的對帳統計、未結案與等待確認的發現數。
+- 全域：最新檢查點、尚未簽章的檢查點數、簽章是否停擺（10.4）、尚未封存的呼叫紀錄筆數、等待覆核的變更申請數、最近一次投影不一致的時間（2.2）、用量超出核准的筆數（5.7）、系統管理員是否只有一位（4.9）。
 
 ## 14. REST 端點
 
 ### 14.1 給其他系統的端點
 
-共 28 個。路徑固定，不加本站的 `/api` 前綴。除註明外：請求與回應都是 `application/json`；需要 `Authorization: Bearer <token>`；回應帶 `Cache-Control: no-store` 與 `X-Request-ID`（請求有帶就原樣回傳，沒有帶就由後端產生）。
+共 31 個。路徑固定，不加本站的 `/api` 前綴。除註明外：請求與回應都是 `application/json`；需要 `Authorization: Bearer <token>`；回應帶 `Cache-Control: no-store` 與 `X-Request-ID`。
+
+`X-Request-ID`：請求帶的值符合 `^[A-Za-z0-9._-]{1,64}$` 時原樣回傳並寫進呼叫紀錄；沒有帶、或不符合這個格式時，後端捨棄它並自己產生一個（UUID）。不符合格式的值不會出現在回應、紀錄或任何匯出裡。
 
 | # | 方法與路徑 | function | scope | 成功 | 請求與回應 |
 |---|---|---|---|---|---|
@@ -3440,55 +3545,83 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | 4 | `GET /integration/v1/jwks.json` | 無（後端從部署設定產生） | 公開 | 200 | 10.4。帶 `Cache-Control: max-age=3600` |
 | 5 | `POST /integration/v1/access/v1/evaluation` | `integration_check` | `check` | 200 | 5.2 |
 | 6 | `POST /integration/v1/access/v1/evaluations` | `integration_check_batch` | `check` | 200 | 5.4 |
-| 7 | `GET /integration/v1/grants` | `integration_grants_list` | `grants.read` | 200 | 6.2 到 6.4 |
-| 8 | `GET /integration/v1/grants/{entitlement_id}` | `integration_grant_get` | `grants.read` | 200 | 6.3 的單筆 |
-| 9 | `GET /integration/v1/events` | `integration_events_list` | `events.read` | 200 | 7.3 |
-| 10 | `GET /integration/v1/webhooks` | `integration_webhook_list` | `webhooks.manage` | 200 | `{"items": [訂閱…]}`（不含 `secret`） |
-| 11 | `POST /integration/v1/webhooks` | `integration_webhook_create` | `webhooks.manage` | 201 | 7.5 |
-| 12 | `GET /integration/v1/webhooks/{endpoint_id}` | `integration_webhook_get` | `webhooks.manage` | 200 | 訂閱（不含 `secret`） |
-| 13 | `PATCH /integration/v1/webhooks/{endpoint_id}` | `integration_webhook_update` | `webhooks.manage` | 200 | 請求：`event_types`、`description`、`status`、`resume_from` 的任意組合。回應：訂閱 |
-| 14 | `DELETE /integration/v1/webhooks/{endpoint_id}` | `integration_webhook_delete` | `webhooks.manage` | 204 | — |
-| 15 | `POST /integration/v1/webhooks/{endpoint_id}/rotate-secret` | `integration_webhook_rotate_secret` | `webhooks.manage` | 200 | 回應：訂閱加 `secret` |
-| 16 | `POST /integration/v1/webhooks/{endpoint_id}/ping` | `integration_webhook_ping` | `webhooks.manage` | 202 | 回應：訂閱 |
-| 17 | `POST /integration/v1/reconciliation/runs` | `integration_reconciliation_run_create` | `reconciliation.write` | 201 | 8.2 |
-| 18 | `POST /integration/v1/reconciliation/runs/{run_id}/items` | `integration_reconciliation_items_add` | `reconciliation.write` | 200 | 8.3。請求內容上限 2 MB |
-| 19 | `POST /integration/v1/reconciliation/runs/{run_id}/complete` | `integration_reconciliation_run_complete` | `reconciliation.write` | 202 | 8.4 |
-| 20 | `GET /integration/v1/reconciliation/runs/{run_id}` | `integration_reconciliation_run_get` | `reconciliation.write` | 200 | 8.2 的批次；`summary` 是 `{"items": {"covered", "tolerated", "exceeds_approved", "ended_still_present", "unapproved"}, "missing", "findings_opened", "findings_resolved"}` |
-| 21 | `GET /integration/v1/reconciliation/findings` | `integration_reconciliation_findings_list` | `reconciliation.write` | 200 | `{"items": [8.6 的發現…], "next_page_token"}` |
-| 22 | `GET /integration/v1/reviews/campaigns` | `integration_reviews_list` | `reviews.read` | 200 | `{"items": [{"review_no", "name", "process_type", "status", "starts_at", "due_at", "item_count", "summary"}], "next_page_token"}` |
-| 23 | `GET /integration/v1/reviews/campaigns/{review_no}` | `integration_review_get` | `reviews.read` | 200 | 上列欄位，加 `reviewer_kind`、`no_response_action`、`result_sha256`、`items`：`[{"item_id", "grant_id", "case_no", "subject", "scope_ref", "reviewer", "status", "decision", "decided_by", "decided_on_behalf_of", "decided_at", "reassign_reason", "followup_status", "snapshot_sha256"}]` |
-| 24 | `GET /integration/v1/audit/events` | `integration_audit_events_list` | `audit.read` | 200 | 10.2、10.3 |
-| 25 | `GET /integration/v1/evidence/chain` | `integration_evidence_chain` | `evidence.read` | 200 | 13.1 |
-| 26 | `GET /integration/v1/evidence/chain-head` | `integration_evidence_chain_head` | `evidence.read` | 200 | 10.4 |
-| 27 | `GET /integration/v1/evidence/checkpoints` | `integration_evidence_checkpoints_list` | `evidence.read` | 200 | `{"items": [10.4 的檢查點…], "next_cursor", "has_more"}` |
-| 28 | `GET /integration/v1/evidence/checkpoints/{checkpoint_id}` | `integration_evidence_checkpoint_get` | `evidence.read` | 200 | 10.4 的檢查點 |
+| 7 | `POST /integration/v1/grants/{entitlement_id}/usage` | `integration_usage_report` | `usage.write` | 201（相同的 `usage_key` 重送是 200） | 5.7 |
+| 8 | `GET /integration/v1/grants` | `integration_grants_list` | `grants.read` | 200 | 6.2 到 6.4 |
+| 9 | `GET /integration/v1/grants/{entitlement_id}` | `integration_grant_get` | `grants.read` | 200 | 6.3 的單筆 |
+| 10 | `GET /integration/v1/principals/{subject_id}/members` | `integration_principal_members` | `grants.read` | 200 | 6.5 |
+| 11 | `GET /integration/v1/events` | `integration_events_list` | `events.read` | 200 | 7.3 |
+| 12 | `GET /integration/v1/webhooks` | `integration_webhook_list` | `webhooks.manage` | 200 | `{"items": [訂閱…]}`（不含 `secret`） |
+| 13 | `POST /integration/v1/webhooks` | `integration_webhook_create` | `webhooks.manage` | 201 | 7.5 |
+| 14 | `GET /integration/v1/webhooks/{endpoint_id}` | `integration_webhook_get` | `webhooks.manage` | 200 | 訂閱（不含 `secret`） |
+| 15 | `PATCH /integration/v1/webhooks/{endpoint_id}` | `integration_webhook_update` | `webhooks.manage` | 200 | 請求：`event_types`、`description`、`status`、`resume_from` 的任意組合。回應：訂閱 |
+| 16 | `DELETE /integration/v1/webhooks/{endpoint_id}` | `integration_webhook_delete` | `webhooks.manage` | 204 | — |
+| 17 | `POST /integration/v1/webhooks/{endpoint_id}/rotate-secret` | `integration_webhook_rotate_secret` | `webhooks.manage` | 200 | 回應：訂閱加 `secret` |
+| 18 | `POST /integration/v1/webhooks/{endpoint_id}/ping` | `integration_webhook_ping` | `webhooks.manage` | 202 | 回應：訂閱 |
+| 19 | `POST /integration/v1/reconciliation/runs` | `integration_reconciliation_run_create` | `reconciliation.write` | 201 | 8.2 |
+| 20 | `POST /integration/v1/reconciliation/runs/{run_id}/items` | `integration_reconciliation_items_add` | `reconciliation.write` | 200 | 8.3。請求內容上限 2 MB |
+| 21 | `POST /integration/v1/reconciliation/runs/{run_id}/complete` | `integration_reconciliation_run_complete` | `reconciliation.write` | 202 | 8.4 |
+| 22 | `GET /integration/v1/reconciliation/runs/{run_id}` | `integration_reconciliation_run_get` | `reconciliation.write` | 200 | 8.2 的批次；`summary` 是 `{"items": {"covered", "tolerated", "exceeds_approved", "ended_still_present", "unapproved"}, "missing", "subject_unresolved", "findings_opened", "findings_continued", "findings_pending_verification", "findings_resolved", "anomalous"}` |
+| 23 | `GET /integration/v1/reconciliation/findings` | `integration_reconciliation_findings_list` | `reconciliation.write` | 200 | `{"items": [8.6 的發現…], "next_page_token"}` |
+| 24 | `GET /integration/v1/reviews/campaigns` | `integration_reviews_list` | `reviews.read` | 200 | `{"items": [{"review_no", "name", "process_type", "status", "starts_at", "due_at", "item_count", "summary", "redacted"}], "next_page_token"}` |
+| 25 | `GET /integration/v1/reviews/campaigns/{review_no}` | `integration_review_get` | `reviews.read` | 200 | 上列欄位，加 `reviewer_kind`、`no_response_action`、`loosened`、`result_sha256`、`items`：`[{"item_id", "grant_id", "case_no", "subject", "scope_ref", "reviewer", "status", "decision", "decided_by", "decided_on_behalf_of", "decided_at", "reassign_reason", "followup_status", "snapshot_sha256"}]` |
+| 26 | `GET /integration/v1/audit/events` | `integration_audit_events_list` | `audit.read` | 200 | 10.2、10.3 |
+| 27 | `GET /integration/v1/audit/calls` | `integration_audit_calls_list` | `audit.read_all` | 200 | 10.3：`{"items": […], "next_cursor", "has_more"}` |
+| 28 | `GET /integration/v1/evidence/chain` | `integration_evidence_chain` | `evidence.read` | 200 | 13.1 |
+| 29 | `GET /integration/v1/evidence/chain-head` | `integration_evidence_chain_head` | `evidence.read` | 200 | 10.4 |
+| 30 | `GET /integration/v1/evidence/checkpoints` | `integration_evidence_checkpoints_list` | `evidence.read` | 200 | `{"items": [10.4 的檢查點…], "next_cursor", "has_more"}` |
+| 31 | `GET /integration/v1/evidence/checkpoints/{checkpoint_id}` | `integration_evidence_checkpoint_get` | `evidence.read` | 200 | 10.4 的檢查點 |
 
 所有需要 token 的端點共通的錯誤（內容是 `{"code", "message"}`）：
 
 | HTTP | `code` | 情況 | 額外的標頭 |
 |---|---|---|---|
 | 400 | `integration_invalid_request` | 內容不是合法的 JSON 物件、欄位缺少或格式不符 | — |
-| 401 | `integration_invalid_token` | 沒有 token、token 不存在或過期、`api_client` 不是 `active` | `WWW-Authenticate: Bearer realm="sgn-integration", error="invalid_token"` |
+| 401 | `integration_invalid_token` | 沒有 token、token 不存在或過期、`api_client` 不是 `active`、來源位址不被允許或與 token 綁定的位址不同（各種原因對外相同） | `WWW-Authenticate: Bearer realm="sgn-integration", error="invalid_token"` |
 | 403 | `integration_insufficient_scope` | token 沒有這個端點需要的 scope | `WWW-Authenticate: Bearer realm="sgn-integration", error="insufficient_scope", scope="<需要的 scope>"` |
 | 404 | `integration_not_found` | 指定的東西不存在，或不在可見範圍（兩者不區分） | — |
 | 413 | `payload_too_large` | 請求內容超過上限（預設 256 KB；上傳對帳項目 2 MB） | — |
-| 429 | `integration_rate_limited` | 超過速率限制 | `Retry-After` |
+| 429 | `integration_rate_limited` | 超過速率限制（呼叫數、失敗數或 webhook 管理次數，見 4.8） | `Retry-After` |
 | 503 | `integration_not_configured` | 參數 `integration.issuer` 尚未設定 | — |
 
-個別端點另外的錯誤：`integration_too_many_evaluations`（400；#6）、`integration_cursor_invalid`（400；#7、#9、#21、#22、#24、#25、#27）、`webhook_origin_not_allowed`（400；#11）、`webhook_subscription_limit`（409；#11）、`integration_scope_not_visible`（403；#17）、`reconciliation_item_out_of_scope`（400；#18）、`reconciliation_too_many_items`（400；#18）、`reconciliation_run_not_collecting`（409；#18、#19）、`reconciliation_item_count_mismatch`（409；#19）。
+個別端點另外的錯誤：
+
+| `code` | HTTP | 端點 | 情況 |
+|---|---|---|---|
+| `integration_too_many_evaluations` | 400 | #6 | 筆數超過上限 |
+| `integration_cursor_invalid` | 400 | #8、#10、#11、#23、#24、#26、#27、#28、#30 | 游標格式錯誤 |
+| `integration_resync_required` | 409 | #8、#10、#11 | 游標是在可見範圍或身分來源改變之前發出的（4.5） |
+| `usage_key_conflict` | 409 | #7 | 相同的 `usage_key`，內容不同 |
+| `usage_entitlement_not_active` | 409 | #7 | 權限項目已結束超過容許的時間，或尚未生效 |
+| `usage_limit_reached` | 409 | #7 | 這筆權限項目的用量紀錄已達上限 |
+| `webhook_origin_not_allowed` | 400 | #13 | 網址的來源不在允許清單 |
+| `webhook_subscription_limit` | 409 | #13 | 訂閱數已達上限 |
+| `webhook_status_invalid` | 409 | #15、#18 | 不允許的狀態轉移（7.5 的表）；對 `disabled` 的訂閱送 ping |
+| `integration_scope_not_visible` | 403 | #19 | 宣告的範圍超出可見範圍 |
+| `integration_invalid_request` | 400 | #19 | `observed_at` 不在允許的範圍；`message` 帶允許的最早時間 |
+| `reconciliation_run_limit` | 429 | #19 | 超過每天的批次數或進行中的批次數；帶 `Retry-After`（進行中的批次數超過時是 60） |
+| `reconciliation_item_out_of_scope` | 400 | #20 | 有項目超出批次宣告的範圍 |
+| `reconciliation_too_many_items` | 400 | #20 | 超過單次或整個批次的筆數上限 |
+| `reconciliation_run_not_collecting` | 409 | #20、#21 | 批次已不是 `collecting`（含被新批次取代而成為 `abandoned`；以 #22 查 `status` 與 `superseded_by`） |
+| `reconciliation_item_count_mismatch` | 409 | #21 | 宣告的筆數與收到的不同 |
+
+已刪除的訂閱對 #14 到 #18 都是 404。#11 的 `after` 超過目前最新位置時回 200 與空陣列（7.3）。
 
 後端為這些端點需要的機制（都只是機制，不含業務判斷）：
 
-- 路由表的每一列多三個欄位：`auth: 'client'`（從標頭取出 token、做 SHA-256、當作第二個參數；`p_actor` 傳 null；結尾補上請求識別碼與來源 IP）、`bodyLimit`、`decorate`（只有 #11 與 #15 是 `'webhook_secret'`：把回應的 `secret_version` 換成推導出來的 `secret`）。
-- 整合端點的錯誤處理：回應任何 4xx、5xx 之後呼叫 `integration_record_failure`；401、403 加上 `WWW-Authenticate`；429 加上 `Retry-After`（到下一個整分鐘的秒數）。
+- 路由表的每一列多三個欄位：`auth: 'client'`（從標頭取出 token、做 SHA-256、當作第二個參數；`p_actor` 傳 null；結尾補上請求識別碼與來源 IP）、`bodyLimit`、`decorate`（只有 #13 與 #17 是 `'webhook_secret'`：把回應的 `secret_version` 換成推導出來的 `secret`）。
+- 來源 IP 依 4.10 的規則取得（部署設定 `TRUSTED_PROXY_CIDRS`），所有整合端點共用同一個函式。
+- 請求識別碼依上面的規則驗證或產生。
+- 整合端點的錯誤處理：回應任何 4xx、5xx 之後，以獨立的交易呼叫 `integration_record_failure`；401、403 加上 `WWW-Authenticate`；429 加上 `Retry-After`（到下一個視窗的秒數）。
 - #1 是專屬的 handler：解析 Basic 標頭與表單、把密鑰做 SHA-256、呼叫 function、依回傳的 `http_status` 回應，401 時加上 `WWW-Authenticate: Basic realm="sgn-integration"`。
 - #4 由後端直接產生。
-- 兩個 worker：webhook 推送、檢查點簽章。兩個 port：`Signer`（Ed25519 簽章與公鑰輸出、webhook 密鑰推導）、`TimestampAuthority`（RFC 3161；沒有設定時不啟用）。各有一個模擬 adapter 與合約測試。
-- 部署設定（定義在 `api/src/config.ts`）：簽章私鑰清單、webhook 主金鑰、時間戳記服務網址、兩個 worker 的開關與間隔。
+- 兩個 worker：webhook 推送（連線規定見 7.6）、檢查點簽章。兩個 port：`Signer`（Ed25519 簽章與公鑰輸出、webhook 密鑰推導）、`TimestampAuthority`（RFC 3161；沒有設定時不啟用）。各有一個模擬 adapter 與合約測試。
+- 人員與組織 port 的同步在取得被授權者的外部識別碼之後呼叫 `integration_principal_identity_sync`。
+- 排程入口呼叫 15.4 的工作時，每一個工作、每一次呼叫各用一個交易；工作回傳 `{"more": true}` 時立即再呼叫同一個工作，一輪最多 `integration.job_repeat_max` 次。
+- 部署設定（定義在 `api/src/config.ts`）：簽章私鑰清單、webhook 主金鑰、時間戳記服務網址、兩個 worker 的開關與間隔、`TRUSTED_PROXY_CIDRS`、`WEBHOOK_BLOCKED_CIDRS`、`WEBHOOK_ALLOW_PRIVATE`。
 
 ### 14.2 給人使用的端點
 
-共 28 個，每個對應 13.3 的一個 function。路徑加本站的 API 前綴，以登入的工作階段驗證，角色在 function 裡檢查。
+共 39 個，每個對應 13.3 的一個 function。路徑加本站的 API 前綴，以登入的工作階段驗證，角色在 function 裡檢查。
 
 | 方法與路徑 | function |
 |---|---|
@@ -3498,7 +3631,13 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `PATCH /integration/clients/:id` | `api_client_update` |
 | `POST /integration/clients/:id/status` | `api_client_set_status` |
 | `POST /integration/clients/:id/credentials` | `api_client_credential_create` |
+| `POST /integration/credentials/:id/claim` | `api_client_credential_claim` |
 | `POST /integration/credentials/:id/revoke` | `api_client_credential_revoke` |
+| `GET /integration/change-requests` | `integration_change_request_list` |
+| `GET /integration/change-requests/:id` | `integration_change_request_get` |
+| `POST /integration/change-requests/:id/approve`（需要 MFA，條件同簽核決定） | `integration_change_request_approve` |
+| `POST /integration/change-requests/:id/reject` | `integration_change_request_reject` |
+| `POST /integration/change-requests/:id/withdraw` | `integration_change_request_withdraw` |
 | `GET /integration/call-log` | `api_call_log_search` |
 | `GET /integration/status` | `integration_status` |
 | `GET /integration/clients/:id/webhooks` | `webhook_subscription_list` |
@@ -3507,9 +3646,12 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `DELETE /principals/:id/identities/:provider` | `principal_identity_remove` |
 | `GET /reconciliation/runs` | `reconciliation_run_list` |
 | `GET /reconciliation/runs/:id` | `reconciliation_run_get` |
+| `POST /reconciliation/runs/upload`（`multipart/form-data`；檔案上限 20 MB；後端依 8.9 轉換） | `reconciliation_run_upload` |
+| `POST /reconciliation/runs/:id/review` | `reconciliation_run_review` |
 | `GET /reconciliation/findings` | `reconciliation_finding_list` |
 | `GET /reconciliation/findings/:id` | `reconciliation_finding_get` |
 | `POST /reconciliation/findings/:id/acknowledge` | `reconciliation_finding_acknowledge` |
+| `POST /reconciliation/findings/:id/verify` | `reconciliation_finding_verify` |
 | `POST /reconciliation/findings/:id/dismiss` | `reconciliation_finding_dismiss` |
 | `POST /access-reviews/campaigns` | `access_review_campaign_create` |
 | `POST /access-reviews/campaigns/:id/cancel` | `access_review_campaign_cancel` |
@@ -3517,11 +3659,13 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `GET /access-reviews/campaigns/:id` | `access_review_campaign_get` |
 | `GET /access-reviews/items` | `access_review_item_list` |
 | `GET /access-reviews/items/:id` | `access_review_item_get` |
+| `POST /access-reviews/items/:id/attest` | `access_review_item_attest` |
 | `POST /access-reviews/items/:id/decide`（需要 MFA，條件同簽核決定） | `access_review_item_decide` |
 | `POST /access-reviews/items/decide-batch`（需要 MFA，條件同簽核決定） | `access_review_item_decide_batch` |
+| `POST /access-reviews/items/:id/followup-confirm` | `access_review_followup_confirm` |
 | `GET /evidence/checkpoints` | `evidence_checkpoint_list` |
 
-這些端點的畫面（設定頁的整合狀態與系統管理、首頁的複查工作與對帳發現、稽核查詢的檢查點）由畫面契約定義；本文件只固定資料與規則。
+這些端點的畫面（設定頁的整合狀態、系統管理與變更申請、首頁的複查工作與對帳發現、對帳檔案上傳、稽核查詢的檢查點）由畫面契約定義；本文件只固定資料與規則。畫面契約的驗收條件要包含 3.7 最後一列（來自其他系統的文字一律當純文字，CSV 匯出要跳脫）。
 
 ## 15. 規則、錯誤、參數、排程
 
@@ -3531,30 +3675,43 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 
 | 代碼 | 規則 |
 |---|---|
-| `K-INT-CLIENT-AUTH` | 整合介面只接受登記過、啟用中的 `api_client`，以未過期的 token 呼叫；每次呼叫都檢查狀態與 scope。登記、修改、停用只有系統管理員能做，要填原因並留紀錄 |
+| `K-INT-CLIENT-AUTH` | 整合介面只接受登記過、啟用中的 `api_client`，以未過期的 token 呼叫；每次呼叫都檢查狀態與 scope。登記、修改、停用要填原因並留紀錄 |
 | `K-INT-CLIENT-OWNER` | 每個 `api_client` 隨時要有在職的負責人；負責人異動給寬限期改派，逾期暫停 |
-| `K-INT-CRED-EXPIRE` | 憑證一定有到期日，不得超過上限；到期前提醒，到期失效 |
+| `K-INT-CLIENT-SOURCE` | 換發 token 與每次呼叫的來源位址必須在登記的清單內；token 綁定換發時的位址；新的來源位址通知負責人 |
+| `K-INT-CRED-EXPIRE` | 憑證一定有到期日，不得超過上限；到期前提醒，到期失效；密鑰只有系統的負責人領得到 |
+| `K-INT-DUAL-CONTROL` | 登記系統、擴大系統的權限、建立憑證、改被授權者的外部識別碼、取消進行中的複查，都要由提出人以外、與對象沒有利害關係的人覆核；`audit.read_all` 另需稽核角色會簽 |
+| `K-INT-IDENTITY` | 被授權者的外部識別碼只能由身分同步或經覆核的變更申請寫入；每次改變都留紀錄、發事件，並阻止相關的對帳發現自動結案 |
 | `K-INT-VISIBILITY` | 呼叫方只能取得可見範圍內的資料；範圍外與不存在的回應相同 |
-| `K-INT-CALL-LOG` | 每次呼叫都留紀錄；紀錄只增不改；每天的摘要雜湊寫入稽核鏈 |
-| `K-INT-RATE-LIMIT` | 每個 `api_client` 每分鐘的呼叫數有上限 |
-| `K-INT-PROJECT` | 權限項目與申請單、授權的狀態在同一個交易內同步；判定與查詢只讀整理好的權限項目 |
-| `K-INT-CHECK` | 判定預設拒絕：找不到有效的權限項目就拒絕；限制條件無法驗證就拒絕；到期時間一到就拒絕 |
+| `K-INT-SYNC-EPOCH` | 可見範圍或身分來源改變後，舊的游標一律失效，使用方必須重做快照 |
+| `K-INT-CALL-LOG` | 每次已驗證的呼叫都留紀錄；紀錄只增不改；每個檢查點之前把紀錄的雜湊寫入稽核鏈 |
+| `K-INT-RATE-LIMIT` | 每個 `api_client` 的呼叫數、失敗數、管理動作數都有上限；失敗的請求也計數 |
+| `K-INT-AUTH-ALERT` | 驗證失敗與成功分開計數；失敗不影響正確憑證的使用；連續失敗達門檻時通知負責人 |
+| `K-INT-PROJECT` | 權限項目由核心資料表上的觸發程序在同一個交易內同步；判定與查詢只讀整理好的權限項目 |
+| `K-INT-CONSISTENCY` | 排程持續比對權限項目與申請單、授權、主體的狀態；不一致時立即修正、留紀錄並通知稽核 |
+| `K-INT-CHECK` | 判定預設拒絕：找不到有效的權限項目就拒絕；限制條件無法驗證就拒絕；到期時間一到就拒絕；授權或主體已失效就拒絕 |
 | `K-INT-CHECK-BASIS` | 每個判定結果都附原因；允許的結果一定附依據的權限項目、申請單與完整的限制條件 |
-| `K-INT-EVENT-ORDER` | 事件序號與提交順序一致；至少送達一次；每個訂閱依序推送 |
+| `K-INT-CONSTRAINT-MODE` | 預設嚴格：核准的限制面向沒有出現在請求裡就拒絕；只有登記為 `advisory` 並納入對帳的系統例外 |
+| `K-INT-USAGE` | 使用方回報的實際使用只增不改、留紀錄，並納入之後的判定；超出核准的使用列為例外 |
+| `K-INT-EVENT-ORDER` | 事件序號與提交順序一致；至少送達一次；每個訂閱依序推送；事件的鎖只在交易的最後持有 |
 | `K-INT-EXPIRING` | 授權到期前依參數發出即將到期的事件，同一個到期日只發一次 |
 | `K-INT-WEBHOOK-DISABLE` | 重試用盡、收到 410、來源不再被允許、或系統被停用時，停用訂閱並通知 |
-| `K-INT-RECON-COMPARE` | 對帳依固定的演算法比對，產生四種發現；每個批次留下統計與回報內容的雜湊 |
-| `K-INT-RECON-ASSIGN` | 發現指派給回報系統的負責人，依嚴重度設定期限 |
+| `K-INT-RECON-COMPARE` | 對帳依固定的演算法分段比對，產生發現；每個批次留下統計與雜湊 |
+| `K-INT-RECON-ANOMALY` | 一個批次的新發現超過上限時整批暫停，由非負責人檢視後放行或作廢；批次數有上限 |
+| `K-INT-RECON-ASSIGN` | 發現指派給回報系統的負責人，依嚴重度設定期限；換主體回報不會重新計時 |
 | `K-INT-RECON-SLA` | 發現逾期升級給負責人的直屬主管並通知稽核 |
-| `K-INT-RECON-CLOSE` | 發現只能由後續批次的證據結案，或由非負責人的系統管理員以指定原因排除 |
+| `K-INT-RECON-VERIFY` | 高嚴重度的發現在回報方表示已消失之後，要由獨立的人確認才結案 |
+| `K-INT-RECON-CLOSE` | 發現只能由批次的證據（限低嚴重度）、獨立確認、或由無利害關係的系統管理員以指定原因排除 |
 | `K-INT-RECON-OVERDUE` | 應回報的系統逾期沒有完成對帳，通知負責人並留紀錄 |
+| `K-INT-RECON-UPLOAD` | 沒有 API 的系統由負責人上傳權限清單對帳；批次記下上傳人與檔案雜湊，其餘與 API 的批次相同 |
 | `K-INT-REVIEW-SCHEDULE` | 依參數定期建立複查 |
-| `K-INT-REVIEW-SOD` | 複查人不得是該授權的申請人或權限項目的主體本人；違反時改由上一層主管 |
+| `K-INT-REVIEW-SOD` | 複查人不得是該授權的申請人、主體本人或主體的成員；違反時改由上一層主管 |
 | `K-INT-REVIEW-DECIDE` | 複查決定綁定當時的權限項目內容；決定後不可更改；代理與手機 MFA 的規則同簽核 |
 | `K-INT-REVIEW-REVOKE` | 複查決定撤銷時，立即撤銷整筆授權 |
-| `K-INT-REVIEW-REDUCE` | 複查決定縮小時，期限內未縮小就自動撤銷 |
-| `K-INT-REVIEW-NO-RESPONSE` | 複查不回應：提醒、升級；仍不回應時依設定自動撤銷或列為例外 |
+| `K-INT-REVIEW-REDUCE` | 複查決定縮小時要指明縮小什麼；期限內沒有照做並經確認，就自動撤銷 |
+| `K-INT-REVIEW-NO-RESPONSE` | 複查不回應：提醒、升級；仍不回應時依設定自動撤銷或列為例外；放寬設定要留紀錄並通知稽核 |
+| `K-INT-REVIEW-CANCEL` | 取消進行中的複查要經無利害關係的第二人覆核；未決定的工作逐件留紀錄並列為例外 |
 | `K-INT-CHECKPOINT` | 定期產生稽核鏈的檢查點並簽章，送到平台以外保存 |
+| `K-INT-CHECKPOINT-STALE` | 鏈頭前進而超過兩個間隔沒有新的已簽章檢查點時，通知稽核並留紀錄 |
 
 ### 15.2 錯誤代碼
 
@@ -3565,6 +3722,7 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `integration_invalid_request` | 400 | 請求格式不正確 |
 | `integration_too_many_evaluations` | 400 | 一次判定的筆數超過上限 |
 | `integration_cursor_invalid` | 400 | 游標不正確 |
+| `integration_resync_required` | 409 | 可見範圍或身分來源已改變，請重新做完整同步 |
 | `integration_invalid_token` | 401 | 驗證失敗 |
 | `integration_insufficient_scope` | 403 | 這個系統沒有使用這項功能的權限 |
 | `integration_scope_not_visible` | 403 | 宣告的範圍超出這個系統的可見範圍 |
@@ -3573,6 +3731,9 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `integration_not_configured` | 503 | 整合介面尚未設定 |
 | `entitlement_hook_invalid` | 500 | 流程包回傳的權限描述格式不正確 |
 | `entitlement_duplicate_resource` | 500 | 流程包回傳的權限描述有重複的資源 |
+| `usage_key_conflict` | 409 | 這個回報鍵已經用於不同的內容 |
+| `usage_entitlement_not_active` | 409 | 這筆權限目前不接受使用回報 |
+| `usage_limit_reached` | 409 | 這筆權限的使用回報筆數已達上限 |
 | `webhook_origin_not_allowed` | 400 | 這個網址的來源不在允許清單內 |
 | `webhook_subscription_limit` | 409 | 訂閱數已達上限 |
 | `webhook_status_invalid` | 409 | 目前的狀態不能做這個變更 |
@@ -3580,28 +3741,48 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `reconciliation_too_many_items` | 400 | 項目數超過上限 |
 | `reconciliation_run_not_collecting` | 409 | 這個批次已經不能再上傳 |
 | `reconciliation_item_count_mismatch` | 409 | 宣告的筆數與收到的筆數不同 |
+| `reconciliation_run_limit` | 429 | 對帳批次數已達上限，請稍後再試 |
+| `reconciliation_run_not_reviewable` | 409 | 這個批次目前不需要檢視 |
+| `reconciliation_upload_not_allowed` | 403 | 只有這個系統的負責人可以上傳，而且系統必須開啟檔案上傳 |
+| `reconciliation_upload_invalid` | 400 | 上傳的清單格式不正確 |
 | `api_client_not_found` | 404 | 找不到這個系統 |
 | `api_client_code_taken` | 409 | 這個系統代碼已被使用 |
 | `api_client_owner_inactive` | 409 | 負責人必須是在職人員 |
+| `api_client_owner_is_proposer` | 409 | 負責人不能是提出登記的人 |
 | `api_client_scope_unknown` | 400 | 有不存在的可用範圍 |
 | `api_client_status_invalid` | 409 | 目前的狀態不能做這個變更 |
+| `api_client_source_required` | 400 | 請登記允許的來源位址；這個系統的權限不允許不限來源 |
+| `api_client_advisory_requires_reconciliation` | 400 | 自行套用限制條件的系統必須納入對帳 |
 | `api_client_credential_limit` | 409 | 有效的憑證數已達上限 |
 | `api_client_credential_expiry_invalid` | 400 | 到期日超過允許的上限 |
+| `credential_claim_not_owner` | 403 | 只有這個系統的負責人可以領取密鑰 |
+| `credential_already_claimed` | 409 | 這個密鑰已經領取過 |
+| `credential_not_claimable` | 409 | 這個憑證已撤銷或超過領取期限 |
 | `integration_reason_required` | 400 | 請填寫原因 |
+| `change_request_not_found` | 404 | 找不到這筆變更申請 |
+| `change_request_status_invalid` | 409 | 這筆變更申請已經結束 |
+| `change_request_duplicate` | 409 | 同一個對象已有等待覆核的變更申請 |
+| `change_request_self_approval` | 403 | 不能覆核自己提出的變更申請 |
+| `change_request_approver_not_independent` | 403 | 你與這筆變更的對象有關，不能覆核 |
 | `principal_identity_taken` | 409 | 這個外部識別碼已對應到其他被授權者 |
 | `finding_not_found` | 404 | 找不到這筆對帳發現 |
 | `finding_not_assignee` | 403 | 只有負責人可以回應這筆發現 |
-| `finding_dismiss_by_assignee` | 403 | 負責人不能排除自己負責的發現 |
+| `finding_dismiss_by_assignee` | 403 | 與這筆發現有關的人不能排除它 |
 | `finding_already_closed` | 409 | 這筆發現已結案 |
+| `finding_not_pending_verification` | 409 | 這筆發現目前不需要確認 |
+| `finding_verifier_not_independent` | 403 | 你與這筆發現有關，不能確認 |
 | `review_campaign_not_found` | 404 | 找不到這一輪複查 |
 | `review_campaign_invalid` | 400 | 複查的設定不正確 |
 | `review_campaign_status_invalid` | 409 | 目前的狀態不能做這個變更 |
 | `review_item_not_found` | 404 | 找不到這件複查工作 |
-| `review_item_not_reviewer` | 403 | 你不是這件工作的複查人 |
+| `review_item_not_reviewer` | 403 | 你不能決定這件複查工作 |
 | `review_item_already_decided` | 409 | 這件工作已經決定 |
 | `review_item_changed` | 409 | 授權內容已改變，請重新檢視後再決定 |
 | `review_note_required` | 400 | 請填寫說明 |
+| `review_reduce_spec_invalid` | 400 | 請指明要縮小的項目 |
 | `review_revoke_not_allowed` | 409 | 這種流程的授權不能撤銷 |
+| `review_attest_not_owner` | 403 | 只有被授權者的負責人可以填寫需求確認 |
+| `review_followup_not_pending_confirmation` | 409 | 這件工作目前不需要確認 |
 
 ### 15.3 參數
 
@@ -3614,17 +3795,28 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `integration.credential_max_age_days` | 整數，天 | 365 | 30–730 | — |
 | `integration.credential_remind_before_days` | 整數，天 | 30 | 1–90 | — |
 | `integration.credential_max_active` | 整數 | 2 | 1–3 | — |
+| `integration.credential_claim_hours` | 整數，小時 | 72 | 1–336 | — |
 | `integration.client_owner_grace_days` | 整數，天 | 14 | 1–60 | — |
+| `integration.change_request_expire_days` | 整數，天 | 14 | 1–60 | — |
 | `integration.rate_limit_per_minute` | 整數 | 600 | 1–6000 | `scope_ref`（`api_client:<code>`） |
-| `integration.token_rate_limit_per_minute` | 整數 | 10 | 1–60 | — |
+| `integration.error_limit_per_minute` | 整數 | 60 | 1–6000 | `scope_ref`（`api_client:<code>`） |
+| `integration.token_rate_limit_per_minute` | 整數（只計密鑰正確的換發） | 10 | 1–60 | — |
+| `integration.auth_failure_alert_per_minute` | 整數 | 20 | 1–1000 | — |
+| `integration.unauth_log_per_ip_per_minute` | 整數 | 10 | 1–100 | — |
+| `integration.distinct_subjects_alert_per_day` | 整數 | 2000 | 1–1000000 | `scope_ref`（`api_client:<code>`） |
 | `integration.check_max_evaluations` | 整數 | 100 | 1–500 | — |
-| `integration.decision_ttl_seconds` | 整數，秒 | 60 | 0–3600 | 流程類型 |
-| `integration.deny_ttl_seconds` | 整數，秒 | 30 | 0–600 | — |
+| `integration.decision_ttl_seconds` | 整數，秒 | 60 | 0–300 | 流程類型 |
+| `integration.deny_ttl_seconds` | 整數，秒 | 30 | 0–300 | — |
 | `integration.check_ended_lookback_days` | 整數，天 | 30 | 0–365 | — |
+| `integration.fulfilment_permit_max_hours` | 整數，小時 | 72 | 1–720 | 流程類型、級別 |
+| `integration.usage_max_per_entitlement` | 整數 | 100 | 1–1000 | 流程類型 |
+| `integration.usage_late_hours` | 整數，小時 | 24 | 0–168 | — |
 | `integration.page_size_default` | 整數 | 100 | 1–500 | — |
 | `integration.page_size_max` | 整數 | 500 | 1–1000 | — |
 | `integration.call_log_retention_days` | 整數，天 | 400 | 30–3650 | — |
+| `integration.job_repeat_max` | 整數 | 20 | 1–200 | — |
 | `integration.webhook_max_per_client` | 整數 | 5 | 1–20 | — |
+| `integration.webhook_manage_limit_per_hour` | 整數 | 20 | 1–200 | — |
 | `integration.webhook_allow_http` | 布林 | false | — | — |
 | `integration.webhook_timeout_seconds` | 整數，秒 | 15 | 5–30 | — |
 | `integration.webhook_max_attempts` | 整數 | 10 | 1–20 | — |
@@ -3634,38 +3826,53 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `integration.webhook_secret_overlap_hours` | 整數，小時 | 24 | 1–168 | — |
 | `reconciliation.expected_interval_days` | 整數，天 | 7 | 1–90 | `scope_ref`（`api_client:<code>`） |
 | `reconciliation.grace_minutes` | 整數，分鐘 | 60 | 0–1440 | 流程類型 |
+| `reconciliation.observed_max_age_minutes` | 整數，分鐘 | 60 | 5–1440 | — |
+| `reconciliation.upload_observed_max_age_hours` | 整數，小時 | 24 | 1–168 | — |
 | `reconciliation.collect_timeout_hours` | 整數，小時 | 24 | 1–72 | — |
 | `reconciliation.max_items` | 整數 | 200000 | 1–1000000 | — |
 | `reconciliation.items_per_request_max` | 整數 | 1000 | 1–5000 | — |
+| `reconciliation.max_runs_per_day` | 整數 | 24 | 1–288 | `scope_ref`（`api_client:<code>`） |
+| `reconciliation.max_open_runs` | 整數 | 2 | 1–10 | — |
+| `reconciliation.max_new_findings_per_run` | 整數 | 200 | 1–100000 | `scope_ref`（`api_client:<code>`） |
+| `reconciliation.compare_batch_size` | 整數 | 500 | 50–5000 | — |
+| `reconciliation.findings_batch_size` | 整數 | 50 | 10–200 | — |
 | `reconciliation.item_retention_days` | 整數，天 | 400 | 30–3650 | — |
 | `reconciliation.finding_due_workdays_high` | 整數，工作天 | 2 | 1–30 | 流程類型 |
 | `reconciliation.finding_due_workdays_low` | 整數，工作天 | 5 | 1–60 | 流程類型 |
+| `reconciliation.verification_due_workdays` | 整數，工作天 | 5 | 1–30 | 流程類型 |
+| `reconciliation.verifier_role` | 文字（角色代碼；空字串表示只有系統管理員可以確認） | 空字串 | 存在的範圍角色代碼 | 流程類型 |
 | `review.interval_months` | 整數，月（0 表示不自動建立） | 0 | 0–24 | 流程類型 |
 | `review.duration_days` | 整數，天 | 14 | 3–60 | 流程類型 |
 | `review.remind_before_days` | 整數，天 | 3 | 1–14 | — |
 | `review.escalation_workdays` | 整數，工作天 | 5 | 1–20 | 流程類型 |
 | `review.no_response_action` | 列舉 `revoke`／`escalate_only` | `revoke` | — | 流程類型 |
 | `review.reduce_followup_workdays` | 整數，工作天 | 10 | 1–30 | 流程類型 |
+| `review.maintain_note_required` | 布林 | false | — | 流程類型、級別 |
+| `review.maintain_note_after_months` | 整數，月（0 表示不啟用） | 12 | 0–120 | 流程類型 |
 | `evidence.checkpoint_interval_minutes` | 整數，分鐘 | 60 | 5–1440 | — |
+| `evidence.checkpoint_stale_intervals` | 整數 | 2 | 1–24 | — |
 | `evidence.checkpoint_mail_enabled` | 布林 | true | — | — |
 | `evidence.audit_page_size_max` | 整數 | 1000 | 100–5000 | — |
 
-沿用骨幹既有的參數：`validity.remind_before_days`（即將到期事件的天數）、`audit.retention_years`。
+`integration.decision_ttl_seconds` 與 `integration.deny_ttl_seconds` 的上限是 300 秒：撤銷之後，沒有訂閱事件的系統最久五分鐘內會反映。
+
+沿用核心的參數：`validity.remind_before_days`（即將到期事件的天數）、`audit.retention_years`、⟨`system.business_timezone`⟩（2.1）。
 
 每個規則做決定時用到的參數值，照工程規範記進該筆稽核事件的參數快照。
 
 ### 15.4 排程工作
 
-六個工作由核心的排程入口每一輪依序呼叫，各自決定這一輪要不要做事，執行結果寫入 `scheduler_run`。後端的兩個 worker 不在此列。
+七個工作由核心的排程入口每一輪依下表的順序呼叫，各自決定這一輪要不要做事，執行結果寫入 `scheduler_run`。每個工作的每一次呼叫是一個獨立的交易；工作回傳的 jsonb 帶 `"more": true` 時，排程入口立即再呼叫同一個工作（一輪最多 `integration.job_repeat_max` 次）。後端的兩個 worker 不在此列。
 
-| function | 內容 | 規則 |
-|---|---|---|
-| `job_integration_expiring` | 找出 `active` 而且 `effective_until` 在 `validity.remind_before_days` 天內的權限項目；以申請單為單位，同一個到期日還沒發過就發 `sgn.grant.expiring` | `K-INT-EXPIRING` |
-| `job_integration_client_hygiene` | (1) 負責人不在職的 `api_client`：第一次發現時設定寬限期限並通知其主管；逾期改為 `suspended`。(2) 憑證到期提醒。(3) 刪除過期超過一天的 token。(4) 刪除一小時以前的速率計數 | `K-INT-CLIENT-OWNER`、`K-INT-CRED-EXPIRE` |
-| `job_integration_call_log_seal` | 每天一次：封存昨天以前尚未封存的每一天（寫 `api_call_log_seal` 與稽核事件）；刪除超過保存天數且已封存的紀錄（寫稽核事件） | `K-INT-CALL-LOG` |
-| `job_reconciliation` | (1) 比對所有 `comparing` 的批次。(2) 逾時的 `collecting` 批次改為 `abandoned`。(3) 逾期的發現升級。(4) 逾期未對帳的系統通知負責人（每個間隔一次）。(5) 刪除超過保存天數的回報項目 | `K-INT-RECON-COMPARE`、`K-INT-RECON-SLA`、`K-INT-RECON-OVERDUE` |
-| `job_access_review` | (1) 依 `review.interval_months` 建立新的一輪。(2) 開始已到 `starts_at` 的複查。(3) 提醒。(4) 逾期升級。(5) 升級後仍不回應的處理。(6) `reduce` 後續追蹤逾期的自動撤銷。(7) 結束已完成的複查 | `K-INT-REVIEW-SCHEDULE`、`K-INT-REVIEW-NO-RESPONSE`、`K-INT-REVIEW-REDUCE` |
-| `job_evidence_checkpoint` | 距離上一個檢查點已滿間隔、而且鏈頭有前進：建立新的檢查點（未簽章）。每天一次把最新的已簽章檢查點寄給稽核角色 | `K-INT-CHECKPOINT` |
+| 順序 | function | 內容 | 規則 |
+|---|---|---|---|
+| 1 | `job_integration_consistency` | (1) 時間造成的改變：被授權者的結束日已到而權限項目還沒結束的申請單，呼叫 `project_case`（這是正常情況，不示警；項目改為 `ended`，原因 `subject_inactive`，並發出 `sgn.grant.ended`）。一次性許可逾時不改儲存的狀態：判定已經依 `effective_until` 拒絕，申請單往下走時才會變成 `ended`。(2) 以集合查詢找出不一致：權限項目未結束而 `grant` 不是 `active`、申請單已在結束的狀態、或主體已失效；`grant` 是 `active` 而該申請單沒有任何未結束的權限項目（流程類型有登記 `describe_entitlements`，而且不是因 `subject_inactive` 結束）；權限項目的有效期間與 `grant`、被授權者結束日推導的不同。找到的每一張單：重投影、寫稽核事件（`integration.projection_repaired`）、通知稽核角色（同一輪合併成一則通知）。每次呼叫最多處理 500 張單，還有就回 `more` | `K-INT-CONSISTENCY`、`K-INT-PROJECT` |
+| 2 | `job_integration_expiring` | 找出 `active` 而且 `effective_until` 在 `validity.remind_before_days` 天內的權限項目；以申請單為單位，同一個到期日還沒發過就發 `sgn.grant.expiring` | `K-INT-EXPIRING` |
+| 3 | `job_integration_client_hygiene` | (1) 負責人不在職的 `api_client`：第一次發現時設定寬限期限並通知其主管；逾期改為 `suspended`。(2) 憑證到期提醒；撤銷逾期未領取的憑證。(3) 逾期的變更申請改為 `expired`。(4) 刪除過期超過一天的 token。(5) 刪除一天以前的速率計數與驗證失敗計數。(6) 每小時一次：從呼叫紀錄彙整當天的 `api_client_daily_stat`，不同主體數第一次超過門檻時通知系統管理員並寫稽核事件。(7) 系統管理員只有一位時，每天通知稽核角色一次 | `K-INT-CLIENT-OWNER`、`K-INT-CRED-EXPIRE`、`K-INT-DUAL-CONTROL` |
+| 4 | `job_reconciliation` | (1) 對每個 `comparing` 的批次呼叫一次 `compare_reconciliation_step`；任何一個還沒做完就回 `more`。(2) 逾時的 `collecting` 批次改為 `abandoned`。(3) 逾期的發現升級。(4) 超過確認期限的 `pending_verification` 發現通知稽核一次。(5) 逾期未對帳的系統通知負責人（每個間隔一次）。(6) 刪除超過保存天數的回報項目 | `K-INT-RECON-COMPARE`、`K-INT-RECON-SLA`、`K-INT-RECON-VERIFY`、`K-INT-RECON-OVERDUE` |
+| 5 | `job_access_review` | (1) 依 `review.interval_months` 建立新的一輪。(2) 開始已到 `starts_at` 的複查。(3) 提醒。(4) 逾期升級。(5) 升級後仍不回應的處理。(6) `reduce` 後續追蹤的提醒；逾期的自動撤銷。(7) 結束已完成的複查 | `K-INT-REVIEW-SCHEDULE`、`K-INT-REVIEW-NO-RESPONSE`、`K-INT-REVIEW-REDUCE` |
+| 6 | `job_integration_call_log_seal` | 依 4.7 的兩個階段：先替尚未計算的段算出雜湊並寫稽核事件；距離上一段已滿一個檢查點間隔時劃定新的一段，並回 `more`（下一次呼叫就會算它的雜湊）。刪除超過保存天數且已封存的段（寫稽核事件） | `K-INT-CALL-LOG` |
+| 7 | `job_evidence_checkpoint` | (1) 距離上一個檢查點已滿間隔、而且鏈頭有前進：建立新的檢查點（未簽章）。(2) 每天一次把最新的已簽章檢查點寄給稽核角色。(3) 檢查簽章是否停擺（10.4） | `K-INT-CHECKPOINT`、`K-INT-CHECKPOINT-STALE` |
 
 每個工作都可以重複執行而不產生重複的結果；測試直接呼叫這些 function 並搭配假時鐘。
 
@@ -3677,84 +3884,106 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 |---|---|
 | 傳輸 | 只接受 TLS。正式環境由反向代理終止 TLS；後端在正式環境拒絕非 HTTPS 的整合請求 |
 | 身分 | OAuth 2.0 client credentials。密鑰只出現在 token 端點；其他呼叫只帶短效 token |
-| 密鑰與 token 的保存 | 資料庫只有 SHA-256。後端在進資料庫之前就做雜湊，所以資料庫的參數、記錄檔都不會出現原文。後端的記錄檔要遮蔽 `Authorization` 標頭 |
-| 檢查的位置 | 驗證、狀態、scope、速率全部在 `sgn_internal.authenticate_client` 這一個入口，每次呼叫都執行。後端不快取驗證結果，所以暫停與縮小 scope 立即生效 |
+| 來源 | 每個系統登記允許的來源位址；換發與每次呼叫都檢查。token 綁定換發時的位址（4.10）。密鑰或 token 外洩到別的網路位置時不能使用 |
+| 密鑰與 token 的保存 | 資料庫只有 SHA-256。後端在進資料庫之前就做雜湊，所以資料庫的參數、記錄檔都不會出現原文。後端的記錄檔要遮蔽 `Authorization` 標頭。密鑰只有系統的負責人領得到一次，系統管理員看不到 |
+| 檢查的位置 | 驗證、狀態、來源、scope、速率全部在 `sgn_internal.authenticate_client` 這一個入口，每次呼叫都執行。後端不快取驗證結果，所以暫停與縮小 scope 立即生效 |
 | 兩層授權 | scope 決定「能用哪些功能」，可見範圍決定「能看到哪些資料」。兩者都通過才有結果 |
-| 管理動作 | 登記、修改、停用、發憑證只有 `sys_admin` 能做，都要填原因並寫入稽核鏈 |
+| 管理動作 | 登記、擴大權限、發憑證、改被授權者的外部識別碼、取消進行中的複查，都要兩個人（4.9）。收緊的動作（停用、撤銷憑證、縮小範圍）一個人就能做。全部要填原因並寫入稽核鏈 |
 | 人與系統分開 | 給其他系統的 function 不接受人的身分（`p_actor` 必須是 null）；給人的 function 不接受 token。一個 token 永遠不能做簽核、複查決定或任何管理動作 |
 
 ### 16.2 防重放
 
 | 對象 | 做法 |
 |---|---|
-| 呼叫平台的請求 | TLS 加上短效 token（預設 10 分鐘）。token 外洩的影響限於它的 scope、可見範圍與剩餘時間；撤銷憑證或暫停系統可以立即使它失效 |
+| 呼叫平台的請求 | TLS 加上短效 token（預設 10 分鐘），而且 token 只能從換發它的位址使用。token 外洩的影響限於它的 scope、可見範圍、來源位址與剩餘時間；撤銷憑證或暫停系統可以立即使它失效 |
 | webhook | 簽章涵蓋 `webhook-id`、`webhook-timestamp` 與內容；使用方檢查時間差不超過 5 分鐘並以 `webhook-id` 去重。`v2a` 的簽章內容含 `endpoint_id`，送給甲的事件不能重放給乙 |
 | 事件 | 序號嚴格遞增。使用方記住已處理的最大序號，較舊的事件可以直接略過 |
-| 對帳上傳 | `item_key` 讓重送不會重複；宣告完成時核對筆數 |
+| 對帳上傳 | `item_key` 讓重送不會重複；宣告完成時核對筆數；`observed_at` 不能回填到舊的時間 |
+| 用量回報 | `usage_key` 讓重送不會重複 |
 | 複查決定 | 帶內容雜湊；已決定的工作不能再決定 |
 
 ### 16.3 資訊最小揭露
 
-- 所有輸出先套用可見範圍（`K-INT-VISIBILITY`）。一張申請單只有部分權限項目可見時，只輸出可見的部分。
-- 主體只以呼叫方自己的身分來源的識別碼表示。不輸出姓名、email、部門。被授權者的負責人也只輸出識別碼。
+- 所有輸出先套用可見範圍（`K-INT-VISIBILITY`）。一張申請單只有部分權限項目可見時，只輸出可見的部分；稽核事件與複查結果以「申請單至少有一筆可見的權限項目」為條件。
+- 主體只以呼叫方自己的身分來源的識別碼表示；沒有對應時用不可逆的代號，不輸出內部 id（3.2）。不輸出姓名、email、部門。被授權者的負責人也只輸出識別碼。
+- 呼叫方只能用登記給它的身分來源查詢主體（`allowed_providers`）。
 - 不輸出申請內容本身（使用情境、說明、附件），只輸出權限項目。
-- 撤銷原因、複查說明等自由文字不放進事件與授權查詢；它們只出現在稽核輸出，而稽核輸出需要獨立的 scope。
+- 撤銷原因、複查說明、簽核意見等自由文字不放進事件與授權查詢，也不給只有 `audit.read` 的呼叫方；它們只給 `audit.read_all`，而登記這個 scope 需要稽核角色會簽。
+- 只有 `reconciliation.write` 的系統拿不到核准的限制條件與未設定的授權清單（8.6）。
+- `sgn.principal.*` 事件與成員名單只給目前（或最近）看得到該被授權者權限的呼叫方；沒有對應識別碼的成員直接省略。
 - 呼叫紀錄不保存 `context` 的原文，只保存雜湊。
-- webhook 的回應內容不保存，只記狀態碼與截短到 500 個字元的錯誤訊息。
+- webhook 的回應內容完全不保存，只記狀態碼與錯誤的種類。
 
-### 16.4 防列舉
+### 16.4 防列舉與濫用
 
-| 可能的探測 | 對策 |
+| 可能的探測或濫用 | 對策 |
 |---|---|
-| 猜主體是否存在 | 主體不存在、沒有可見的授權、資源不在可見範圍，三者的判定結果完全相同（`no_entitlement`、相同的 `ttl_seconds`）；授權查詢一律回空清單 |
-| 猜 id | 不存在與不可見都是 404（`integration_not_found`），訊息相同 |
-| 猜系統代碼與密鑰 | token 端點的所有驗證失敗都是相同的 `invalid_client`；每個系統有獨立的換發速率上限，未驗證的請求另有依來源 IP 的限制 |
-| 大量嘗試 | 速率限制；每次呼叫都留紀錄；整合狀態頁顯示每個系統 `no_entitlement` 的比例與 4xx 數量，異常時可以看出來 |
+| 猜主體是否存在 | 主體不存在、身分來源不被允許、沒有可見的授權、資源不在可見範圍，判定結果完全相同（`no_entitlement`、相同的 `ttl_seconds`）；授權查詢一律回空清單 |
+| 以內部 id 走訪全部主體 | 內部 id（provider `sgn`）只有明確登記的系統可以用；其他系統指定 `sgn` 時主體一律解析不到。輸出不帶內部 id。每個系統每天查詢的不同主體數列在整合狀態，超過門檻示警 |
+| 猜 id（權限項目、批次、檢查點） | 不存在與不可見都是 404（`integration_not_found`），訊息相同。404 是失敗，計入該系統的失敗上限（預設每分鐘 60 次），超過就回 429 |
+| 猜系統代碼與密鑰 | token 端點的所有驗證失敗都是相同的 401 `invalid_client`，不論失敗幾次；代碼存在與否的計數方式相同（鍵是雜湊，不引用系統）。未驗證的請求另有依來源 IP 的限制 |
+| 用錯誤的密鑰讓正牌系統換不到 token | 做不到：失敗與成功分開計數，密鑰正確的換發只受自己的計數限制（4.3） |
+| 用偷來的 token 從別處亂試，讓正牌系統被限流 | 做不到：401 不計入該系統的呼叫數與失敗數（13.2） |
+| 反覆上傳一定會失敗的大量資料 | 失敗計入失敗上限；請求大小有上限；每天的批次數有上限 |
+| 用捏造的對帳資料產生大量發現、通知與稽核事件 | 單一批次的新發現超過上限就整批暫停（`K-INT-RECON-ANOMALY`）；通知以批次為單位；對帳的稽核事件以批次為單位；比對分段執行，不佔住事件的鎖 |
+| 用管理端點灌滿稽核鏈 | webhook 管理動作每小時有上限 |
+| 大量嘗試 | 速率限制；每次呼叫都留紀錄；整合狀態頁顯示每個系統 `no_entitlement` 的比例與 4xx 數量；呼叫紀錄可以送進 SIEM（10.3） |
 
 已知的限制：主體不存在時判定會提早結束，回應時間可能比「存在但沒有授權」略短。第一版不做等時處理，以速率限制與紀錄作為補償。
 
 ### 16.5 輸入驗證
 
-所有檢查在資料庫的 function 裡做，後端只擋大小與 JSON 語法。
+所有檢查在資料庫的 function 裡做，後端只擋大小、JSON 語法與請求識別碼的格式。
 
 | 項目 | 限制 |
 |---|---|
-| 請求內容大小 | 256 KB；上傳對帳項目 2 MB |
+| 請求內容大小 | 256 KB；上傳對帳項目 2 MB；給人的檔案上傳 20 MB |
+| `X-Request-ID` | 必須符合 `^[A-Za-z0-9._-]{1,64}$`；不符合就捨棄，由後端產生（14.1） |
 | 頂層 | 必須是 JSON 物件。不認得的鍵一律忽略（AuthZEN 的要求） |
 | `subject.type` | `person` 或 `principal` |
 | `subject.id` | 1 到 256 個字元，不含控制字元 |
-| `properties.provider` | `^[a-z][a-z0-9_]{0,31}$` |
+| `properties.provider` | `^[a-z][a-z0-9_]{0,31}$`；而且要在呼叫方的 `allowed_providers` 內，否則主體視為不存在 |
 | `resource.type`、`action.name` | `^[a-z][a-z0-9_]{0,63}$` |
 | `resource.id` | 1 到 512 個字元，不含控制字元 |
+| `item_key`、`usage_key` | 1 到 256（`usage_key` 是 128）個字元，不含控制字元 |
 | `context`、`constraints` | 物件；序列化後不超過 16 KB；巢狀不超過 8 層 |
 | `properties` | 物件；序列化後不超過 4 KB |
 | `evaluations` | 不超過 `integration.check_max_evaluations` 筆 |
 | 查詢參數 | 不認得的參數忽略；認得的參數格式不符回 400 |
 | `limit` | 1 到上限；超過上限時取上限，不回錯誤 |
 | 路徑中的 id | 不是合法的數字或格式時回 404，不回 400 |
-| webhook 網址 | 見 7.5；另外，後端在送出前解析主機，解析結果是 loopback 或 link-local 位址時拒絕（`integration.webhook_allow_http` 為 true 的測試環境除外）；不跟隨轉址 |
+| webhook 網址 | 見 7.5；worker 連線的規定見 7.6（解析一次並固定用那個位址連線、禁止的位址範圍、每次重試重新檢查、不跟隨轉址） |
+| 來源位址 | 只信任部署設定列出的反向代理所加的標頭（4.10） |
+
+「控制字元」指 Unicode 類別 Cc（含換行、Tab、NUL）；以 `!~ '[[:cntrl:]]'` 檢查。
 
 流程包的 hook 只會收到已通過上述檢查的資料。核心以 `regprocedure` 呼叫 hook，函式名稱來自登記時已驗證的 `process_type`，不拼接任何外部輸入。
+
+來自其他系統的字串（`properties`、回報的識別碼、`item_key`）在畫面、信件與匯出檔一律當純文字處理（3.7）。
 
 ### 16.6 稽核
 
 | 事情 | 記在哪裡 |
 |---|---|
-| 系統的登記、修改、暫停、停用、憑證的建立與撤銷、可見範圍的改變 | 稽核事件（雜湊鏈） |
-| 被授權者外部識別碼的設定與移除 | 稽核事件 |
+| 變更申請的提出、覆核、會簽、駁回、撤回、逾期；系統的登記、修改、暫停、停用；憑證的建立、領取、撤銷；可見範圍的改變 | 稽核事件（雜湊鏈） |
+| 被授權者外部識別碼的設定、取代與移除（含新舊值與來源） | 稽核事件 |
 | webhook 訂閱的建立、修改、刪除、自動停用 | 稽核事件 |
-| 對帳批次完成、發現的每一步 | 稽核事件 |
-| 複查的每一步 | 稽核事件 |
-| 每一次呼叫（含每一筆判定的結果與依據） | 呼叫紀錄；每日摘要雜湊寫入稽核事件 |
+| 對帳批次完成（含回報內容與發現變動的雜湊）、異常批次的檢視、人對發現做的每個動作、排程的升級 | 稽核事件 |
+| 發現由批次造成的逐筆變動 | `reconciliation_finding_history`，由批次稽核事件裡的雜湊保護 |
+| 複查的每一步（含需求確認、後續追蹤的確認、取消時每一件未決定的工作） | 稽核事件 |
+| 用量回報、用量超出核准 | 稽核事件 |
+| 投影不一致的修正、檢查點簽章停擺與恢復、驗證失敗示警、失敗上限示警、新的來源位址 | 稽核事件 |
+| 每一次已驗證的呼叫（含每一筆判定的結果與依據） | 呼叫紀錄；每個檢查點之前把雜湊寫入稽核事件 |
 | 每一次 webhook 嘗試 | `webhook_attempt` |
 
-由其他系統觸發的稽核事件（訂閱管理、對帳批次），actor 記為系統，變更內容帶 `api_client` 的代碼（見附錄 A 第 4 項）。
+由其他系統觸發的稽核事件（訂閱管理、對帳批次、用量回報），actor 記為系統，變更內容帶 `api_client` 的代碼（見附錄 A 第 4 項）。
 
 ### 16.7 其他
 
 - 金鑰：簽章私鑰與 webhook 主金鑰只在後端的部署設定裡，不進資料庫、不進 repo。開發與測試環境用 `sim/` 產生的金鑰。
 - 流程包的 hook 出錯不會放行：`evaluate_constraints` 的例外視為不符合；`describe_entitlements` 的格式錯誤會讓狀態轉移失敗，而不是悄悄產生錯誤的權限項目。
-- 平台只回答核准了什麼。使用方被入侵或不照判定結果執行，要靠對帳發現。
+- 投影不靠呼叫方自律：由觸發程序驅動，判定時再複核一次授權與主體的狀態，排程持續比對（2.2、5.3）。
+- 平台只回答核准了什麼。使用方被入侵或不照判定結果執行，要靠對帳發現；而對帳的回報方不能自己結掉高嚴重度的發現（8.7）。
 
 ## 17. migration 檔案與測試
 
@@ -3764,66 +3993,87 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 
 | 順序 | 檔案 | 內容 |
 |---|---|---|
-| 核心資料表之後 | `integration_schema.sql` | 11.1 的型別、22 張資料表、兩個序列、只增不改的觸發程序；種子：`api_scope`、`integration_event_type`、15.1 的規則、15.2 的錯誤、15.3 的參數 |
-| 緊接其後；**在申請單與授權生命週期 function 之前** | `integration_projection.sql` | 12.1、12.2 的 function（投影、事件、主體、可見範圍） |
-| 生命週期 function 之後 | `integration_clients.sql` | `authenticate_client`、`log_api_call`；系統管理、憑證、token、中繼資料、呼叫紀錄的 function；`job_integration_client_hygiene`、`job_integration_call_log_seal` |
-| | `integration_access.sql` | `validate_access_request`、`evaluate_access`、`render_entitlement`、`decode_sync_cursor`；判定與授權查詢的 function |
+| 核心資料表與基礎函式（現在時間、參數、錯誤、稽核寫入、通知、找主管）之後 | `integration_schema.sql` | 11.1 的型別、29 張資料表、兩個序列、只增不改的觸發程序；種子：`api_scope`、`integration_event_type`、15.1 的規則、15.2 的錯誤、15.3 的參數 |
+| 緊接其後 | `integration_projection.sql` | 12.1、12.2 的 function（投影、事件、主體、身分對應、可見範圍）、`check_review_followup`（`project_case` 會呼叫它，所以放在同一個檔案），以及掛在核心資料表上的六個觸發程序（2.2） |
+| 生命週期 function 之後 | `integration_clients.sql` | `authenticate_client`、`explain_auth_failure`、`count_rate`、`log_api_call`；系統管理、變更申請、憑證、token、中繼資料、呼叫紀錄的 function；`job_integration_client_hygiene`、`job_integration_call_log_seal` |
+| | `integration_access.sql` | `validate_access_request`、`evaluate_access`、`render_entitlement`、游標的編碼與解碼；判定、用量回報、授權查詢、成員名單的 function；`job_integration_consistency` |
 | | `integration_events.sql` | `render_integration_event`、事件串流、webhook 的 function（含給 worker 的兩個）；`job_integration_expiring` |
-| | `integration_reconciliation.sql` | 對帳的 function；`job_reconciliation` |
-| | `integration_review.sql` | 複查的 function；`job_access_review` |
-| | `integration_evidence.sql` | 稽核輸出、鏈頭、檢查點的 function；`audit_ocsf_map` 的種子；`job_evidence_checkpoint` |
+| | `integration_reconciliation.sql` | 對帳的 function（含檔案上傳、異常批次的檢視、獨立確認）；`job_reconciliation` |
+| | `integration_review.sql` | 複查的其餘 function；`job_access_review` |
+| | `integration_evidence.sql` | 稽核輸出、呼叫紀錄輸出、鏈頭、檢查點的 function；`audit_ocsf_map`、`audit_export_key` 的種子；`job_evidence_checkpoint` |
 
-每個檔案在自己定義 function 的同時，寫入對應的 `api_function_scope` 列。核心的排程入口要能呼叫到六個工作 function，所以它的檔案排在這些檔案之後，或以登記表的方式呼叫（依核心的排程機制）。
+投影的 function 會被觸發程序呼叫，而觸發程序在生命週期 function 執行時才會觸發，所以 `integration_projection.sql` 只需要排在核心資料表之後；`revoke_grant` 等核心入口由後面的檔案呼叫。
+
+每個檔案在自己定義 function 的同時，寫入對應的 `api_function_scope` 列。核心的排程入口要能呼叫到七個工作 function，所以它的檔案排在這些檔案之後，或以登記表的方式呼叫（依核心的排程機制）。
 
 邊界檢查：這八個檔案不得出現任何流程包的代號。
 
 ### 17.2 資料庫測試
 
-放在 `db/tests/kernel/`。測試用的流程類型由測試自己建立（一個使用被授權者與有效期間、一個不使用），並以測試專用的 schema 實作兩個 hook；不依賴任何流程包。
+放在 `db/tests/kernel/`。測試用的流程類型由測試自己建立（一個使用被授權者與有效期間、一個不使用而且以一次性許可描述權限），並以測試專用的 schema 實作兩個 hook（支援 `strict`、`usage`、`approved_union`）；不依賴任何流程包。需要在交易中途看到投影結果的測試先執行 `set constraints all immediate`。
 
 | 規則 | 測試（每一列至少一個測試，名稱包含規則代碼） |
 |---|---|
-| `K-INT-CLIENT-AUTH` | 未登記、暫停、停用的系統被拒；過期的 token 被拒；憑證撤銷後它換發的 token 立即被拒；缺 scope 回 403；縮小 scope 後舊 token 立即受限；token 端點各種失敗都回相同的 `invalid_client`；非系統管理員不能登記；登記缺原因被拒；`p_actor` 非 null 被拒 |
+| `K-INT-CLIENT-AUTH` | 未登記、暫停、停用的系統被拒；過期的 token 被拒；憑證撤銷後它換發的 token 立即被拒；缺 scope 回 403；縮小 scope 後舊 token 立即受限；token 端點各種失敗都回相同的 `invalid_client`；非系統管理員不能提出登記；登記缺原因被拒；`p_actor` 非 null 被拒 |
 | `K-INT-CLIENT-OWNER` | 負責人離職 → 設定寬限期並通知 → 逾期暫停；期限內改派則清除 |
-| `K-INT-CRED-EXPIRE` | 到期日超過上限被拒；超過有效憑證數被拒；到期前提醒；到期後不能換發 |
-| `K-INT-VISIBILITY` | 流程類型不可見、資源類型不可見、前綴不符，判定都與不存在相同；授權查詢、事件、稽核輸出同樣過濾；一張單部分可見時只輸出可見的項目；單筆查詢不可見回 404 |
-| `K-INT-CALL-LOG` | 成功的呼叫有一筆紀錄且內容正確；`record_failure` 補上失敗的紀錄；紀錄表擋下 `UPDATE`、`DELETE`、`TRUNCATE`；每日封存的雜湊可以重算；未封存的不會被刪；改動一筆後雜湊對不上 |
-| `K-INT-RATE-LIMIT` | 超過上限回 429；下一個視窗恢復；個別系統的上限生效；批次判定算一次 |
-| `K-INT-PROJECT` | 兩種 `effective_during` 的每一個狀態對應（3.4 的每一列）；重複呼叫不產生重複的事件；hook 回傳重複資源時狀態轉移失敗；hook 格式錯誤時失敗；內容縮小、擴大、修改分別得到正確的 `change_class`；`sync_seq` 等於事件序號；沒有登記 hook 的流程類型不產生權限項目 |
-| `K-INT-CHECK` | 五種 `reason` 各一；到期時間已過但排程尚未執行時拒絕；人透過成員身分取得、移除成員後失去；有限制條件但沒有登記 hook 時拒絕；hook 丟例外時拒絕；多筆授權其中一筆符合即允許；`context.time` 不影響判定；批次的三種語意；預設值的取代規則；筆數超過上限回 400 |
-| `K-INT-CHECK-BASIS` | 允許的結果帶 `basis` 與完整的 `constraints`；`decision_id` 對得回呼叫紀錄；`ttl_seconds` 的四種算法；一次性許可的 `ttl_seconds` 是 0 |
-| `K-INT-EVENT-ORDER` | 兩個並行交易的事件序號與提交順序一致（以兩條連線測試）；串流的游標在沒有可見事件時仍前進；`types` 篩選；沒有對應 scope 的類型不出現；webhook 前一個未成功時不送下一個 |
+| `K-INT-CLIENT-SOURCE` | 清單外的位址換發被拒（回應與密鑰錯誤相同，內部原因不同）；清單外的位址使用 token 被拒；`ip` 綁定時換一個清單內的位址使用 token 被拒，`cidr` 綁定時可以；不限來源而沒有原因被拒；有 `audit.read_all` 或 `reconciliation.write` 的系統不能不限來源；新的來源位址通知負責人一次 |
+| `K-INT-CRED-EXPIRE` | 到期日超過上限被拒；超過有效憑證數被拒；到期前提醒；到期後不能換發；只有負責人能領取；領取兩次被拒；逾期未領取被撤銷；未領取的憑證不能換發 |
+| `K-INT-DUAL-CONTROL` | 每一種變更申請：提出人不能覆核自己的；覆核前不生效、覆核後生效；只收緊的修改立即生效；`audit.read_all` 沒有會簽不生效；負責人等於提出人被拒；覆核人是系統負責人被拒；逾期的申請失效；同一對象重複提出被拒 |
+| `K-INT-IDENTITY` | 被授權者的負責人不能設定對應；覆核人是該被授權者的負責人或成員時被拒；識別碼已被別的被授權者使用時被拒；設定、取代、移除各寫稽核事件（新舊值）並發出事件；取代後相關的未結案發現不會被批次自動結案；同步來源的寫入不需要覆核、值沒變不發事件 |
+| `K-INT-VISIBILITY` | 流程類型不可見、資源類型不可見、前綴不符，判定都與不存在相同；授權查詢、事件、成員名單同樣過濾；一張單部分可見時只輸出可見的項目；單筆查詢不可見回 404；**稽核輸出：前綴不符的申請單事件不出現、沒有權限項目的申請單事件不出現、只有 `audit.read` 時 `changes` 只剩白名單鍵而 `settings`、`ip`、`canonical` 是 null**；**複查輸出：沒有可見項目的工作不出現、不是整個流程類型可見時 `summary` 是 null**；`sgn.principal.*` 事件不送給只看過早已結束項目的呼叫方；成員沒有對應識別碼時被省略；身分來源不在允許清單時主體解析不到；沒有對應時輸出代號而不是內部 id |
+| `K-INT-SYNC-EPOCH` | 可見範圍改變後舊的 `since`、`page_token`、事件游標都回 409；重新快照後的游標可用；改變時發出只給該呼叫方的事件 |
+| `K-INT-CALL-LOG` | 成功的呼叫有一筆紀錄且內容正確；`record_failure` 補上失敗的紀錄與內部原因；紀錄表擋下 `UPDATE`、`DELETE`、`TRUNCATE`；封存的雜湊可以重算，而且與連線的 `TimeZone` 設定無關（以兩種時區各算一次）；改動一筆的 `ip` 或 `api_access_token_id` 後雜湊對不上；未封存的不會被刪；同一來源超過門檻的未驗證失敗不再寫紀錄但計數仍在 |
+| `K-INT-RATE-LIMIT` | 超過上限回 429；下一個視窗恢復；個別系統的上限生效；批次判定算一次；**連續 404 達到失敗上限後回 429**；失敗上限示警一小時內只發一次；401 不計入系統的計數；webhook 管理動作每小時的上限 |
+| `K-INT-AUTH-ALERT` | 連續錯誤密鑰之後，正確密鑰仍能換發；錯誤密鑰不論幾次都回 401；不存在的代碼與存在的代碼回應相同、計數方式相同；達門檻時通知負責人一次 |
+| `K-INT-PROJECT` | 3.4 三張表的每一列；直接 `update` `grant` 的狀態（不經核心的 function）後權限項目跟著結束；重複投影不產生重複的事件；hook 回傳重複資源時交易失敗；hook 格式錯誤時失敗；`has_validity` 為否而回傳 `effective_during = active` 時失敗；內容縮小、擴大、修改分別得到正確的 `change_class`；12.5 事件表的每一列；`sync_seq` 等於事件序號；沒有登記 hook 的流程類型不產生權限項目；人離職後以他為主體的項目結束且復職不恢復；被授權者結束日反映在 `effective_until`；一次性許可有結束時間；六個觸發程序存在且啟用 |
+| `K-INT-CONSISTENCY` | 停用觸發程序後改 `grant` 狀態 → 排程發現、重投影、寫稽核事件、通知稽核；一致時不做事；被授權者結束日到了由排程投影而不示警 |
+| `K-INT-CHECK` | 六種 `reason` 各一；到期時間已過但排程尚未執行時拒絕；**權限項目是 `active` 而 `grant` 已被直接改成 `revoked`（觸發程序停用）時拒絕並記下 `stale_projection`**；被授權者結束日已到時拒絕；起始時間未到時拒絕；人透過成員身分取得、移除成員後失去；離職的人解析不到；有限制條件但沒有登記 hook 時拒絕；hook 丟例外時拒絕；多筆授權其中一筆符合即允許；`context.time` 不影響判定；批次的三種語意；預設值的取代規則；筆數超過上限回 400 |
+| `K-INT-CHECK-BASIS` | 允許的結果帶 `basis` 與完整的 `constraints`；`decision_id` 對得回呼叫紀錄；`ttl_seconds`：參數、`valid_until`、成員期間的迄、`revoke_risk_at`（複查追蹤期限、負責人寬限期）各自成為最小值的情況；拒絕的兩種算法；一次性許可是 0 |
+| `K-INT-CONSTRAINT-MODE` | `strict` 的系統少帶一個限制面向得到 `constraint_context_missing` 且 `basis` 帶完整限制；補上後允許；`advisory` 的系統同一請求允許；`advisory` 沒有原因或沒有納入對帳時登記被拒 |
+| `K-INT-USAGE` | 回報後累計超過上限的判定被拒；相同 `usage_key` 重送不重複；鍵相同內容不同回 409；超出核准的回報被記錄並示警；已結束超過容許時間的被拒；筆數上限；紀錄表只增不改 |
+| `K-INT-EVENT-ORDER` | 兩個並行交易的事件序號與提交順序一致（以兩條連線測試）；串流的游標在沒有可見事件時仍前進；`after` 超過最新位置回空陣列；`types` 篩選；沒有對應 scope 的類型不出現；webhook 前一個未成功時不送下一個 |
 | `K-INT-EXPIRING` | 進入提醒天數時發一次；重複執行不重發；續期產生新的到期日後再發一次 |
-| `K-INT-WEBHOOK-DISABLE` | 來源不在允許清單被拒；ping 成功才啟用；失敗後的等待時間符合公式的範圍；`Retry-After` 生效；重試用盡停用並通知；410 立即停用；從停用恢復時 `cursor` 與 `tail` 的差別；輪替密鑰後重疊期間回傳兩個版本；移除允許的來源後訂閱被停用 |
-| `K-INT-RECON-COMPARE` | 五種項目結果各一；`missing`；寬限時間內的新授權與剛結束的授權不算發現；主體解析不出來；以人回報而授權給團隊時算對得上；回報沒有限制條件而核准有限制時是超出；範圍外的項目被拒；筆數不符被拒；0 筆的快照讓範圍內全部有效項目成為 `missing`；批次的稽核事件帶正確的雜湊 |
-| `K-INT-RECON-ASSIGN` | 指派給系統負責人；期限依嚴重度與工作天計算；相同指紋不重複建立 |
+| `K-INT-WEBHOOK-DISABLE` | 來源不在允許清單被拒；ping 成功才啟用；7.5 轉移表的每一列與不允許的轉移；對 `disabled` 的訂閱送 ping 回 409；已刪除的訂閱回 404；失敗後的等待時間符合公式的範圍；`Retry-After` 生效；重試用盡停用並通知；410 立即停用；從停用恢復時 `cursor` 與 `tail` 的差別；輪替密鑰後重疊期間回傳兩個版本；移除允許的來源後訂閱被停用；嘗試紀錄只接受列出的錯誤種類 |
+| `K-INT-RECON-COMPARE` | 8.5 結果表的八列各一；`missing`；一次性許可不參與；主體解析不出來；離職的人視為解析不出來；以人回報而授權給團隊時算對得上；成員在容許時間內剛被移除時是 `tolerated`；核准範圍在容許時間內剛縮小時是 `tolerated`；回報沒有限制條件而核准有限制時是超出；**兩張單各涵蓋一部分：依 `entitlement_id` 拆開回報時兩筆都 `covered`；不拆開時走聯集比對**；`entitlement_id` 不存在時是 `unapproved`；範圍外的項目被拒；筆數不符被拒；`observed_at` 太舊或早於上一個批次被拒；分段執行的結果與一次做完相同；指紋對含有 `\|` 與 `:` 的識別碼不會碰撞；批次的稽核事件帶正確的兩個雜湊 |
+| `K-INT-RECON-ANOMALY` | 新發現超過上限時只建立一筆彙總發現、不結案既有發現、批次進入 `needs_review`；放行後逐筆建立；作廢後不算完成的對帳；負責人與上傳人不能檢視；每天的批次數與進行中批次數的上限 |
+| `K-INT-RECON-ASSIGN` | 指派給系統負責人；期限依嚴重度與工作天計算；相同指紋不重複建立；同一資源換主體回報時沿用原本的建立時間、期限與升級狀態；解析不出來的主體每批換識別碼仍是同一筆發現；通知以批次為單位各一封 |
 | `K-INT-RECON-SLA` | 逾期升級給主管並通知稽核；只升級一次 |
-| `K-INT-RECON-CLOSE` | 後續批次不再出現時自動結案；批次範圍沒有涵蓋的發現不會被結案；負責人不能排除；非負責人的系統管理員可以排除且必須選原因 |
-| `K-INT-RECON-OVERDUE` | 超過間隔沒有完成的批次時通知一次 |
-| `K-INT-REVIEW-SCHEDULE` | 參數為 0 不建立；滿月數建立一次；重複執行不重複建立 |
-| `K-INT-REVIEW-SOD` | 複查人是申請人時改由主管；主管也違反時再往上；找不到上一層時交給系統管理員群組；代理人違反時不能決定 |
-| `K-INT-REVIEW-DECIDE` | 三種決定；雜湊不符回 409；已決定不能再決定；非複查人被拒；代理人決定時記下代誰；批次維持每件各一筆稽核事件；`reduce`、`revoke` 缺說明被拒 |
+| `K-INT-RECON-VERIFY` | 高嚴重度的發現在後續批次消失時進入 `pending_verification` 而不是結案；0 筆的批次同樣如此；確認後結案、否決後回到 `open` 並沿用期限；負責人、系統負責人、上傳人不能確認；再次出現時回到 `open`；逾期未確認通知稽核一次 |
+| `K-INT-RECON-CLOSE` | 低嚴重度的發現在後續批次不再出現時自動結案；被標記不得自動結案的不會；批次範圍沒有涵蓋的發現不會被動到；與發現有關的人不能排除；無關的系統管理員可以排除且必須選原因 |
+| `K-INT-RECON-OVERDUE` | 超過間隔沒有完成的批次時通知一次；只開啟檔案上傳的系統同樣適用 |
+| `K-INT-RECON-UPLOAD` | 只有系統負責人能上傳；系統沒有開啟上傳時被拒；批次記下上傳人與檔案雜湊；之後的比對結果與相同內容的 API 批次相同；上傳人不能確認或排除該系統的發現 |
+| `K-INT-REVIEW-SCHEDULE` | 參數為 0 不建立；滿月數建立一次；重複執行不重複建立；被取消的那一輪不算 |
+| `K-INT-REVIEW-SOD` | 複查人是申請人時改由主管；**複查人是團隊成員（含身為成員的負責人）時改派**；主管也違反時再往上；找不到上一層時交給系統管理員群組；代理人違反時不能決定；指派後才成為成員的人決定時被拒；負責人的需求確認與決定分開記錄 |
+| `K-INT-REVIEW-DECIDE` | 三種決定；雜湊不符回 409；已決定不能再決定；非複查人被拒；代理人決定時記下代誰；批次維持每件各一筆稽核事件；需要說明的工作沒有說明時單件與整批都被拒；`reduce` 沒有 `reduce_spec` 或內容不合格被拒；`revoke` 缺原因被拒 |
 | `K-INT-REVIEW-REVOKE` | 決定撤銷後授權立即撤銷、權限項目結束、發出事件 |
-| `K-INT-REVIEW-REDUCE` | 期限內縮小 → 追蹤完成；逾期 → 自動撤銷 |
-| `K-INT-REVIEW-NO-RESPONSE` | 提醒；到期升級且原複查人不能再決定；升級後仍不回應時兩種處理各一；決定前授權已結束的工作改為 `not_applicable`；全部完成後結束並寫入正確的統計與雜湊 |
-| `K-INT-CHECKPOINT` | 鏈頭沒有前進時不產生；產生的檢查點指向前一個；簽章只能寫入一次；其他欄位不可改；簽章後發出事件；依 10.5 的步驟對種子資料驗證成功，改動一筆稽核事件後驗證失敗 |
+| `K-INT-REVIEW-REDUCE` | 照 `reduce_spec` 移除 → 追蹤完成；只移除無關的項目 → 追蹤不變；有 `tighten` 時進入待確認，確認後完成、否決後回到 `pending`；逾期（含待確認中）→ 自動撤銷 |
+| `K-INT-REVIEW-NO-RESPONSE` | 提醒；到期升級且原複查人不能再決定；升級後仍不回應時兩種處理各一；決定前授權已結束的工作改為 `not_applicable`；全部完成後結束並寫入正確的統計與雜湊（依 9.6 的 SQL 重算相同）；手動建立時放寬設定會標記並通知稽核 |
+| `K-INT-REVIEW-CANCEL` | `scheduled` 的可以直接取消；`open` 的沒有覆核不會取消；提出人或覆核人與範圍內的授權有關時被拒；取消後未決定的工作各有一筆稽核事件、已做的決定保留 |
+| `K-INT-CHECKPOINT` | 鏈頭沒有前進時不產生；產生的檢查點指向前一個；`event_count` 是實際筆數；簽章只能寫入一次；其他欄位不可改；簽章後發出事件；依 10.5 的步驟對種子資料驗證成功，改動一筆稽核事件後驗證失敗 |
+| `K-INT-CHECKPOINT-STALE` | 鏈頭前進而超過門檻沒有已簽章的檢查點時通知稽核並寫稽核事件；24 小時內不重複；恢復簽章後寫恢復的事件 |
 
 架構與契約測試：
 
-- 給其他系統的 24 個 function 都呼叫 `authenticate_client` 與 `log_api_call`，而且在 `api_function_scope` 有一列；`api_function_scope` 沒有多餘的列。
-- 本文件的 22 張表 `sgn_app` 都沒有權限；標示為只增不改的表擋下對應的操作。
+- 給其他系統的 27 個 function 都呼叫 `authenticate_client` 與 `log_api_call`，而且在 `api_function_scope` 有一列；`api_function_scope` 沒有多餘的列。
+- 本文件的 29 張表 `sgn_app` 都沒有權限；標示為只增不改的表擋下對應的操作。
+- 2.2 的六個觸發程序存在、啟用，而且是延後的 constraint trigger。
 - 判定的查詢計畫沒有對 `sgn.entitlement` 做循序掃描。
 - `integration_event_type`、`api_scope` 的內容與 7.1、4.4 一致（由產生器輸出成 TypeScript 與參考文件）。
-- 路由表的每個整合端點都對應到存在的 function，參數相符；13.2 的五個 function 列為只供後端使用。
+- 路由表的每個整合端點都對應到存在的 function，參數相符；13.2 的六個 function 列為只供後端使用。
 - `integration_authzen_metadata` 的 `policy_decision_point` 等於參數值，各端點網址以它開頭。
+- 本模組的 SQL 沒有直接比對角色代碼的字串，只透過 `integration_admin_role()` 與 `integration_auditor_role()`。
 
 ### 17.3 後端測試
 
 - token handler：Basic 標頭的各種錯誤、表單解析、依 `http_status` 回應、`WWW-Authenticate`。
-- `auth: 'client'`：沒有標頭、格式錯誤、雜湊後傳入；`X-Request-ID` 原樣回傳與自動產生；錯誤時呼叫 `record_failure`；429 的 `Retry-After`。
-- webhook worker：`v1` 與 `v2a` 簽章以 Standard Webhooks 規格裡的範例向量驗證；送出的內容與領取到的 `body` 逐位元組相同；不跟隨轉址；逾時；回報的參數。
+- `auth: 'client'`：沒有標頭、格式錯誤、雜湊後傳入；錯誤時以獨立的交易呼叫 `record_failure`；429 的 `Retry-After`。
+- `X-Request-ID`：合格的原樣回傳；含換行、超過 64 個字元、含不允許字元的被捨棄並改用自動產生的值，原值不出現在回應與紀錄。
+- 來源位址：對端不在 `TRUSTED_PROXY_CIDRS` 時忽略 `X-Forwarded-For`；對端在清單內時取由右往左第一個不在清單內的位址；偽造的多段標頭取到正確的位址。
+- webhook worker：`v1` 與 `v2a` 簽章以 Standard Webhooks 規格裡的範例向量驗證；送出的內容與領取到的 `body` 逐位元組相同；不跟隨轉址；逾時；回報的參數只有錯誤種類；解析到 loopback、link-local、未指定位址、IPv4-mapped、設定的內部網段時不連線並回報 `blocked_address`；以會輪流回不同位址的假 DNS 測試：連線用的是檢查過的那個位址。
 - `Signer` 與 `TimestampAuthority` 的合約測試；`jwks.json` 的內容；檢查點簽章可以用 `jose` 驗證。
-- `tools/verify-audit-chain`：對正確的匯出檔通過；改動事件、刪除事件、改動檢查點各自失敗。
+- 對帳檔案上傳：CSV 的轉換、欄位錯誤時回報列與欄、檔案雜湊的計算。
+- 排程入口：每個工作各自一個交易；回 `more` 時再呼叫，不超過上限。
+- `tools/verify-audit-chain`：對正確的匯出檔通過；改動事件、刪除事件、改動檢查點各自失敗；序號有跳號但雜湊連結正確時通過；有清除區段時從清除前的檢查點開始驗；最後一個檢查點之後的事件數與時間長度出現在警告裡。
 
 ## 18. 模擬環境：示範用的使用方系統
 
@@ -3831,7 +4081,7 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 
 ### 18.1 `sim/consumer`：報表入口網站
 
-一個獨立的小型服務，有自己的資料庫，裡面只有一張「本地權限表」（主體、資源、動作、限制條件、來源的 `entitlement_id`）。它代表任何一個自己保存權限設定的系統。
+一個獨立的小型服務，有自己的資料庫，裡面有「本地權限表」（主體、資源、動作、限制條件、來源的 `entitlement_id`、`valid_from`、`valid_until`）與「本地成員表」（被授權者、成員、`valid_until`）。它代表任何一個自己保存權限設定的系統。
 
 它以一般使用方的身分使用整合介面，不讀平台的資料庫，也不使用平台的內部 function。
 
@@ -3839,12 +4089,12 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 |---|---|
 | 啟動時讀 `GET /integration/v1` 與 AuthZEN 中繼資料取得各端點 | 中繼資料 |
 | 換發 token，過期前自動重新換發 | token 端點 |
-| 有人讀報表時，先問平台能不能讀（並依 `ttl_seconds` 快取） | 單筆與批次判定 |
-| 第一次啟動做完整快照，之後增量同步到本地權限表 | 授權查詢 |
-| 接收 webhook：驗 `v1` 與 `v2a`、檢查時間、去重、更新本地權限表、清快取 | webhook |
+| 有人讀報表時，先問平台能不能讀（並依 `ttl_seconds` 快取）。可以切換成「只看 `decision`」的模式，模擬標準的 AuthZEN 使用方 | 單筆與批次判定 |
+| 第一次啟動做完整快照（含起始日在未來的授權與成員名單），之後增量同步；本地依 `valid_from`、`valid_until` 自行生效與失效；收到 409 `integration_resync_required` 就清空重做 | 授權查詢、成員名單 |
+| 接收 webhook：驗 `v1` 與 `v2a`、檢查時間、去重、更新本地權限表與成員表、清快取 | webhook |
 | 重新啟動後從上次的游標補讀事件 | 事件串流 |
-| 把本地權限表整份回報 | 對帳 |
-| 取稽核事件與檢查點，執行驗證工具 | 證據輸出 |
+| 把本地權限表整份回報（每筆帶來源的 `entitlement_id`） | 對帳 |
+| 取稽核事件、呼叫紀錄與檢查點，執行驗證工具 | 證據輸出 |
 
 對外的端點：
 
@@ -3853,20 +4103,26 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | `GET /healthz` | 健康檢查 |
 | `GET /reports/:resource_id?as=<人的識別碼>&…` | 模擬使用者讀資料。回 200 或 403，並帶判定的依據 |
 | `POST /hooks/sgn` | webhook 接收端 |
-| `POST /seal-device/affix` | 模擬電子用印設備：收到申請人與文件，算出文件雜湊後問平台能不能蓋 |
+| `POST /seal-device/affix` | 模擬電子用印設備：收到申請人與文件，算出文件雜湊後問平台能不能蓋；允許時「蓋章」並回報用量 |
 | `POST /control/sync` | 立即做一次同步（完整或增量） |
 | `POST /control/replay` | 從指定的游標重讀事件 |
-| `POST /control/reconcile` | 立即回報一次對帳，回傳批次結果 |
+| `POST /control/reconcile` | 立即回報一次對帳，回傳批次結果。可以指定「不帶 `entitlement_id`」「送 0 筆」「把某一筆的主體換成不存在的識別碼」 |
+| `POST /control/export-csv` | 把本地權限表匯出成 8.9 的 CSV（給檔案上傳的情境用） |
 | `POST /control/drift` | 製造偏差：加一筆沒核准的權限、放寬一筆的限制條件、刪掉一筆、忽略下一個撤銷事件 |
 | `POST /control/webhook-behavior` | 讓接收端在接下來 N 次回 500、回 410、或延遲回應 |
+| `POST /control/probe` | 連續以不存在的 id 呼叫單筆查詢 N 次，回傳各次的狀態碼 |
 | `POST /control/verify-chain` | 匯出稽核事件與檢查點並執行驗證工具 |
-| `GET /control/state` | 本地權限表、收到的事件、游標、快取 |
+| `GET /control/state` | 本地權限表、成員表、收到的事件、游標、快取 |
 
 `/control/*` 只給測試使用。
 
-腳本：`sim/consumer/start.sh`、`sim/consumer/stop.sh`（骨幹第 12 節的要求），以及 `sim/consumer/register.sh`：以系統管理員的身分呼叫 14.2 的端點登記 `api_client`（代碼 `sim-report-portal`，身分來源是模擬 LDAP）、設定可見範圍與 webhook 來源、建立憑證，並把憑證寫進這個服務的設定。
+腳本：`sim/consumer/start.sh`、`sim/consumer/stop.sh`（骨幹第 12 節的要求），以及 `sim/consumer/register.sh`：以兩位系統管理員的身分走完 14.2 的變更申請（一位提出、一位覆核）登記 `api_client`（代碼 `sim-report-portal`，身分來源是模擬 LDAP，來源位址是模擬環境的位址）、設定可見範圍與 webhook 來源、建立憑證，再以負責人的身分領取密鑰，寫進這個服務的設定。
 
-資料授權的執行系統模擬器（DC）也登記成另一個 `api_client`，回報它從資料庫讀出的真實欄位權限與列層級安全設定。這樣對帳比對的是真的權限，不是另一份名單。
+需要的種子（附錄 D 第 5 項）：`sys_admin` 至少兩位；被授權者在模擬 LDAP 的群組識別碼（例如通路業務組是 `channel-sales`）由人員與組織 port 同步成 `principal_identity`。
+
+資料授權的執行系統模擬器（DC）也登記成另一個 `api_client`，回報它從資料庫讀出的真實欄位權限與列層級安全設定（它知道每條規則是依哪一筆核准套用的，所以帶 `entitlement_id`）。這樣對帳比對的是真的權限，不是另一份名單。
+
+另外登記一個只開啟檔案上傳、沒有憑證的 `api_client`（代碼 `sim-hr-suite`），代表沒有 API 的外購系統。
 
 ### 18.2 要驗證的情境
 
@@ -3874,23 +4130,35 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 
 | # | 情境 | 預期 | 規則 |
 |---|---|---|---|
-| 1 | 申請單核准、執行、驗證完成 | 使用方收到 `sgn.grant.activated`，本地權限表出現對應的項目；團隊成員讀報表得到 200，非成員得到 403 | `K-INT-PROJECT`、`K-INT-CHECK` |
+| 1 | 申請單核准、執行、驗證完成 | 使用方收到 `sgn.grant.activated`，本地權限表出現對應的項目；到了起始日，團隊成員讀報表得到 200，非成員得到 403 | `K-INT-PROJECT`、`K-INT-CHECK` |
 | 2 | 讀取超出列條件的範圍 | 403，原因 `constraint_not_satisfied`，依據帶核准的限制條件 | `K-INT-CHECK-BASIS` |
 | 3 | 負責人撤銷授權 | 幾秒內收到 `sgn.grant.revoked`，快取被清，下一次讀取 403 | `K-INT-EVENT-ORDER` |
 | 4 | 使用方停機期間發生三個事件，再啟動 | 從游標補讀，三個事件依序處理，本地權限表與授權查詢的結果一致 | `K-INT-EVENT-ORDER` |
 | 5 | 接收端連續回 500 | 依間隔重試（用假時鐘推進）；恢復後依序補送；`webhook-id` 不變 | `K-INT-WEBHOOK-DISABLE` |
 | 6 | 接收端回 410 | 訂閱被停用，負責人收到通知信（從模擬 SMTP 讀取） | `K-INT-WEBHOOK-DISABLE` |
 | 7 | 竄改 webhook 內容後重送給接收端 | 接收端驗章失敗，拒收 | 16.2 |
-| 8 | 製造四種偏差後回報對帳 | 產生四種發現，各自指派給系統負責人；修正後再回報，發現自動結案 | `K-INT-RECON-COMPARE`、`K-INT-RECON-CLOSE` |
+| 8 | 製造四種偏差後回報對帳 | 產生四種發現，各自指派給系統負責人，負責人收到一封摘要。修正後再回報：`missing` 自動結案；三種高嚴重度的發現進入等待確認，由另一位系統管理員確認後結案 | `K-INT-RECON-COMPARE`、`K-INT-RECON-VERIFY`、`K-INT-RECON-CLOSE` |
 | 9 | 忽略撤銷事件後回報對帳 | `ended_still_present` | `K-INT-RECON-COMPARE` |
-| 10 | 授權到期（假時鐘推進，排程尚未執行） | 判定立即拒絕；排程執行後收到 `sgn.grant.expired` | `K-INT-CHECK` |
-| 11 | 把成員移出團隊 | 收到 `sgn.principal.membership_changed`；該成員下一次讀取 403 | `K-INT-CHECK` |
-| 12 | 用印申請核准後、用印前 | 用印設備以正確的文件得到允許；換一份文件被拒；標記完成後再問被拒 | `K-INT-CHECK`、`K-INT-PROJECT` |
+| 10 | 授權到期（假時鐘推進，排程尚未執行） | 判定立即拒絕；使用方本地依 `valid_until` 已自行失效；授權查詢的預設結果不再包含它；排程執行後收到 `sgn.grant.expired` | `K-INT-CHECK` |
+| 11 | 把成員移出團隊 | 收到 `sgn.principal.membership_changed`，本地成員表更新；該成員下一次讀取 403 | `K-INT-CHECK` |
+| 12 | 用印申請核准後、用印前（需要合約用印流程包登記兩個 hook，見附錄 D 第 1 項） | 用印設備以正確的文件得到允許並回報用量；再問一次因累計份數已達上限被拒；換一份文件被拒；標記完成後再問被拒 | `K-INT-CHECK`、`K-INT-PROJECT`、`K-INT-USAGE` |
 | 13 | 建立一輪複查，複查人決定撤銷 | 授權被撤銷，使用方收到事件；複查結果可以從整合端點取得 | `K-INT-REVIEW-REVOKE` |
-| 14 | 複查人就是申請人 | 工作改派給他的主管 | `K-INT-REVIEW-SOD` |
+| 14 | 複查人就是申請人；另一筆的複查人（負責人）是團隊成員 | 兩件工作都改派給上一層主管；負責人可以填需求確認但不能決定 | `K-INT-REVIEW-SOD` |
 | 15 | 取得檢查點與稽核事件並驗證；之後直接改資料庫裡的一筆稽核事件再驗證 | 第一次通過，第二次失敗並指出是哪一筆 | `K-INT-CHECKPOINT` |
 | 16 | 以沒有該 scope 的 token、過期的 token、可見範圍外的資源呼叫 | 403、401、與不存在相同的結果 | `K-INT-CLIENT-AUTH`、`K-INT-VISIBILITY` |
 | 17 | 暫停使用方的 `api_client` | 進行中的 token 立即被拒；webhook 停止推送；恢復後從原進度繼續 | `K-INT-CLIENT-AUTH` |
+| 18 | 起始日在未來的授權已完成執行與確認 | 使用方收到 `sgn.grant.activated`（`valid_from` 在未來），本地有這一筆但不放行；起始日之前讀取得到 403（`not_yet_effective`）；假時鐘推到起始日後得到 200，期間沒有新的事件 | `K-INT-CHECK`、6.4 |
+| 19 | 只看 `decision` 的使用方，請求不帶列條件 | 403，原因 `constraint_context_missing`；補上列條件後 200 | `K-INT-CONSTRAINT-MODE` |
+| 20 | 同一個團隊對同一個欄位有兩張有效的申請單，各核准不同的區域 | DC 模擬器依 `entitlement_id` 拆成兩筆回報，兩筆都是 `covered`，沒有發現 | `K-INT-RECON-COMPARE` |
+| 21 | 連續以不存在的 id 查詢 | 達到失敗上限後得到 429；負責人收到通知；正常的呼叫在下一分鐘恢復 | `K-INT-RATE-LIMIT` |
+| 22 | 以錯誤的密鑰對使用方的代碼連續換發 token | 全部是 401；使用方以正確的密鑰仍然換得到 token；負責人收到示警 | `K-INT-AUTH-ALERT` |
+| 23 | 一位系統管理員提出擴大使用方的可見範圍 | 覆核之前不生效；自己覆核被拒；另一位覆核後生效，使用方的下一次增量同步得到 409，重做快照後看到新範圍的授權 | `K-INT-DUAL-CONTROL`、`K-INT-SYNC-EPOCH` |
+| 24 | 被授權者的負責人嘗試把團隊的外部識別碼改成另一個群組；之後由系統管理員提出、另一位覆核 | 前者被拒；後者生效，使用方收到 `sgn.principal.identity_changed`，以舊識別碼的判定變成拒絕 | `K-INT-IDENTITY` |
+| 25 | 在模擬 LDAP 讓一位成員離職（`sim/ldap/change.sh offboard`），同步後 | 他的判定變成拒絕；使用方收到成員移除的事件；以他個人為主體的授權收到 `sgn.grant.ended`（`subject_inactive`）；對帳回報他仍有權限時是 `unapproved` | `K-INT-PROJECT`、`K-INT-RECON-COMPARE` |
+| 26 | 回報一個含大量捏造項目的對帳批次 | 只產生一筆彙總發現，批次等待檢視；期間核准與撤銷照常完成；系統管理員作廢後沒有留下逐筆的發現 | `K-INT-RECON-ANOMALY` |
+| 27 | 以 `sim-hr-suite` 的負責人身分上傳 CSV 權限清單（含一筆沒核准的權限） | 產生批次與一筆 `unapproved`；批次記下上傳人與檔案雜湊；上傳人不能確認或排除 | `K-INT-RECON-UPLOAD` |
+| 28 | 直接在資料庫把一筆 `grant` 改成 `revoked`（不經平台的 function） | 權限項目隨交易結束、使用方收到事件、判定拒絕 | `K-INT-PROJECT` |
+| 29 | 停掉檢查點簽章的 worker，繼續產生稽核事件，推進假時鐘 | 稽核角色收到簽章停擺的通知；驗證工具的警告顯示未涵蓋的事件數 | `K-INT-CHECKPOINT-STALE` |
 
 情境 12 用合約用印流程包，其他用資料授權流程包；兩者走的是同一套核心程式。
 
@@ -3900,20 +4168,58 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 
 | # | 骨幹位置 | 建議 | 本文件目前的處理 |
 |---|---|---|---|
-| 1 | 第 6、11 節 | 明定核心要在狀態轉移的唯一入口呼叫 `sgn_internal.project_case`，在被授權者的負責人與成員異動時呼叫 `sgn_internal.project_principal` | 2.2 定義了入口與呼叫時機 |
-| 2 | 第 11 節 `describe_entitlements` | 回傳元素增加兩個選填鍵：`effective_during`（`active`／`fulfilment`）、`scope_ref`；明定同一張單內資源不得重複、function 必須是 `stable` | 3.3、3.4 |
-| 3 | 第 11 節 `evaluate_constraints` | 明定 `p_context` 的結構與 `mode`（`check`／`reconcile`）；預設行為補上「有限制條件而沒有登記 hook 時回 false」 | 3.3 |
+| 1 | 第 6、11 節 | 明定整理好的權限表由整合模組掛在 `case`、`grant`、`person`、`person_identity`、`principal`、`principal_member` 上的觸發程序維護；核心只需要在造成改變的 function 裡呼叫 `sgn_internal.note_projection_rule`（選用），以及在負責人寬限期開始與解除時呼叫 `sgn_internal.project_principal` | 2.2 |
+| 2 | 第 11 節 `describe_entitlements` | 回傳元素增加兩個選填鍵：`effective_during`（`active`／`fulfilment`）、`scope_ref`；明定同一張單內資源不得重複、function 必須是 `stable`、`has_validity` 為否的流程不得回傳 `effective_during = active` | 3.3、3.4 |
+| 3 | 第 11 節 `evaluate_constraints` | 明定 `p_context` 的結構：`mode`（`check`／`reconcile`）、`strict`、`at`、`subject`、`action`、`resource`、`context`、`usage`、`approved_union`；明定 `strict` 為 true 時，任何核准的限制面向沒有出現在情境裡就回 false；預設行為補上「有限制條件而沒有登記 hook 時回 false」 | 3.3 |
 | 4 | 第 2 節 `audit_event` | 增加 actor 的種類（人、系統、其他系統）與 `api_client` 的欄位，讓由其他系統觸發的動作可以直接篩選 | actor 記為系統，`api_client` 的代碼放在變更內容裡 |
-| 5 | 第 2 節 核心實體 | 加入 `principal_identity`（與 `person_identity` 對稱），以及本文件的整合相關資料表 | 由本模組的 migration 建立 |
-| 6 | 第 2、5 節 稽核鏈 | 在核心契約明定雜湊的輸入文字（`canonical`）與公式，並提供取得每一筆 `canonical` 的方式。第三方驗證需要它 | 10.2、10.5 以「核心提供 `canonical`」為前提 |
+| 5 | 第 2 節 核心實體 | 加入 `principal_identity`（與 `person_identity` 對稱，只能由同步或經覆核的變更寫入），以及本文件的整合相關資料表 | 由本模組的 migration 建立 |
+| 6 | 第 2、5 節 稽核鏈 | 在核心契約明定：(a) 雜湊的輸入文字（`canonical`）與公式，並提供取得每一筆 `canonical` 的方式；(b) 稽核事件的序號是否保證連續不跳號（一般的 sequence 會因交易回復而跳號）；(c) 超過保存年限清除舊事件時，清除動作本身寫一筆稽核事件，帶被清除區段的首尾序號與雜湊 | 10.4、10.5 不依賴序號連續：`event_count` 是實際筆數，連續性只看雜湊的連結；以清除前的檢查點作為驗證起點 |
 | 7 | 第 1 節 命名 | `case` 與 `grant` 是 SQL 保留字，資料表名稱要一律加雙引號，或改名 | DDL 一律加雙引號 |
-| 8 | 第 2、4 節 `grant` | 明定沒有有效期間的流程類型（例如合約用印）是否建立 `grant` 紀錄 | 兩種情況都能運作：`entitlement.grant_id` 可為 null |
+| 8 | 第 2、4 節 `grant` | 明定 `grant` 紀錄在哪一個狀態轉移建立、哪些流程類型會有（`has_validity` 為是的流程是否一定有）；明定授權起迄是日期（含頭尾） | 3.4 的表涵蓋有與沒有 `grant` 的全部情況；`has_validity` 為否的流程只能用一次性許可 |
 | 9 | 第 5 節 | 核心需要一個「以指定的規則代碼、由系統或指定的人撤銷授權」的內部入口；以及「把生效中的授權縮小」的入口（複查決定為縮小時使用） | 2.1 列為依賴；沒有縮小入口時，縮小只能靠重新申請加上逾期自動撤銷 |
-| 10 | 第 5 節 | `K-DELEGATE`、`K-MOBILE-MFA` 的適用範圍加上複查決定 | 9.3 已如此規定 |
+| 10 | 第 5 節 | `K-DELEGATE`、`K-MOBILE-MFA` 的適用範圍加上複查決定與變更申請的覆核 | 9.3、14.2 已如此規定 |
 | 11 | 第 8 節 | 參數前綴增加 `integration.`、`reconciliation.`、`review.`、`evidence.`；`scope_ref` 適用範圍的值用 `api_client:<code>` 表示個別系統 | 15.3 |
-| 12 | 第 10 節 | 通用畫面增加：複查工作（清單與決定）、對帳發現（清單與回應）、整合系統管理 | 14.2 提供資料與規則，畫面由畫面契約定義 |
-| 13 | 第 11 節 命名 | `events` 的資料表是 `integration_event`；`evidence` 的資料表是 `evidence_checkpoint`；`audit_feed` 是端點 `/integration/v1/audit/events`，沒有獨立的資料表 | 依本文件 |
-| 14 | 工程規範第 2 節 | 路由表增加 `auth: 'client'`、`bodyLimit`、`decorate`；對外 port 增加 `Signer`、`TimestampAuthority`；整合端點不加 `/api` 前綴 | 14.1 |
+| 12 | 第 10 節 | 通用畫面增加：複查工作（清單、決定、需求確認、追蹤確認）、對帳發現（清單、回應、確認）、對帳檔案上傳、整合系統管理與變更申請 | 14.2 提供資料與規則，畫面由畫面契約定義 |
+| 13 | 第 11 節 命名 | `events` 的資料表是 `integration_event`；`evidence` 的資料表是 `evidence_checkpoint`；`audit_feed` 是端點 `/integration/v1/audit/events` 與 `/integration/v1/audit/calls`，沒有獨立的資料表 | 依本文件 |
+| 14 | 工程規範第 2 節 | 路由表增加 `auth: 'client'`、`bodyLimit`、`decorate`；對外 port 增加 `Signer`、`TimestampAuthority`；整合端點不加 `/api` 前綴；部署設定增加 `TRUSTED_PROXY_CIDRS`（來源位址只信任列出的反向代理）、`WEBHOOK_BLOCKED_CIDRS`、`WEBHOOK_ALLOW_PRIVATE`；人員與組織 port 的同步範圍加上被授權者的外部識別碼 | 14.1 |
+| 15 | 第 8 節 | 增加核心參數 `system.business_timezone`（IANA 時區名稱，預設 `Asia/Taipei`）：所有「日期轉成時間」（授權起迄、被授權者結束日、到期判斷）一律用它，不用資料庫或連線的時區 | 2.1、3.4；骨幹納入前由本模組登記 |
+| 16 | 第 11 節 能力表 | 增列：一次性許可（核准後到執行完成之間有效，一定有期限）屬於權限判定的範圍；用量回報（`usage`）；被授權者的成員名單；檔案上傳對帳。並明定時間造成的生效與失效不發即時事件，由使用方依時間欄位處理 | 3.4、5.7、6.5、8.9、6.4 |
+| 17 | 第 5 節 `K-AUDITOR-READONLY` | 明定稽核角色可以「會簽」把稽核資料輸出給其他系統的變更申請（不改變業務資料）；或指定另一個角色負責會簽 | 4.9 以稽核角色會簽 `audit.read_all` |
+| 18 | 第 5 節、待納入的增修 A10 | 設定變更申請單納入核心後，取代本文件 4.9 的變更申請；4.9 表中的獨立性限制原樣保留 | 4.9、11.10 由本模組自己實作 |
+| 19 | 第 2、4 節 | 明定：人的在職狀態、被授權者的狀態與結束日是可以被觸發程序觀察的欄位；`principal_member` 在成員被移除時保留該列並填上迄；`case` 有「進入目前狀態的時間」；人離職或被授權者結束時核心應撤銷相關授權（`K-OWNER-CONTINUITY` 只寫了被授權者結束） | 2.1 列為假設；3.4 以 `subject_inactive` 讓權限項目先失效，不等核心撤銷 |
+| 20 | 第 2 節 `scheduler_run`、排程入口 | 明定排程入口對每個工作的每一次呼叫各用一個交易，工作可以回傳「還有」要求立即再呼叫 | 15.4 |
+| 21 | 第 3 節、待納入的增修 A11 | 宣告式流程定義增加 `entitlements` 宣告，讓不寫 hook 的流程也能產生權限項目與判定。建議的結構見下 | 本文件只定義 hook 的路徑；合約用印在 A11 之前以 hook 實作（附錄 D 第 1 項） |
+| 22 | 第 12 節 | 示範用的使用方系統同時扮演報表入口網站與電子用印設備；DC 模擬器登記成 `api_client` 並回報對帳；另有一個只用檔案上傳的系統 | 18.1 |
+
+第 21 項建議的宣告結構（放在流程定義裡；核心提供通用的產生與比對，不需要 hook）：
+
+```json
+{
+  "entitlements": [
+    {
+      "resource_type": "company_seal",
+      "resource_id_from": "seal_kind",
+      "actions": ["affix"],
+      "effective_during": "fulfilment",
+      "scope_ref_from": null,
+      "constraints": [
+        {"key": "document_sha256", "from": "contract_files[].sha256", "match": "one_of", "context_key": "document_sha256", "required": true},
+        {"key": "max_copies", "from": "copies", "match": "max_total", "context_key": "copies", "required": true}
+      ]
+    }
+  ]
+}
+```
+
+| `match` | `check` 模式回 true 的條件 | `reconcile` 模式回 true 的條件 |
+|---|---|---|
+| `equals` | 情境的值等於核准的值 | 回報的值等於核准的值 |
+| `one_of` | 情境的值在核准的陣列裡 | 回報的陣列是核准陣列的子集 |
+| `subset` | 情境的陣列是核准陣列的子集 | 同左 |
+| `max` | 情境的數值不超過核准的值 | 回報的數值不超過核准的值 |
+| `max_total` | 已回報用量的 `quantity` 加總，加上情境的數值，不超過核准的值 | 一律 false |
+
+`required` 為 true 的限制，情境沒有對應的鍵時一律回 false；為 false 的限制，只有在 `strict` 時才因缺少而回 false。
 
 ## 附錄 B　查證來源
 
@@ -3925,17 +4231,49 @@ api.integration_discovery(p_actor bigint) returns jsonb           -- 平台的�
 | SCIM | <https://www.rfc-editor.org/rfc/rfc7643>、<https://www.rfc-editor.org/rfc/rfc7644>、<https://www.rfc-editor.org/rfc/rfc9865>、<https://www.rfc-editor.org/rfc/rfc9967> |
 | CloudEvents 1.0.2 | <https://github.com/cloudevents/spec/blob/v1.0.2/cloudevents/spec.md>、同一標籤下的 `bindings/http-protocol-binding.md`、`formats/json-format.md`；sequence 擴充 <https://github.com/cloudevents/spec/blob/main/cloudevents/extensions/sequence.md> |
 | Standard Webhooks 1.0.0 | <https://github.com/standard-webhooks/standard-webhooks/blob/main/spec/standard-webhooks.md> |
-| OAuth 2.0 | <https://www.rfc-editor.org/rfc/rfc6749>（第 4.4、5.1、5.2 節）、<https://www.rfc-editor.org/rfc/rfc6750>、<https://www.rfc-editor.org/rfc/rfc9700> |
-| OCSF 1.9.0 | <https://schema.ocsf.io/>（類別 `user_access`、`entity_management`；物件 `metadata`、`user`、`resource_details`、`managed_entity`、`actor`） |
+| OAuth 2.0 | <https://www.rfc-editor.org/rfc/rfc6749>（第 4.4、5.1、5.2 節）、<https://www.rfc-editor.org/rfc/rfc6750>、<https://www.rfc-editor.org/rfc/rfc9700>；憑證綁定（選用）<https://www.rfc-editor.org/rfc/rfc8705> |
+| OCSF 1.9.0 | <https://schema.ocsf.io/>（類別 `user_access`、`entity_management`、`api_activity`；物件 `metadata`、`user`、`resource_details`、`managed_entity`、`actor`、`api`）。2026-11-19 修訂時另外查了 <https://schema.ocsf.io/api/1.9.0/classes/api_activity> 與 <https://schema.ocsf.io/api/1.9.0/objects/user> |
 | JOSE | <https://www.rfc-editor.org/rfc/rfc8037>、<https://www.rfc-editor.org/rfc/rfc9864> |
 | RFC 3161 | <https://www.rfc-editor.org/rfc/rfc3161> |
 
-## 附錄 C　尚待確認的設計點
+## 附錄 C　尚待確認的設計點與已知限制
 
-| # | 設計點 | 目前的選擇 | 為什麼沒把握 |
+| # | 設計點 | 目前的選擇 | 為什麼沒把握，或限制是什麼 |
 |---|---|---|---|
-| 1 | 請求沒有提到的限制面向怎麼判 | 由流程包決定；核心一律回傳完整的限制條件，要求使用方自行套用 | 使用方如果忽略回傳的限制，會放行超出核准範圍的存取。替代做法是提供嚴格模式（缺面向就拒絕），但 hook 只回布林，核心無法知道哪些面向沒被檢查 |
+| 1 | 請求沒有提到的限制面向 | 預設嚴格（缺面向就拒絕），由流程包依 `p_context.strict` 判定；被拒時核心以 `strict = false` 再問一次來分辨「缺情境」與「不符合」 | 流程包的 hook 沒有照 `strict` 實作時，嚴格模式形同虛設。附錄 D 第 2 項要求資料授權流程包配合；核心的測試只能用測試專用的 hook 驗證 |
 | 2 | 資料授權的資源粒度 | 例子用「欄位」當資源 | 一張單可能產生幾十筆權限項目，而且這是資料授權流程包契約的決定；若改成「主題包」當資源，多筆授權各涵蓋部分欄位時無法以單次判定合併 |
-| 3 | 事件序號用 advisory lock 保證順序 | 所有會產生事件的交易排隊 | 核心的稽核鏈如果也有自己的鎖，兩把鎖的取得順序必須固定，否則可能死結；尖峰時（例如批次核准續期）的等待時間需要實測 |
-| 4 | 每次判定都寫速率計數與呼叫紀錄 | 兩筆寫入；紀錄表不分割，逾期以刪除清理 | 判定量很大時（執行系統每次查詢都問），紀錄表的成長與刪除成本可能需要改成按月分割 |
-| 5 | 複查決定為縮小、以及對生效中授權的任何修改 | 依賴核心提供縮小的入口 | 骨幹只定義了簽核過程中的縮小，沒有定義生效之後的縮小；核心如果不提供，這個決定實際上等於「限期重新申請，否則撤銷」 |
+| 3 | 事件序號用 advisory lock 保證順序 | 鎖只在提交前的片刻持有（延後的觸發程序），對帳分段執行 | 核心的稽核鏈如果也有自己的鎖，兩把鎖的取得順序必須固定，否則可能死結：稽核寫入在交易中途，事件的鎖在提交時，順序是「先稽核、後事件」，所有路徑都要遵守。尖峰時（例如批次核准續期）的等待時間需要實測 |
+| 4 | 投影延後到提交時執行 | `constraint trigger`、`initially deferred` | 同一個交易裡在提交之前讀 `sgn.entitlement` 會讀到舊的狀態。需要的地方要明確呼叫 `project_case` 或 `set constraints all immediate`；核心的 function 如果有這種讀法要逐一確認 |
+| 5 | 每次判定都寫速率計數與呼叫紀錄 | 兩筆寫入；紀錄表不分割，逾期以「段」為單位刪除 | 判定量很大時（執行系統每次查詢都問），紀錄表的成長與刪除成本可能需要改成按月分割 |
+| 6 | 複查決定為縮小、以及對生效中授權的任何修改 | 依賴核心提供縮小的入口 | 骨幹只定義了簽核過程中的縮小，沒有定義生效之後的縮小；核心如果不提供，這個決定實際上等於「限期重新申請，否則撤銷」 |
+| 7 | 數量類限制的累計 | 靠使用方回報用量（5.7）；不回報時只檢查單次請求 | 平台無法強迫使用方回報。兩台設備同時各問一次、各蓋 2 份，在任何一台回報之前都會得到允許；要完全防止需要「先預留、再確認」的兩段式協定，第一版不做。超出核准的使用會在回報時被記錄並示警 |
+| 8 | 兩個人才能完成的管理動作 | 4.9 的變更申請 | 小型部署可能只有一位系統管理員，這時無法登記任何系統。這是刻意的（一個人不該能替自己開一個讀全部稽核資料的入口），但導入時要先確認人力；A10、A20 定案後角色會重新劃分 |
+| 9 | 高嚴重度發現的獨立確認 | 由系統管理員或資源範圍的角色持有人確認 | 確認的人要能實際查看那個系統的設定；不歸資訊單位管的系統（A16）要等受管系統的角色定案，才能指定合適的人 |
+| 10 | token 綁定來源位址 | 預設綁定單一位址 | 使用方在會換出口位址的環境（容器平台、雲端 NAT）要登記為 `cidr`，保護力下降為「只限網段」。需要更強的綁定時用 mTLS（1.3） |
+| 11 | OCSF 的兩種對應 | 3005／3004 與 6003 | 欄位依 schema 查證過，但沒有對實際的 SIEM 產品驗證（1.1） |
+| 12 | 失敗上限的副作用 | 每個系統每分鐘 60 次失敗後限流 | 設計有瑕疵的使用方（例如把 404 當成正常流程大量查詢）會把自己限流。門檻可以對個別系統調整 |
+
+## 附錄 D　對其他契約的要求，以及待納入增修的相依
+
+本文件只能固定自己的範圍。下列各項需要其他文件配合；在它們完成之前，標示的功能或測試無法通過。前三項同時應該登記進 [pending-amendments.md](pending-amendments.md)（本次修訂沒有改那份文件）。
+
+| # | 對象 | 要求 | 影響 |
+|---|---|---|---|
+| 1 | `03-pack-seal.md`（合約用印） | 登記 `describe_entitlements` 與 `evaluate_constraints`，內容固定如 3.6：一筆權限項目，`resource_type` 是 `company_seal`、`resource_id` 是 `seal_kind` 的值、`actions` 是 `["affix"]`、`constraints` 是 `{"document_sha256": [contract_files 各元素的 sha256，去重排序], "max_copies": copies}`、`effective_during` 是 `fulfilment`；判定規則是 3.6 列的三個條件，`reconcile` 模式一律 false。該契約第 5.9 節與第 1 節「沒有登記的 hook」要跟著改。A11（完全宣告、不寫 hook）成立時，改用附錄 A 第 21 項的宣告，內容相同 | 情境 12；「通用模型不綁資料授權」的證明 |
+| 2 | `02-pack-data-access.md`（資料授權）§5.14 | `evaluate_constraints` 依 `p_context.strict` 處理缺少的面向：`strict` 為 true 時，`p_constraints` 有 `row_filter` 而 `context` 沒有、或有 `data_period` 而 `context` 沒有，回 false；`strict` 為 false 時維持現行行為。支援 `approved_union`：回報的列條件與期間落在陣列中各限制條件的聯集內時回 true（做不到就回 false，並在契約註明不支援）。`usage` 鍵忽略。該節的範例 4 要分成 `strict` 為 true 與 false 兩種 | 情境 19、20；`K-INT-CONSTRAINT-MODE` |
+| 3 | `04-screens`（畫面契約） | 新增或調整的畫面：變更申請的提出與覆核、密鑰領取、對帳檔案上傳、異常批次的檢視、發現的獨立確認、複查的需求確認與追蹤確認、整合狀態的新項目；驗收條件加入 3.7 最後一列（外來文字當純文字、CSV 跳脫） | 14.2 的端點沒有畫面就無法使用 |
+| 4 | `01-kernel.md`（核心） | 附錄 A 的各項；特別是第 1、6、8、9、15、19、20 項 | 投影、驗證、時區、排程 |
+| 5 | `seed-directory.md` 與 `sim/` | `sys_admin` 至少兩位（目前只有謝明哲一位）；被授權者在模擬 LDAP 的群組識別碼（本文件的例子假設通路業務組是 `channel-sales`）；人員的 LDAP 識別碼就是代號（`p01`…） | 18.1 的登記腳本與全部端對端情境 |
+
+待納入的增修對本文件的影響（骨幹更新後照下表修改；在那之前本文件的行為如正文所述）：
+
+| 增修 | 本文件要改的地方 |
+|---|---|
+| A3 申請單保密 | 10.2 已寫明保密流程類型的事件只給 `audit.read_all`；選項的名稱定案後，在 `audit_event_to_native` 引用它。事件與授權查詢是否輸出保密申請單的權限項目，維持輸出（權限項目不是申請內容） |
+| A7 人工的獨立驗證 | 8.7 的獨立確認可以改用核心的獨立驗證機制；8.9 最後一段 |
+| A10 設定變更走簽核 | 4.9、11.10、13.3 的變更申請改由核心的設定變更申請單承載；`integration_change_request` 資料表與五個 function 移除，獨立性限制改成該申請單的檢查 |
+| A12 集團多公司 | `api_client` 增加所屬公司；`api_client_visibility` 增加公司別的維度（null 表示不限）；`client_can_see` 多比對一個欄位；`reconciliation_run` 的範圍、複查的範圍、整合狀態都加上公司別 |
+| A16 受管系統 | `api_client` 增加 `resource_system_id`（一個受管系統可以有多個 `api_client`，例如執行系統與報表系統）；可見範圍與對帳批次可以直接以受管系統宣告，取代 `resource_id_prefix` 的慣例；`K-INT-RECON-ASSIGN` 的指派對象、8.9 的上傳人、8.7 可以確認的人，都改為該受管系統的管理人角色（可以是業務單位或有保證人的外部廠商人員）；整合方式（api／file／manual）取代 `upload_enabled` |
+| A19 機密欄位 | `describe_entitlements` 只能使用非機密欄位或加密前算出的衍生值；本文件的資料表不保存機密欄位 |
+| A20 平台管理角色分離 | 只改 `integration_admin_role()` 與 `integration_auditor_role()`（2.1）。技術維運不得持有 `integration_admin_role()` 的角色；流程管理依公司別、流程類型、受管系統委派時，13.3 的檢查加上範圍 |
+| A21 檔案與人工的整合方式 | 檔案上傳對帳已納入（8.9）。人工執行後的獨立驗證屬於核心（A7） |

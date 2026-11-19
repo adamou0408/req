@@ -165,3 +165,211 @@
 
 - 共用暫存目錄裡我的草稿 `p1.md` 被另一個作業覆寫過，我已重寫並改放 `scratchpad/da02_work/`；成品不受影響。
 - 驗收案例假設單號格式是「DA-年度-流水號」，種子的 5 筆授權佔用 `DA-2025-0001`、`0002` 與 `DA-2026-0001`–`0003`，所以每個案例的第一張單是 `DA-2026-0004`。格式不同時只影響文件裡的單號。
+
+---
+
+# 整合介面契約作者的回報（）
+
+產出：`/home/user/req/docs/contract/05-integration.md`（約 3,000 行，新檔；未 commit、未改骨幹與其他檔案）。標準現況皆於 2026-11-19 以規格原文查證（來源列在文件附錄 B）。
+
+## 一、採用的標準與理由
+
+**必須採用**
+- **OpenID AuthZEN Authorization API 1.0**（Final，2026-01 核准）：權限判定的請求、回應、路徑（`/access/v1/evaluation`、`/evaluations`）、中繼資料（`/.well-known/authzen-configuration/integration/v1`）、三種批次語意。理由：已定案，模型與骨幹第 11 節的主體／資源／動作／情境一致。風險：定案不到一年，產品支援尚不普遍。依據（授權 id、申請單號、限制條件）與 `ttl_seconds` 放在回應的 `context`，這部分規格留給實作自訂。
+- **OAuth 2.0 client credentials（RFC 6749 §4.4）＋ Bearer（RFC 6750）**：自建 token 端點，短效不透明 token，資料庫只存 SHA-256。
+- **CloudEvents 1.0.2（JSON、structured mode、`sequence` 擴充）**：事件串流與 webhook 共用同一種格式。
+- **Standard Webhooks 1.0.0**：`webhook-id`／`webhook-timestamp`／`webhook-signature`，同時送 `v1`（HMAC）與 `v2a`（ed25519），重試與 410 停用。風險：它是社群規格；`v2a` 較新，函式庫支援可能落後；內容欄位用 CloudEvents 的 `time` 而非它建議的 `timestamp`。
+- **OCSF 1.9.0**：稽核事件給 SIEM 的 `format=ocsf`，對應 3005 User Access Management 與 3004 Entity Management。風險：OCSF 沒有「簽核」類別，細節只能放 `unmapped`。
+- **JWS／JWK（Ed25519，RFC 8037、RFC 9864）**：檢查點簽章與公鑰發布。
+
+**選用（留位置，第一版不做）**：RFC 3161 外部時間戳記、AuthZEN Search API、SSF 1.0 發送端、改由公司 IdP 發 JWT、`private_key_jwt`／mTLS、Standard Webhooks endpoint verification 擴充。
+
+**不採用**
+- **CAEP 1.0**：查證後只有 8 種登入階段／憑證類事件，沒有「授權生效／撤銷」。
+- **SCIM 2.0**（當授權或對帳格式）：RFC 7643 明寫 `entitlements` 無詞彙與語法，無法表達資源／動作／限制條件。
+- syslog／CEF 推送、自訂簽章與事件信封。
+
+**沒有查證到的**：各標準是否有認證測試、各廠牌 SIEM／IGA 實際支援的版本。
+
+## 二、數量
+
+- 資料表 **22**（另 17 個 enum、2 個 sequence、2 個複合型別）
+- `sgn_internal` function **35**（含 6 個排程工作）
+- `api` function **60**：給其他系統 27、只給後端 5、給人 28
+- REST 端點 **56**：`/integration/v1/…` 與 well-known 共 28（其中 `jwks.json` 由後端直接產生、無 function）；給人的 28
+- 規則代碼 `K-INT-*` **24**、錯誤代碼 **40**、參數 **40**、事件類型 16、scope 9
+- 後端另需：2 個 worker（webhook 推送、檢查點簽章）、2 個 port（`Signer`、`TimestampAuthority`）、token 專屬 handler
+- `sim/consumer` 的行為、控制端點與 17 個端對端情境已寫給實作者
+
+## 三、骨幹修改建議（文件附錄 A，共 14 項；最需要先定的排前面）
+
+1. **核心必須呼叫投影入口**：狀態轉移唯一入口呼叫 `sgn_internal.project_case(p_case_id, p_rule_code)`；被授權者負責人／成員異動呼叫 `sgn_internal.project_principal(...)`。migration 順序：投影檔必須在核心資料表之後、生命週期 function 之前。這是整個模組唯一需要 01-kernel 作者配合的接點。
+2. **`describe_entitlements` 回傳增加兩個選填鍵**：`effective_during`（`active`／`fulfilment`，合約用印這種一次性許可需要）、`scope_ref`（複查找範圍角色持有人用）；並明定同一張單內資源不得重複、function 為 `stable`。
+3. **`evaluate_constraints` 的 `p_context` 結構與 `mode`（`check`／`reconcile`）**；預設行為補上「有限制條件而沒登記 hook 時回 false」。
+4. **`case`、`grant` 是 SQL 保留字**，資料表名要統一加雙引號或改名。
+5. **稽核鏈的 `canonical` 文字與雜湊公式**要在 01-kernel 明定並可逐筆取得，否則第三方驗證無法重算。
+6. **`audit_event` 增加 actor 種類與 `api_client` 欄位**（目前以「系統＋變更內容帶代碼」處理）。
+7. **新增 `principal_identity`**（與 `person_identity` 對稱；目前由本模組 migration 建立）。
+8. **沒有有效期間的流程是否建立 `grant` 紀錄**要明定（本契約兩種都能運作）。
+9. **核心需提供**：以指定規則代碼撤銷授權的內部入口；「生效中授權的縮小」入口。
+10. `K-DELEGATE`、`K-MOBILE-MFA` 適用範圍加上複查決定。
+11. 參數前綴加 `integration.`、`reconciliation.`、`review.`、`evidence.`；`scope_ref` 用 `api_client:<code>` 表示個別系統。
+12. 第 10 節通用畫面加：複查工作、對帳發現、整合系統管理。
+13. 第 11 節命名對齊：`events` → 表 `integration_event`；`evidence` → 表 `evidence_checkpoint`；`audit_feed` 是端點、無獨立表。
+14. 工程規範：路由表加 `auth: 'client'`、`bodyLimit`、`decorate`；port 清單加 `Signer`、`TimestampAuthority`；整合端點不加 `/api` 前綴。
+
+另外，文件第 2.1 節列了 11 個以 ⟨⟩ 標示的核心入口暫用名稱（取時間、寫稽核、找主管、撤銷授權等），實際名稱要等 01-kernel 定案後對齊。OCSF 對應表的稽核動作代碼也要等核心的動作代碼定案才能填。
+
+## 四、最沒把握的設計點
+
+1. **請求沒提到的限制面向怎麼判**：目前由流程包決定，核心一律回傳完整限制條件要使用方自行套用。使用方若忽略就會超放。hook 只回布林，核心無法做「缺面向就拒絕」的嚴格模式。
+2. **資料授權的資源粒度**：例子用「欄位」當資源（一張單會產生數十筆權限項目）。這其實是資料授權流程包契約的決定；若改用「主題包」，多筆授權各涵蓋部分欄位時無法單次判定。
+3. **事件順序靠交易層級 advisory lock**：所有會產生事件的交易排隊。若核心稽核鏈也有自己的鎖，取鎖順序必須固定，否則可能死結；批次核准續期時的等待時間需實測。
+4. **每次判定都寫速率計數與呼叫紀錄**：紀錄表未分割、逾期以刪除清理。執行系統若每次查詢都來問，可能要改按月分割。效能目標（單筆 p95 ≤ 50 ms、百筆批次 ≤ 500 ms）是設計值，尚未實測。
+5. **複查決定「縮小」**：骨幹只定義簽核過程中的縮小。核心若不提供生效後的縮小入口，這個決定實際等於「限期重新申請，否則自動撤銷」。
+
+
+---
+
+# 整合介面契約作者的回報（）
+
+# 修訂回報：docs/contract/05-integration.md
+
+只改了 `/home/user/req/docs/contract/05-integration.md`（3,039 行 → 4,279 行），沒有 commit / push，沒有動骨幹與其他契約。
+SQL 沒有執行過（repo 還沒有資料庫）；驗證只做了文件內部一致性的腳本比對，結果在最後一節。
+
+## 1. 已修正數
+
+40 項審查發現全部處理：2 項 blocker、18 項 major、20 項 minor 都已修進文件。其中 11 項是「採納問題、但做法與建議不同或只採一部分」，列在第 2 節。沒有整項不採納的。
+
+主要改動（依文件章節）：
+
+- **2.2 投影**：改由掛在 `case`、`grant`、`person`、`person_identity`、`principal`、`principal_member` 上的六個延後觸發程序驅動，不靠核心記得呼叫。判定時再以主鍵複核 `grant` 與主體狀態。新增排程 `job_integration_consistency`。
+- **3.2 外部識別碼**（blocker）：`principal_identity` 只能由身分同步或「系統管理員提出、非負責人非成員覆核」的變更申請寫入。每次改變寫稽核事件（新舊值）、發 `sgn.principal.identity_changed`，並阻止相關對帳發現自動結案。
+- **3.3、4.1 嚴格模式**：`api_client.constraint_mode` 預設 `strict`，缺限制面向回 `constraint_context_missing`。`advisory` 要填理由且必須納入對帳。
+- **3.4 狀態表**：補齊沒有 `grant` 的各種情況；新增 `subject_inactive`（人離職、被授權者結束）；一次性許可一定有期限；日期轉時間改用 `system.business_timezone`。
+- **3.6 合約用印**（blocker）：選 (a)，保留一次性許可，改用 03 的實際欄位（`seal_kind`、`copies`、`contract_files[].sha256`），並在附錄 D 寫死對 03 的要求。
+- **4.x 系統身分**：
+  - 4.3 token 換發的失敗與成功分開計數，失敗一律 401。
+  - 4.7 呼叫紀錄改為每個檢查點前以 id 範圍封存，雜湊加入 `ip`、token、筆數，時間用 UTC 文字。
+  - 4.8 失敗的請求也計數，新增每系統的失敗上限。
+  - 4.9 新增變更申請（雙人覆核；`audit.read_all` 另需會簽；密鑰只有負責人領得到）。
+  - 4.10 新增來源 CIDR 限制、token 綁定位址、`p_ip` 的取得規則。
+- **5.x 判定**：`ttl_seconds` 納入成員期間、被授權者結束日、複查追蹤期限、負責人寬限期，上限降到 300 秒；新增 5.7 用量回報（`usage.write`）。
+- **6.x 授權查詢**：`status` 定義為儲存的狀態；新增 `effective_at`、`effective_now`；同步流程寫成使用方必須遵守的規定；游標內含 `sync_epoch`（409 `integration_resync_required`）；新增 6.5 成員名單端點與 `expand=members`。
+- **7.x 事件**：
+  - 新增 `sgn.principal.identity_changed`、`sgn.person.identity_changed`、`sgn.client.visibility_changed`、`sgn.reconciliation.run_completed`。
+  - `sgn.principal.*` 的可見條件收緊；CloudEvents 的 `subject` 不再帶內部 id。
+  - webhook 補上狀態轉移表與每小時管理上限。
+  - worker 固定用解析到的位址連線，明列禁止範圍，只記錯誤種類。
+- **8.x 對帳**（幾乎重寫）：
+  - 比對分段執行。
+  - 異常批次（新發現超過上限）整批暫停，等人工檢視。
+  - 高嚴重度發現要獨立確認才結案；換主體回報會沿用原期限。
+  - 回報項目可帶 `entitlement_id`，另有聯集比對。
+  - `observed_at` 不可回填；每日與進行中批次數有上限。
+  - 指紋改用 JSON 陣列編碼。
+  - 沒有 `grants.read` 的系統只拿到遮蔽版的發現。
+  - 新增 8.9 檔案上傳對帳（A21）。
+- **9.x 複查**：職責分離加上「主體的成員」；負責人改為可填需求確認但不能決定；`reduce` 要給結構化的 `reduce_spec` 並逐項核對，`tighten` 另需確認；取消進行中的複查要雙人覆核；`result_sha256` 與快照雜湊給出 SQL。
+- **10.x 證據**：
+  - `audit.read` 以「申請單至少有一筆可見權限項目」為條件，內容遮蔽。
+  - OCSF 修正 `user.type_id`、`src_endpoint.ip`、`actor.app_*`。
+  - 新增 `GET /integration/v1/audit/calls`（OCSF 6003）。
+  - `event_count` 改為實際筆數；驗證不依賴序號連續，並補上保存年限清除後的起點。
+  - 新增簽章停擺警示。
+- **11–18、附錄**：DDL、function、端點、規則、錯誤、參數、排程、測試、情境全部同步；新增附錄 D（對其他契約的要求與待納入增修的相依）。
+
+修訂後的規模：
+
+| 項目 | 修訂前 | 修訂後 |
+|---|---|---|
+| 資料表 | 22 | 29 |
+| `api` function | 60 | 75（系統 30、後端 6、人 39） |
+| 端點 | 28＋28 | 31＋39 |
+| 規則代碼 | 24 | 37 |
+| 錯誤代碼 | 39 | 65 |
+| 參數 | 39 | 64 |
+| 排程工作 | 6 | 7 |
+| 端對端情境 | 17 | 29 |
+
+## 2. 未採納與理由
+
+沒有整項不採納的。下列是做法與建議不同、或只採納一部分的地方：
+
+- **速率計數（4.8）**：沒有採「業務 function 之前先以獨立交易驗證並計數」，因為每次呼叫會多一趟往返與一個寫入交易。改由 `integration_record_failure`（本來就是獨立交易）補計 `api` 與新的 `error` 計數；連續 404 會被限流。
+- **401 不計入系統的計數（13.2）**：這是我自己加的偏離。若 401 也計入，拿到 token 的人從別的位址亂試，就能讓正牌系統被限流。401 改記在不引用 `api_client` 的失敗計數並示警。
+- **token 換發失敗（4.3）**：兩份審查建議不同（回相同的 401 或相同的 429），採「失敗一律 401、永不變 429」，只有密鑰正確時才可能 429。
+- **來源限制（4.10）**：採 CIDR 加 token 綁定位址；mTLS／RFC 8705 留在 1.3 的選用項目，沒有做成高權限 scope 的必要條件。
+- **`audit.read` 的遮蔽（10.2）**：兩份建議不同（白名單鍵或整個設為 null），合併為：`changes` 只留白名單表 `sgn.audit_export_key` 的鍵，`settings`、`ip`、`canonical` 一律 null。白名單內容要等核心的稽核動作代碼定案才能填。
+- **高嚴重度發現的確認（8.7）**：只採「非負責人的人獨立確認」。沒有採「另一個 `api_client` 的批次確認」，因為發現以回報系統為單位，別的系統的批次說明不了這個系統的實際設定。
+- **`ttl_seconds`（5.5）**：採「上限降到 300」，沒有採「超過 300 時要求有 webhook 訂閱」。
+- **用量端點的路徑（5.7）**：兩份建議的路徑不同，採 `POST /integration/v1/grants/{entitlement_id}/usage`。兩段式預留沒有做，列在附錄 C。
+- **被取代批次的 409 回應（8.3）**：沒有在錯誤內容加 `status`、`superseded_by`，因為 `raise_error(代碼)` 只收代碼。改為呼叫方以查批次端點取得這兩個欄位。
+- **A16、A12（附錄 D）**：`resource_system_id` 與公司別維度沒有進 DDL，因為骨幹還沒有這兩個實體；確切要改的欄位寫在附錄 D。A20 以兩個回傳角色代碼的 function 隔離，之後只改這兩處。
+- **事件數上限**：我一度加了「單一交易事件數上限」，後來移除。它會讓核心的大批次核准整筆失敗，而對帳已由每段筆數限制。
+
+## 3. 骨幹修改建議（彙整；完整 22 項在文件附錄 A）
+
+- **第 2、4 節**
+  - 明定 `grant` 在哪個轉移建立、哪些流程類型會有、起迄是含頭尾的日期。
+  - 人的在職狀態、被授權者的狀態與結束日要是可被觸發程序觀察的欄位。
+  - `principal_member` 移除成員時保留該列並填迄；`case` 要有「進入目前狀態的時間」。
+  - 加入 `principal_identity` 與整合相關資料表。
+  - `audit_event` 增加 actor 種類與 `api_client` 欄位。
+- **第 5 節**
+  - 人離職時核心應撤銷相關授權（`K-OWNER-CONTINUITY` 只寫了被授權者結束）。
+  - 提供「以指定規則代碼撤銷」與「生效後縮小」的入口。
+  - `K-DELEGATE`、`K-MOBILE-MFA` 適用於複查決定與變更申請的覆核。
+  - `K-AUDITOR-READONLY` 是否允許稽核角色會簽。
+  - A10 進核心後取代本文件 4.9。
+- **第 6、11 節**
+  - 投影由整合模組的觸發程序維護；核心只需（選用）呼叫 `note_projection_rule`，以及在負責人寬限期開始與解除時呼叫 `project_principal`。
+  - `describe_entitlements` 增加 `effective_during`、`scope_ref`，並規定 `has_validity` 為否不得回 `active`。
+  - `evaluate_constraints` 的 `p_context` 定義 `mode`、`strict`、`usage`、`approved_union`；沒有登記 hook 而有限制條件時回 false。
+  - 能力表增列一次性許可、用量回報、成員名單、檔案上傳對帳，並明定時間造成的生效與失效不發即時事件。
+- **第 3 節（A11）**：宣告式流程定義增加 `entitlements` 宣告，結構與五種比對方式的提案在附錄 A 第 21 項。
+- **第 8 節**：新增核心參數 `system.business_timezone`；參數前綴增加 `integration.`、`reconciliation.`、`review.`、`evidence.`。
+- **稽核鏈**：明定 `canonical` 與雜湊公式；序號是否保證連續；保存年限清除時寫一筆帶首尾序號與雜湊的稽核事件。
+- **排程**：每個工作每次呼叫各一個交易，工作可回 `more` 要求立即再呼叫。
+- **工程規範**：路由表增加 `auth: 'client'` 等欄位；部署設定增加 `TRUSTED_PROXY_CIDRS`、`WEBHOOK_BLOCKED_CIDRS`、`WEBHOOK_ALLOW_PRIVATE`；人員與組織 port 的同步範圍加上被授權者的外部識別碼。
+- **第 10、12 節**：通用畫面增加變更申請、密鑰領取、對帳上傳與確認、複查的需求確認；`sim/` 的使用方同時扮演用印設備，另有一個只用檔案上傳的系統。
+
+## 4. 仍需使用者決定的事項
+
+1. **合約用印要不要對外提供判定。** 我選 (a)：保留一次性許可，要求 `03-pack-seal.md` 登記兩個 hook。理由是程式上線、供應商帳號變更也是同一種模型。這與 03 作者的決定及 A11（用印不寫 hook）相反；03 改好之前情境 12 不會通過。不同意就改 (b)：刪掉 3.6、`fulfilment`、5.7。
+2. **雙人覆核需要至少兩位 `sys_admin`。** 種子名單只有謝明哲一位，這種情況下連一個系統都登記不了。請決定補誰，或等 A20。
+3. **稽核角色會簽 `audit.read_all`** 與骨幹「稽核唯讀」有出入。要不要允許，或改由別的角色會簽。
+4. **預設嚴格模式** 需要 `02-pack-data-access.md` §5.14 依 `p_context.strict` 實作（附錄 D 第 2 項）。02 沒改之前嚴格模式形同虛設。
+5. **高嚴重度對帳發現要獨立確認才結案**，會增加系統管理員（或資料擁有者）的工作量。不歸資訊單位管的系統由誰確認，要等 A16。
+6. **複查人不得是團隊成員**：身為成員的負責人不能複查自己團隊的授權，自動建立的複查多半會改派給他的主管。請確認這是要的行為。
+7. **從嚴的自動處置**：複查縮小後，期限到仍未經確認就自動撤銷，包含確認人沒回應的情況；人離職後復職，權限不自動恢復。
+8. **會影響使用方的預設值**：
+   - token 預設綁定單一位址，雲端或容器環境要登記為 `cidr`。
+   - 判定快取上限 300 秒。
+   - 每系統每分鐘 60 次失敗即限流。
+   - 一次性許可 72 小時。
+   - 對帳 `observed_at` 最多回溯 60 分鐘，檔案上傳 24 小時。
+   - 單批新發現超過 200 筆就暫停。
+9. **`docs/reality-check/00-decisions.md` 在我修訂期間出現，沒有納入。** 我只看了總表的部分列。骨幹更新後要再對齊的至少有：
+   - RA-01、RA-02：檢查點、錨定與雜湊正規化移到核心。
+   - RA-03：讀取時比對 `row_hash`，與本文件「判定時複核加一致性排程」重疊。
+   - RA-09：保存年限改 5 年。
+   - RA-14：`K-MOBILE-MFA` 改名。
+   - RA-33：設定變更母體含 `api_client`、webhook、可信代理清單。
+   - RB-30：新 hook `describe_expected_state`，以及異動紀錄檔的對帳。
+   - C-21：複查未回應「先升級再暫停」，本文件是撤銷。
+   - C-43：`decision_log` 保存 3 年、可詢問範圍以受管系統限定。
+   - C-46：寫入類 scope 必須用 `private_key_jwt`。
+10. **`pending-amendments.md` 要補登記**（我不能改）：對 03 的 hook 要求、對 02 的 `strict`／`approved_union` 要求、畫面契約的新畫面，內容在附錄 D。
+
+## 5. 一致性檢查結果
+
+- 規則代碼：全文出現 37 個，15.1 的表 37 個，17.2 的測試表 37 個，三者相同。
+- function 與端點：13.1 有 27 列加 3 個不走骨架的；13.2 有 6 列；13.3 有 39 列，與 14.2 的 39 個端點逐一對上；14.1 有 31 列。
+- DDL 共 29 個 `create table`；文中引用的 `sgn.*` 資料表不是本文件建立的，就是核心的。
+- 文中引用的 `sgn_internal.*` 都在第 12 節或 2.1 的核心入口清單。
+- 事件類型：7.1 有 20 個，與 `integration_discovery` 的清單相同；scope 10 個，兩處相同。
+- 文中引用的參數都在 15.3。
+- 35 個 JSON 區塊可解析；表格欄數一致；程式碼圍欄成對。
+- OCSF 6003 的必要屬性與 `user.type_id` 的值，這次另外查了 schema.ocsf.io；其餘標準沿用原文件的查證。
