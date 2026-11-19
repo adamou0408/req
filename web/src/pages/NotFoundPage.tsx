@@ -1,3 +1,4 @@
+import { PATHS } from "../app/paths";
 import { ButtonLink, EmptyState, PageHeader } from "../components";
 import { t } from "../i18n/zh-Hant";
 
@@ -9,7 +10,7 @@ export default function NotFoundPage() {
       <EmptyState
         title={copy.title}
         description={copy.body}
-        action={<ButtonLink to="/">{copy.home}</ButtonLink>}
+        action={<ButtonLink to={PATHS.home}>{copy.home}</ButtonLink>}
       />
     </>
   );

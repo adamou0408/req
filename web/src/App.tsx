@@ -1,7 +1,8 @@
 import { Suspense, lazy } from "react";
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useParams } from "react-router";
 import { AppLayout } from "./app/AppLayout";
 import { navItemsFor } from "./app/nav";
+import { ID_PARAM, ID_PATTERN, PATHS } from "./app/paths";
 import { useAuth } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import { Skeleton } from "./components";
@@ -13,8 +14,10 @@ const RequestDetailPage = lazy(() => import("./pages/RequestDetailPage"));
 const ApprovalsPage = lazy(() => import("./pages/ApprovalsPage"));
 const ApprovalDetailPage = lazy(() => import("./pages/ApprovalDetailPage"));
 const GrantsPage = lazy(() => import("./pages/GrantsPage"));
-const MisQueuePage = lazy(() => import("./pages/MisQueuePage"));
-const MisCheckPage = lazy(() => import("./pages/MisCheckPage"));
+const FulfilmentQueuePage = lazy(() => import("./pages/FulfilmentQueuePage"));
+const FulfilmentDetailPage = lazy(
+  () => import("./pages/FulfilmentDetailPage"),
+);
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const AuditSearchPage = lazy(() => import("./pages/AuditSearchPage"));
 const AuditEvidencePage = lazy(() => import("./pages/AuditEvidencePage"));
@@ -27,40 +30,57 @@ const DevComponentsPage = import.meta.env.DEV
   : null;
 
 /**
- * 首頁是「我的申請」。沒有申請人導覽的人（例如只有稽核角色）
+ * 首頁是「我的申請」。沒有這個工作區的人（例如只做稽核）
  * 改送到他導覽列的第一個去處，避免一登入就看到跟自己無關的頁面。
  */
 function HomeRoute() {
   const { user } = useAuth();
   const items = user ? navItemsFor(user) : [];
   const first = items[0];
-  if (first && !items.some((item) => item.to === "/")) {
+  if (first && !items.some((item) => item.to === PATHS.home)) {
     return <Navigate to={first.to} replace />;
   }
   return <MyRequestsPage />;
+}
+
+/** wireframe 時期的網址（MIS 佇列）；執行佇列改名後保留轉址，舊連結不會失效。 */
+const LEGACY_FULFILMENT = "/mis";
+
+function LegacyFulfilmentRedirect() {
+  const id = useParams()[ID_PARAM];
+  const to = id === undefined ? PATHS.fulfilment : PATHS.fulfilmentCase(id);
+  return <Navigate to={to} replace />;
 }
 
 export function App() {
   return (
     <Suspense fallback={<Skeleton count={4} />}>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
+        <Route path={PATHS.login} element={<LoginPage />} />
         {DevComponentsPage && (
-          <Route path="/dev/components" element={<DevComponentsPage />} />
+          <Route path={PATHS.devComponents} element={<DevComponentsPage />} />
         )}
         <Route element={<RequireAuth />}>
           <Route element={<AppLayout />}>
             <Route index element={<HomeRoute />} />
-            <Route path="requests/new" element={<RequestNewPage />} />
-            <Route path="requests/:id" element={<RequestDetailPage />} />
-            <Route path="approvals" element={<ApprovalsPage />} />
-            <Route path="approvals/:id" element={<ApprovalDetailPage />} />
-            <Route path="grants" element={<GrantsPage />} />
-            <Route path="mis" element={<MisQueuePage />} />
-            <Route path="mis/:id" element={<MisCheckPage />} />
-            <Route path="settings" element={<SettingsPage />} />
-            <Route path="audit" element={<AuditSearchPage />} />
-            <Route path="audit/:id" element={<AuditEvidencePage />} />
+            <Route path={PATHS.requestNew} element={<RequestNewPage />} />
+            <Route path={PATHS.request(ID_PATTERN)} element={<RequestDetailPage />} />
+            <Route path={PATHS.approvals} element={<ApprovalsPage />} />
+            <Route path={PATHS.approval(ID_PATTERN)} element={<ApprovalDetailPage />} />
+            <Route path={PATHS.grants} element={<GrantsPage />} />
+            <Route path={PATHS.fulfilment} element={<FulfilmentQueuePage />} />
+            <Route
+              path={PATHS.fulfilmentCase(ID_PATTERN)}
+              element={<FulfilmentDetailPage />}
+            />
+            <Route path={PATHS.settings} element={<SettingsPage />} />
+            <Route path={PATHS.audit} element={<AuditSearchPage />} />
+            <Route path={PATHS.auditEvidence(ID_PATTERN)} element={<AuditEvidencePage />} />
+            <Route path={LEGACY_FULFILMENT} element={<LegacyFulfilmentRedirect />} />
+            <Route
+              path={`${LEGACY_FULFILMENT}/${ID_PATTERN}`}
+              element={<LegacyFulfilmentRedirect />}
+            />
             <Route path="*" element={<NotFoundPage />} />
           </Route>
         </Route>

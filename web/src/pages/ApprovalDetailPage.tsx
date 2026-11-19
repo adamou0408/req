@@ -1,4 +1,5 @@
 import { useParams } from "react-router";
+import { ID_PARAM } from "../app/paths";
 import { PageHeader } from "../components";
 import { useIsMobile } from "../lib/useMediaQuery";
 import { t } from "../i18n/zh-Hant";
@@ -15,7 +16,7 @@ const DESKTOP_WIREFRAMES = ["Approver-Review.dc.html"] as const;
  * 核准時的 Mobile-MFA 畫面就是 MfaDialog 在手機上的全螢幕樣子，由 API 層自動觸發。
  */
 export default function ApprovalDetailPage() {
-  const { id = "" } = useParams();
+  const id = useParams()[ID_PARAM] ?? "";
   const isMobile = useIsMobile();
   const list = t.pages.approvals;
   return (

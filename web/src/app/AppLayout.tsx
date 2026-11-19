@@ -10,6 +10,7 @@ import { useIsMobile } from "../lib/useMediaQuery";
 import { t } from "../i18n/zh-Hant";
 import { isNavItemActive, navItemsFor } from "./nav";
 import type { NavItem } from "./nav";
+import { PATHS } from "./paths";
 import "./AppLayout.css";
 
 function NavLinks({
@@ -26,7 +27,7 @@ function NavLinks({
         const active = isNavItemActive(item, pathname);
         return (
           <Link
-            key={item.key}
+            key={item.area}
             to={item.to}
             className={cx(
               `${className}__item`,
@@ -52,7 +53,7 @@ function UserMenu({ user }: { user: CurrentUser }) {
   return (
     <div className="topbar__user">
       <span className="topbar__name">
-        {t.auth.userLine(user.name, user.dept)}
+        {t.auth.userLine(user.name, user.orgUnit)}
       </span>
       <button
         type="button"
@@ -94,7 +95,7 @@ export function AppLayout() {
         {t.app.skipToContent}
       </a>
       <header className="topbar">
-        <Link className="topbar__brand" to="/">
+        <Link className="topbar__brand" to={PATHS.home}>
           {t.app.name}
         </Link>
         {!isMobile && <NavLinks items={items} className="topnav" />}
