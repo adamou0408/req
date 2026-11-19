@@ -7,6 +7,8 @@ dist/
 .screenshots/
 test-results/
 playwright-report/
+# tools/install-dev-tools.sh 建立的 Python 工具虛擬環境
+.tools/
 
 # 模擬環境的執行期資料（資料庫檔、pid、log、建置出來的執行檔）
 <模擬環境目錄>/.run/

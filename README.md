@@ -22,6 +22,8 @@
 
 ## 文件
 
+- **[方向](docs/00-direction.md)：目標、策略、目前的賭注、修正的規則。最上層的依據**
+
 - [產品定位](docs/platform-vision.md)：終極目標、要解決的問題、核心與流程包的分工
 - [決策紀錄](docs/decision-log.md)：方向衝突時的判斷
 - [工程規範](docs/engineering-standards.md)：單一真相來源、架構、抽象層、品質關卡
