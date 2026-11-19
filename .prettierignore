@@ -1,0 +1,8 @@
+# 不歸 Prettier 管：別人負責的目錄、文件、執行期檔案、外部來源的測試資料（保持原樣，雜湊才對得上）
+node_modules/
+.run/
+sim/
+docs/
+*.md
+package-lock.json
+db/tests/kernel/fixtures/

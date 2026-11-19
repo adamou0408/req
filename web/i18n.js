@@ -21,7 +21,8 @@ export const t = {
     action: { approve: '核准', return: '退回' },
     confirmTitle: { approve: '確認核准', return: '確認退回' },
     consequence: {
-        approve: (c) => `核准後，${c.applicant_name} 可以使用「${c.content.dataset}」到 ${c.content.until}。你的核准會用通行金鑰簽章，寫進改不掉的稽核紀錄。`,
+        approve: (c) =>
+            `核准後，${c.applicant_name} 可以使用「${c.content.dataset}」到 ${c.content.until}。你的核准會用通行金鑰簽章，寫進改不掉的稽核紀錄。`,
         return: (c) => `退回後，申請單回到 ${c.applicant_name} 手上，可以修改後再送。你的決定會用通行金鑰簽章並留下紀錄。`,
     },
     confirmWithPasskey: '用通行金鑰確認',
@@ -41,7 +42,13 @@ export const t = {
     auditVerifyAgain: '重新驗證',
     auditVerifying: '正在驗證整條稽核紀錄…',
     auditOk: '驗證通過：紀錄沒有被改過',
-    auditOkUnanchored: (n) => `雜湊鏈一致，但有 ${n} 筆紀錄還沒有寫進外部錨點，只靠資料庫保護。稍後再驗證一次。`,
+    auditUnanchored: (n) => `這張單有 ${n} 筆紀錄尚未有外部摘要涵蓋，目前只靠資料庫保護，還不算完成驗證。稍後再驗證一次。`,
+    notAnchored: '尚未有外部摘要涵蓋',
+    exceptions: '稽核：例外',
+    exceptionsEmpty: '目前沒有例外。',
+    exception: {
+        'PRB-SYNC-GUARD': '例外：簽核人是由人員同步在基準之後異動的主管關係決定的。核准前請確認這個主管異動是真的人事異動。',
+    },
     auditBad: '驗證失敗：紀錄和原本不一致',
     auditChecks: '檢查了什麼',
     auditEvents: '這張單的紀錄',
@@ -52,12 +59,10 @@ export const t = {
         'case.approve': '核准',
         'case.return': '退回',
         'passkey.registered': '登記通行金鑰',
+        'exception.opened': '開立例外',
+        'directory.manager_changed': '人員同步：主管異動',
     },
     proofKind: { passkey: '通行金鑰簽章', idp_stepup: '身分提供者再驗證' },
     loading: '載入中…',
     errorRetry: '發生錯誤，請重新整理後再試。',
-    error: {
-        LOGIN_CANCELLED: '登入沒有完成，請再按一次登入。',
-        FLOW_INVALID: '登入逾時或不完整，請再按一次登入。',
-    },
 };

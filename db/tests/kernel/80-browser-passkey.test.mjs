@@ -6,7 +6,15 @@ import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
 import {
-    call, closePools, config, createSubmittedCase, decidePasskey, idToken, issueChallenge, login, one, pool,
+    call,
+    closePools,
+    config,
+    createSubmittedCase,
+    decidePasskey,
+    idToken,
+    issueChallenge,
+    login,
+    pool,
     registrationNonce,
 } from './lib/harness.mjs';
 
@@ -42,7 +50,11 @@ test('PRB-PROOF (a) 真的瀏覽器：Chromium 登記通行金鑰、簽挑戰值
     const applicant = await login(app, 'p04');
     const manager = await login(app, 'p03');
     const created = await page.evaluate(async (rpId) => {
-        const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+        const b64 = (buf) =>
+            btoa(String.fromCharCode(...new Uint8Array(buf)))
+                .replaceAll('+', '-')
+                .replaceAll('/', '_')
+                .replace(/=+$/, '');
         const cred = await navigator.credentials.create({
             publicKey: {
                 challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -64,10 +76,19 @@ test('PRB-PROOF (a) 真的瀏覽器：Chromium 登記通行金鑰、簽挑戰值
     const ch = await issueChallenge(app, manager, caseId);
     const assertion = await page.evaluate(
         async ({ challenge, id, rpId }) => {
-            const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+            const b64 = (buf) =>
+                btoa(String.fromCharCode(...new Uint8Array(buf)))
+                    .replaceAll('+', '-')
+                    .replaceAll('/', '_')
+                    .replace(/=+$/, '');
             const unb64 = (s) => Uint8Array.from(atob(s.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
             const got = await navigator.credentials.get({
-                publicKey: { challenge: unb64(challenge), rpId, allowCredentials: [{ type: 'public-key', id: unb64(id) }], userVerification: 'required' },
+                publicKey: {
+                    challenge: unb64(challenge),
+                    rpId,
+                    allowCredentials: [{ type: 'public-key', id: unb64(id) }],
+                    userVerification: 'required',
+                },
             });
             return {
                 credentialId: b64(got.rawId),

@@ -14,7 +14,7 @@ as $$
         'occurred_at', e.occurred_at,
         'event_type', e.event_type,
         'actor_name', p.display_name,
-        'body', encode(e.body, 'base64'),
+        'body', translate(encode(e.body, 'base64'), E'\n', ''),
         'prev_hash', encode(e.prev_hash, 'hex'),
         'hash', encode(e.hash, 'hex')
     ) order by e.seq), '[]'::jsonb)

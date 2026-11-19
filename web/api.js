@@ -1,4 +1,5 @@
-// API 呼叫層：頁面只透過這裡和後端溝通。錯誤訊息直接用後端回傳的（來自資料庫的錯誤目錄）。
+// API 呼叫層：頁面只透過這裡和後端溝通。路徑一律是 /api/<function 名稱>，名稱與參數以 packages/contract 的路由表為準
+// （db/tests/kernel/90-contract.test.mjs 檢查這裡用到的名稱都在路由表裡）。錯誤訊息直接用後端回傳的（來自資料庫的錯誤目錄）。
 export class ApiFailure extends Error {
     constructor(code, message, status) {
         super(message);
@@ -19,29 +20,15 @@ async function post(path, body = {}) {
 }
 
 export const api = {
-    me: () => post('/api/me'),
-    caseCreate: (content) => post('/api/case_create', { content }),
-    caseSubmit: (caseId) => post('/api/case_submit', { case_id: caseId }),
-    caseListMine: () => post('/api/case_list_mine'),
-    inboxList: () => post('/api/inbox_list'),
-    challengeIssue: (caseId, decision) => post('/api/challenge_issue', { case_id: caseId, decision }),
-    caseDecidePasskey: (challengeId, decision, assertion) =>
-        post('/api/case_decide_passkey', {
-            challenge_id: challengeId,
-            decision,
-            credential_id: assertion.credentialId,
-            authenticator_data: assertion.authenticatorData,
-            client_data_json: assertion.clientDataJSON,
-            signature: assertion.signature,
-        }),
-    passkeyRegisterBegin: () => post('/api/passkey_register_begin'),
+    /** 呼叫一個路由：fn 是 function 名稱，body 是除了 session 以外的參數。 */
+    call: (fn, body = {}) => post(`/api/${fn}`, body),
     passkeyReauth: (body) => post('/auth/passkey', body),
-    auditCase: (caseNo) => post('/api/audit_case', { case_no: caseNo }),
-    auditChain: (afterSeq, limit) => post('/api/audit_chain', { after_seq: afterSeq, limit }),
-    auditCodeFingerprint: () => post('/api/audit_code_fingerprint'),
+    logout: () => post('/auth/logout'),
     anchors: async () => {
         const text = await (await fetch('/anchors')).text();
-        return text.split('\n').filter(Boolean).map((line) => JSON.parse(line));
+        return text
+            .split('\n')
+            .filter(Boolean)
+            .map((line) => JSON.parse(line));
     },
-    logout: () => post('/auth/logout'),
 };

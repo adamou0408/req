@@ -68,11 +68,11 @@ begin
 end;
 $$;
 
--- 數字：先轉成 IEEE 754 double（RFC 8785 只定義 double），再依 ECMAScript Number::toString 排版。
--- float8 的文字輸出在 extra_float_digits >= 1 時是「能還原的最短位數」，位數和 ECMAScript 相同，只差排版。
--- 超出 double 範圍的值無法標準化，丟 CONTENT_NOT_CANONICAL。
-create function sgn_internal.jcs_number(p_value numeric)
-returns text
+-- double 的最短十進位位數：回傳 digits（不含前後的 0）與 point，數值 = 0.<digits> × 10^point。
+-- 起點是 float8 的文字輸出（extra_float_digits >= 1 時能還原、通常也最短）。但 PostgreSQL 在十進位值剛好落在
+-- 兩個 double 的中點時會多給位數（例如 1e23 印成 9.999999999999999e+22），ECMAScript 則要「轉回來仍是同一個 double
+-- 的最短位數」，所以再由短到長試一次。
+create function sgn_internal.jcs_shortest(p_double float8, out digits text, out point int)
 language plpgsql
 immutable
 strict
@@ -80,8 +80,43 @@ set search_path = pg_catalog, pg_temp
 set extra_float_digits = 1
 as $$
 declare
+    v_parts text[] := regexp_match(abs(p_double)::text, '^([0-9]+)(?:\.([0-9]+))?(?:e([+-][0-9]+))?$');
+    v_k int;
+    v_try numeric;
+    v_candidate numeric;
+begin
+    digits := v_parts[1] || coalesce(v_parts[2], '');
+    point := length(v_parts[1]) + coalesce(v_parts[3]::int, 0);
+    v_k := length(digits);
+    digits := ltrim(digits, '0');
+    point := point - (v_k - length(digits));
+    digits := rtrim(digits, '0');
+    v_k := length(digits);
+    for v_try_k in 1..v_k - 1 loop
+        v_try := round(digits::numeric / 10::numeric ^ (v_k - v_try_k));
+        v_candidate := (v_try::text || 'e' || (point - v_try_k)::text)::numeric;
+        -- 往上進位可能超出 double 的最大值（例如 1.79e308 → 2e308），那樣的候選不可能是答案
+        if v_candidate <= 1.7976931348623157e308 and v_candidate::float8 = abs(p_double) then
+            -- 進位（例如 9.99 → 10）時位數多一位，小數點跟著右移
+            point := point + length(v_try::text) - v_try_k;
+            digits := rtrim(v_try::text, '0');
+            return;
+        end if;
+    end loop;
+end;
+$$;
+
+-- 數字：先轉成 IEEE 754 double（RFC 8785 只定義 double），再依 ECMAScript Number::toString 排版。
+-- 超出 double 範圍的值無法標準化，丟 CONTENT_NOT_CANONICAL。
+create function sgn_internal.jcs_number(p_value numeric)
+returns text
+language plpgsql
+immutable
+strict
+set search_path = pg_catalog, pg_temp
+as $$
+declare
     v_double float8;
-    v_parts text[];
     v_digits text;
     v_point int;
     v_k int;
@@ -93,18 +128,15 @@ begin
             perform sgn_internal.raise_error('CONTENT_NOT_CANONICAL', p_value::text);
     end;
     if v_double = 0 then
+        if p_value <> 0 then
+            -- 小到 double 表示不了（下溢成 0）：同樣無法標準化，不能悄悄變成 0
+            perform sgn_internal.raise_error('CONTENT_NOT_CANONICAL', p_value::text);
+        end if;
         return '0';
     end if;
-    v_parts := regexp_match(v_double::text, '^(-?)([0-9]+)(?:\.([0-9]+))?(?:e([+-][0-9]+))?$');
-    -- 數值 = 0.<v_digits> × 10^v_point（去掉前後的 0 之後）
-    v_digits := v_parts[2] || coalesce(v_parts[3], '');
-    v_point := length(v_parts[2]) + coalesce(v_parts[4]::int, 0);
+    select s.digits, s.point into v_digits, v_point from sgn_internal.jcs_shortest(v_double) as s;
     v_k := length(v_digits);
-    v_digits := ltrim(v_digits, '0');
-    v_point := v_point - (v_k - length(v_digits));
-    v_digits := rtrim(v_digits, '0');
-    v_k := length(v_digits);
-    return v_parts[1] || case
+    return case when v_double < 0 then '-' else '' end || case
         when v_k <= v_point and v_point <= 21 then v_digits || repeat('0', v_point - v_k)
         when 0 < v_point and v_point <= 21 then substr(v_digits, 1, v_point) || '.' || substr(v_digits, v_point + 1)
         when -6 < v_point and v_point <= 0 then '0.' || repeat('0', -v_point) || v_digits

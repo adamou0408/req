@@ -1,6 +1,9 @@
 // 瀏覽器的 WebAuthn 呼叫。二進位值與後端之間一律用 base64url（無 padding）。
 export const b64url = (buf) =>
-    btoa(String.fromCharCode(...new Uint8Array(buf))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
+    btoa(String.fromCharCode(...new Uint8Array(buf)))
+        .replaceAll('+', '-')
+        .replaceAll('/', '_')
+        .replace(/=+$/, '');
 export const unb64url = (s) => Uint8Array.from(atob(s.replaceAll('-', '+').replaceAll('_', '/')), (c) => c.charCodeAt(0));
 
 const uuidBytes = (uuid) => Uint8Array.from(uuid.replaceAll('-', '').match(/../g), (h) => parseInt(h, 16));

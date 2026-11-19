@@ -80,14 +80,18 @@ export async function verifyChain({ dbUrl, anchorFile }) {
             prev = computed;
             expected = Number(row.seq) + 1;
         }
-        const { rows: [head] } = await db.query('select * from api_job.chain_head()');
+        const {
+            rows: [head],
+        } = await db.query('select * from api_job.chain_head()');
         const lastSeq = expected - 1;
         if (Number(head.seq) !== lastSeq || head.hash !== prev.toString('hex')) {
             problems.push({ type: 'HEAD_MISMATCH', head_seq: Number(head.seq), last_seq: lastSeq });
         }
         const anchors = anchorFile ? readAnchors(anchorFile) : [];
         const lastAnchor = anchors[anchors.length - 1];
-        const { rows: [code] } = await db.query('select api_job.code_fingerprint() as fp');
+        const {
+            rows: [code],
+        } = await db.query('select api_job.code_fingerprint() as fp');
         if (lastAnchor?.code_fingerprint && lastAnchor.code_fingerprint !== code.fp) {
             problems.push({ type: 'CODE_CHANGED', since_anchor_seq: lastAnchor.seq });
         }
@@ -108,7 +112,7 @@ export async function verifyChain({ dbUrl, anchorFile }) {
  * 錨定一次：從上一個錨點開始重算到目前鏈頭（增量驗證），一致才把新的鏈頭與程式指紋寫到資料庫以外的檔案。
  * 不一致就不寫，回傳問題。程式指紋改變（例如正式的 migration）也不寫，要由人確認後另行處理；探針沒有做這個流程。
  */
-export async function anchorOnce({ dbUrl, anchorFile, label = 'probe' }) {
+export async function anchorOnce({ dbUrl, anchorFile, label = 'sgn' }) {
     const anchors = readAnchors(anchorFile);
     const last = anchors[anchors.length - 1] ?? { seq: 0, hash: GENESIS.toString('hex') };
     const db = new pg.Client({ connectionString: dbUrl });
@@ -132,7 +136,9 @@ export async function anchorOnce({ dbUrl, anchorFile, label = 'probe' }) {
             expected = seq + 1;
         }
         if (first && last.seq > 0) problems.push({ type: 'ANCHOR_BEYOND_HEAD', anchor_seq: last.seq });
-        const { rows: [code] } = await db.query('select api_job.code_fingerprint() as fp');
+        const {
+            rows: [code],
+        } = await db.query('select api_job.code_fingerprint() as fp');
         if (last.code_fingerprint && last.code_fingerprint !== code.fp) {
             problems.push({ type: 'CODE_CHANGED', since_anchor_seq: last.seq });
         }

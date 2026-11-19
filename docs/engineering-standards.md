@@ -87,7 +87,7 @@
 
 ## 4. 套件管理
 
-- 整個 repo 是一個 npm workspaces monorepo：`packages/contract`、`api`、`web`、`e2e`、`tools`。只有根目錄有 `package-lock.json`。
+- 整個 repo 是一個 npm workspaces monorepo：`packages/contract`、`db`、`api`、`web`、`e2e`、`tools`。只有根目錄有 `package-lock.json`。
 - Node 版本寫在 `.nvmrc` 和 `package.json` 的 `engines`。
 - 版本一律精確鎖定（`save-exact`），安裝一律 `npm ci`。
 - 共用設定放在根目錄：`tsconfig.base.json`、`eslint.config.js`、Prettier 設定，各 workspace 繼承。
@@ -99,7 +99,7 @@
 
 - 各流程包的 `docs/packs/<流程包>/rules.md` 的每一條規則至少有一個資料庫測試，測試名稱包含規則代碼。腳本會檢查 `sgn.rule` 的每個代碼都有測試。
 - 架構測試（查 `pg_catalog`）：
-  - `api` 的每個 function 都是 `SECURITY DEFINER`、固定 `search_path`、第一個參數是 `p_actor`、有 `COMMENT`。
+  - `api` 的每個 function 都是 `SECURITY DEFINER`、固定 `search_path`、第一個參數是 `p_session`（資料庫自己驗證過的工作階段，不接受後端宣稱的身分）、有 `COMMENT`。
   - `sgn_app` 沒有任何資料表權限。
   - 稽核紀錄表擋下 `UPDATE`、`DELETE`、`TRUNCATE`。
 - 契約測試：路由表引用的每個 function 都存在且參數相符；每個 `api` function 都有路由，或明確列為只供內部排程使用。

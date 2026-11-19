@@ -1,5 +1,7 @@
 # 架構探針：路徑接通的結論
 
+> **歷史紀錄（2026-11-19 探針）**：內容維持探針當時的原貌。之後探針已升格為正式目錄：`probe/db` → `db/`（SQL 在 `db/kernel/`、測試在 `db/tests/kernel/`）、`probe/api` → `api/`、`probe/web` → `web/`、`probe/e2e` → `e2e/`、`probe/run-all.sh` → `tools/run-all.sh`；角色與 schema 改名、以及本文列出的問題怎麼處理，見 [promote.md](promote.md)。
+
 日期：2026-11-19。範圍：`probe/api/src/`（不含 `frontdoor/`）、`probe/web/`、`probe/e2e/tests/`、`probe/run-all.sh`、`probe/db/sql/70_path.sql`。
 接在 [db-findings.md](db-findings.md) 之後，照它建議的架構接：**決定一律走 (a)，由資料庫驗通行金鑰；登入與通行金鑰登記走 (b)，由資料庫驗 Dex 的 ID token；後端只轉送。**
 本文分清楚：**跑過且通過**、**寫了但沒跑**、**沒做到**。

@@ -8,13 +8,21 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import pg from 'pg';
 import { anchorOnce, readAnchors, verifyChain } from '../../tools/chain-lib.mjs';
-import { DB_DIR, adminUrl, roleUrl } from '../../tools/lib/env.mjs';
+import { RUN_DIR, adminUrl, roleUrl } from '../../tools/lib/env.mjs';
 import {
-    closePools, config, createSubmittedCase, decidePasskey, issueChallenge, login, newAuthenticator, one, pool,
+    closePools,
+    config,
+    createSubmittedCase,
+    decidePasskey,
+    issueChallenge,
+    login,
+    newAuthenticator,
+    one,
+    pool,
     registerPasskey,
 } from './lib/harness.mjs';
 
-const runDir = join(DB_DIR, '.run');
+const runDir = RUN_DIR;
 const anchorFile = join(runDir, 'test-anchors.jsonl');
 const backupFile = join(runDir, 'test-backup-before-writes.dump');
 const mainDb = config.database;
@@ -110,7 +118,9 @@ test('PRB-CHAIN 20 個連線同時寫入：序號連續、沒有分叉、整條�
     assert.equal(stats.prevs, stats.n, '有兩筆接在同一個前一筆之後（分叉）');
     const result = await verifyDb(mainDb);
     assert.equal(result.ok, true, JSON.stringify(result.problems.slice(0, 5)));
-    console.log(`# concurrent append: ${stats.n} events by ${WRITERS} connections in ${elapsedMs.toFixed(0)} ms (${(stats.n / (elapsedMs / 1000)).toFixed(0)} events/s)`);
+    console.log(
+        `# concurrent append: ${stats.n} events by ${WRITERS} connections in ${elapsedMs.toFixed(0)} ms (${(stats.n / (elapsedMs / 1000)).toFixed(0)} events/s)`,
+    );
 
     const anchored = await anchorOnce({ dbUrl: roleUrl(config, 'JOB'), anchorFile });
     assert.equal(anchored.ok, true);
@@ -195,11 +205,14 @@ test('竄改 6：從舊備份還原（pg_dump → pg_restore）→ ANCHOR_BEYOND
 test('竄改 7：最高權限者把驗章 function 換成不驗的版本 → 偽造的核准會成功（擋不住），但驗證工具報 CODE_CHANGED', async () => {
     const db = await copyOfMain('forgefn');
     await adminQuery(db, `grant connect on database "${db}" to "${config.db.SGN_ROLE_APP}"`);
-    await adminQuery(db, `
+    await adminQuery(
+        db,
+        `
         create or replace function sgn_internal.webauthn_verify(p_expected_challenge bytea, p_credential_id text,
             p_authenticator_data text, p_client_data_json text, p_signature text)
         returns uuid language sql set search_path = pg_catalog, pg_temp as
-        $f$ select person_id from sgn.passkey_credential where credential_id = sgn_internal.b64url_decode(p_credential_id) $f$`);
+        $f$ select person_id from sgn.passkey_credential where credential_id = sgn_internal.b64url_decode(p_credential_id) $f$`,
+    );
     const copyApp = new pg.Pool({ connectionString: roleUrl(config, 'APP', db) });
     try {
         const applicant = await login(copyApp, 'p04');

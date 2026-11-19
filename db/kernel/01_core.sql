@@ -48,7 +48,15 @@ insert into sgn.error_catalog (code, message, http_status) values
     ('AUDITOR_REQUIRED', '只有稽核人員可以查詢稽核紀錄', 403),
     ('ACTION_UNKNOWN', '沒有這個動作', 400),
     ('DIRECTORY_SOURCE_UNKNOWN', '這個人員來源沒有登記', 403),
-    ('AUDIT_APPEND_ONLY', '稽核紀錄只能新增，不能修改或刪除', 409);
+    ('AUDIT_APPEND_ONLY', '稽核紀錄只能新增，不能修改或刪除', 409),
+    -- 以下由後端在進資料庫之前判定（請求格式、路由、登入往返），訊息同樣以這張表為準
+    ('BAD_INPUT', '請求格式不正確', 400),
+    ('PAYLOAD_TOO_LARGE', '請求太大', 413),
+    ('FORBIDDEN', '沒有權限', 403),
+    ('NOT_FOUND', '沒有這個功能', 404),
+    ('LOGIN_FLOW_INVALID', '登入流程已逾時或無效，請重新操作一次', 400),
+    ('LOGIN_INCOMPLETE', '登入沒有完成，請重新操作一次', 400),
+    ('INTERNAL', '系統發生錯誤，請稍後再試', 500);
 
 -- SQL 丟錯的唯一入口。SQLSTATE 固定為 P0001，訊息的開頭是代碼，後端只需取代碼查目錄。
 create function sgn_internal.raise_error(p_code text, p_detail text default null)

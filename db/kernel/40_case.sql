@@ -351,8 +351,10 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
     v_person_id uuid := sgn_internal.session_person(p_session);
+    v_case_id uuid := sgn_internal.case_new(v_person_id, p_content);
 begin
-    return sgn_internal.case_summary(sgn_internal.case_new(v_person_id, p_content), v_person_id);
+    -- 摘要要在另一個陳述式讀：STABLE function 看到的是呼叫它的陳述式開始時的快照。
+    return sgn_internal.case_summary(v_case_id, v_person_id);
 end;
 $$;
 

@@ -5,7 +5,7 @@
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { createServer } from 'node:http';
 import pg from 'pg';
-import { loadConfig, roleUrl } from './lib/env.mjs';
+import { loadConfig, roleUrl } from '../tools/lib/env.mjs';
 
 const sha256 = (data) => createHash('sha256').update(data).digest();
 
@@ -13,15 +13,24 @@ class Rejected extends Error {}
 
 function p256PublicKey(uncompressed) {
     return createPublicKey({
-        key: { kty: 'EC', crv: 'P-256', x: uncompressed.subarray(1, 33).toString('base64url'), y: uncompressed.subarray(33, 65).toString('base64url') },
+        key: {
+            kty: 'EC',
+            crv: 'P-256',
+            x: uncompressed.subarray(1, 33).toString('base64url'),
+            y: uncompressed.subarray(33, 65).toString('base64url'),
+        },
         format: 'jwk',
     });
 }
 
 async function verifyAssertion(db, settings, body) {
-    const { rows: [challenge] } = await db.query('select * from api_verified.challenge_get($1)', [body.challenge_id]);
+    const {
+        rows: [challenge],
+    } = await db.query('select * from api_verified.challenge_get($1)', [body.challenge_id]);
     if (!challenge?.challenge) throw new Rejected('CHALLENGE_UNKNOWN');
-    const { rows: [cred] } = await db.query('select * from api_verified.passkey_get($1)', [body.credential_id]);
+    const {
+        rows: [cred],
+    } = await db.query('select * from api_verified.passkey_get($1)', [body.credential_id]);
     if (!cred?.public_key) throw new Rejected('PASSKEY_UNKNOWN');
     const authData = Buffer.from(body.authenticator_data, 'base64url');
     const clientRaw = Buffer.from(body.client_data_json, 'base64url');
@@ -60,11 +69,16 @@ export function startVerifierService({ port, config = loadConfig() } = {}) {
             for await (const chunk of req) chunks.push(chunk);
             const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
             const signCount = await verifyAssertion(db, settings, body);
-            const { rows: [row] } = await db.query(
-                'select api_verified.case_decide_passkey($1, $2, $3, $4, $5) as state',
-                [body.challenge_id, body.decision, body.credential_id, signCount, JSON.stringify(body)],
-            );
-            return reply(200, { state: row.state });
+            const {
+                rows: [row],
+            } = await db.query('select api_verified.case_decide_passkey($1, $2, $3, $4, $5) as state', [
+                body.challenge_id,
+                body.decision,
+                body.credential_id,
+                signCount,
+                JSON.stringify(body),
+            ]);
+            return reply(200, { state: row.state.state });
         } catch (err) {
             const code = err instanceof Rejected ? err.message : String(err.message).split(':')[0];
             return reply(422, { error: code });

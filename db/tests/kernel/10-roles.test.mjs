@@ -41,7 +41,11 @@ test('角色隔離：每個登入角色能執行的非系統 function 只在自�
                and has_function_privilege($1, p.oid, 'execute')`,
             [role],
         );
-        assert.deepEqual(rows.map((r) => r.nspname), [allowedSchema[key]], role);
+        assert.deepEqual(
+            rows.map((r) => r.nspname),
+            [allowedSchema[key]],
+            role,
+        );
     }
 });
 
@@ -78,7 +82,10 @@ test('架構：對外 function 都是 SECURITY DEFINER、固定 search_path、�
     assert.ok(rows.length >= 15);
     for (const row of rows) {
         assert.ok(row.prosecdef, `${row.fn} 不是 SECURITY DEFINER`);
-        assert.ok((row.proconfig ?? []).some((c) => c.startsWith('search_path=')), `${row.fn} 沒固定 search_path`);
+        assert.ok(
+            (row.proconfig ?? []).some((c) => c.startsWith('search_path=')),
+            `${row.fn} 沒固定 search_path`,
+        );
         assert.ok(row.comment, `${row.fn} 沒有 COMMENT`);
     }
 });

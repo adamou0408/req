@@ -1,6 +1,7 @@
 // 純 PL/pgSQL 的 ES256、RS256 驗章：和 OpenSSL（Node crypto）交叉比對，含竄改、錯鑰、邊界值。
 import assert from 'node:assert/strict';
-import { generateKeyPairSync, randomBytes, sign } from 'node:crypto';
+import { createHash, generateKeyPairSync, randomBytes, sign } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { after, test } from 'node:test';
 import { closePools, one, pool } from './lib/harness.mjs';
 
@@ -32,8 +33,7 @@ function ecKey() {
     const point = Buffer.concat([Buffer.from([4]), Buffer.from(jwk.x, 'base64url'), Buffer.from(jwk.y, 'base64url')]);
     return { privateKey, point };
 }
-const es256 = async (msg, sig, point) =>
-    (await one(admin, 'select sgn_internal.es256_verify($1, $2, $3) as ok', [msg, sig, point])).ok;
+const es256 = async (msg, sig, point) => (await one(admin, 'select sgn_internal.es256_verify($1, $2, $3) as ok', [msg, sig, point])).ok;
 
 test('ES256：50 組隨機金鑰與訊息，OpenSSL 簽的都驗得過，改任何一處都驗不過', async () => {
     for (let i = 0; i < 50; i += 1) {
@@ -95,4 +95,27 @@ test('RS256：拒絕小於 2048 位元的金鑰', async () => {
         Buffer.from(jwk.e, 'base64url'),
     ]);
     assert.equal(row.ok, false);
+});
+
+test('ES256：真的 Chromium 產生的 WebAuthn 向量（e2e/reference/passkey 產生、凍結在 fixtures）與 Node 對照組的判定一致', async () => {
+    const file = JSON.parse(readFileSync(new URL('./fixtures/webauthn-vectors.json', import.meta.url), 'utf8'));
+    const spki = Buffer.from(file.credential.publicKeySpki, 'base64url');
+    const verdicts = {};
+    for (const v of file.vectors) {
+        const clientData = Buffer.from(v.clientDataJSON, 'base64url');
+        const message = Buffer.concat([Buffer.from(v.authenticatorData, 'base64url'), createHash('sha256').update(clientData).digest()]);
+        const row = await one(admin, 'select sgn_internal.es256_verify($1, $2, sgn_internal.p256_spki_to_point($3)) as ok', [
+            message,
+            Buffer.from(v.signature, 'base64url'),
+            spki,
+        ]);
+        verdicts[v.name] = row.ok;
+    }
+    // 重放的簽章本身是有效的；擋下它靠的是比對挑戰值（30-proof-passkey 的 CHALLENGE_USED／PASSKEY_INVALID）
+    assert.deepEqual(verdicts, {
+        valid: true,
+        'tampered-signature': false,
+        'tampered-clientDataJSON': false,
+        'replay-other-challenge': true,
+    });
 });

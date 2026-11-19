@@ -1,79 +1,106 @@
 <!doctype html>
 <html lang="zh-Hant">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>通行金鑰對照組</title>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; max-width: 480px; }
-  button { display: block; width: 100%; min-height: 48px; margin: 12px 0; font-size: 1rem; }
-  #result { padding: 12px; border: 1px solid #888; min-height: 1.5em; }
-</style>
-</head>
-<body>
-<h1>通行金鑰對照組</h1>
-<p>測試用頁面：只給端對端測試驅動 Node 端的 WebAuthn 驗證。不是產品畫面。</p>
-<button id="register" type="button">註冊通行金鑰</button>
-<button id="confirm" type="button">用通行金鑰確認</button>
-<div id="result" role="status" aria-live="polite"></div>
-<script>
-// base64url 與 ArrayBuffer 互轉。
-const toBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
-const toB64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>通行金鑰對照組</title>
+        <style>
+            body {
+                font-family: system-ui, sans-serif;
+                margin: 0;
+                padding: 16px;
+                max-width: 480px;
+            }
+            button {
+                display: block;
+                width: 100%;
+                min-height: 48px;
+                margin: 12px 0;
+                font-size: 1rem;
+            }
+            #result {
+                padding: 12px;
+                border: 1px solid #888;
+                min-height: 1.5em;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>通行金鑰對照組</h1>
+        <p>測試用頁面：只給端對端測試驅動 Node 端的 WebAuthn 驗證。不是產品畫面。</p>
+        <button id="register" type="button">註冊通行金鑰</button>
+        <button id="confirm" type="button">用通行金鑰確認</button>
+        <div id="result" role="status" aria-live="polite"></div>
+        <script>
+            // base64url 與 ArrayBuffer 互轉。
+            const toBytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+            const toB64 = (buf) =>
+                btoa(String.fromCharCode(...new Uint8Array(buf)))
+                    .replace(/\+/g, '-')
+                    .replace(/\//g, '_')
+                    .replace(/=+$/, '');
 
-async function post(path, body) {
-  const res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
-  return res.json();
-}
+            async function post(path, body) {
+                const res = await fetch(path, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(body ?? {}),
+                });
+                return res.json();
+            }
 
-async function register() {
-  const { challengeId, publicKey } = await post('/register/options');
-  publicKey.challenge = toBytes(publicKey.challenge);
-  publicKey.user.id = toBytes(publicKey.user.id);
-  publicKey.excludeCredentials = publicKey.excludeCredentials.map((c) => ({ ...c, id: toBytes(c.id) }));
-  const cred = await navigator.credentials.create({ publicKey });
-  return post('/register/verify', {
-    challengeId,
-    id: toB64(cred.rawId),
-    response: {
-      clientDataJSON: toB64(cred.response.clientDataJSON),
-      attestationObject: toB64(cred.response.attestationObject),
-      transports: cred.response.getTransports ? cred.response.getTransports() : [],
-    },
-  });
-}
+            async function register() {
+                const { challengeId, publicKey } = await post('/register/options');
+                publicKey.challenge = toBytes(publicKey.challenge);
+                publicKey.user.id = toBytes(publicKey.user.id);
+                publicKey.excludeCredentials = publicKey.excludeCredentials.map((c) => ({ ...c, id: toBytes(c.id) }));
+                const cred = await navigator.credentials.create({ publicKey });
+                return post('/register/verify', {
+                    challengeId,
+                    id: toB64(cred.rawId),
+                    response: {
+                        clientDataJSON: toB64(cred.response.clientDataJSON),
+                        attestationObject: toB64(cred.response.attestationObject),
+                        transports: cred.response.getTransports ? cred.response.getTransports() : [],
+                    },
+                });
+            }
 
-/** 取挑戰值並請驗證器簽署；回傳要送給後端的 JSON（尚未送出）。 */
-async function sign(binding) {
-  const options = await post('/confirm/options', { binding });
-  const publicKey = { ...options.publicKey, challenge: toBytes(options.publicKey.challenge) };
-  publicKey.allowCredentials = publicKey.allowCredentials.map((c) => ({ ...c, id: toBytes(c.id) }));
-  const cred = await navigator.credentials.get({ publicKey });
-  return {
-    challengeId: options.challengeId,
-    id: toB64(cred.rawId),
-    response: {
-      authenticatorData: toB64(cred.response.authenticatorData),
-      clientDataJSON: toB64(cred.response.clientDataJSON),
-      signature: toB64(cred.response.signature),
-      userHandle: cred.response.userHandle ? toB64(cred.response.userHandle) : null,
-    },
-  };
-}
+            /** 取挑戰值並請驗證器簽署；回傳要送給後端的 JSON（尚未送出）。 */
+            async function sign(binding) {
+                const options = await post('/confirm/options', { binding });
+                const publicKey = { ...options.publicKey, challenge: toBytes(options.publicKey.challenge) };
+                publicKey.allowCredentials = publicKey.allowCredentials.map((c) => ({ ...c, id: toBytes(c.id) }));
+                const cred = await navigator.credentials.get({ publicKey });
+                return {
+                    challengeId: options.challengeId,
+                    id: toB64(cred.rawId),
+                    response: {
+                        authenticatorData: toB64(cred.response.authenticatorData),
+                        clientDataJSON: toB64(cred.response.clientDataJSON),
+                        signature: toB64(cred.response.signature),
+                        userHandle: cred.response.userHandle ? toB64(cred.response.userHandle) : null,
+                    },
+                };
+            }
 
-const submit = (assertion) => post('/confirm/verify', assertion);
-window.probe = { register, sign, submit, toBytes, toB64 };
+            const submit = (assertion) => post('/confirm/verify', assertion);
+            window.probe = { register, sign, submit, toBytes, toB64 };
 
-const show = (text) => { document.getElementById('result').textContent = text; };
-document.getElementById('register').addEventListener('click', async () => {
-  const r = await register().catch((e) => ({ ok: false, message: String(e) }));
-  show(r.ok ? '已註冊通行金鑰' : `註冊失敗：${r.message}`);
-});
-document.getElementById('confirm').addEventListener('click', async () => {
-  show('等待驗證器…');
-  const r = await sign({ demo: '示範確認' }).then(submit).catch((e) => ({ ok: false, message: String(e) }));
-  show(r.ok ? `驗證通過（計數器 ${r.signCount}）` : `驗證失敗：${r.code ?? ''} ${r.message}`);
-});
-</script>
-</body>
+            const show = (text) => {
+                document.getElementById('result').textContent = text;
+            };
+            document.getElementById('register').addEventListener('click', async () => {
+                const r = await register().catch((e) => ({ ok: false, message: String(e) }));
+                show(r.ok ? '已註冊通行金鑰' : `註冊失敗：${r.message}`);
+            });
+            document.getElementById('confirm').addEventListener('click', async () => {
+                show('等待驗證器…');
+                const r = await sign({ demo: '示範確認' })
+                    .then(submit)
+                    .catch((e) => ({ ok: false, message: String(e) }));
+                show(r.ok ? `驗證通過（計數器 ${r.signCount}）` : `驗證失敗：${r.code ?? ''} ${r.message}`);
+            });
+        </script>
+    </body>
 </html>

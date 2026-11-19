@@ -1,17 +1,16 @@
 // 端對端：最窄的完整路徑。真的 Dex 登入頁、真的 WebAuthn（Chromium + CDP 虛擬驗證器）、390px 寬。
-// 前提：sim（ldap、idp）、探針資料庫、錨定程式（每 2 秒）、後端都在跑 —— 由 probe/run-all.sh 啟動。
+// 前提：sim（ldap、idp）、端對端用的資料庫（SGN_DATABASE）、錨定程式（每 2 秒）、後端都在跑 —— 由 tools/run-all.sh 啟動。
 import assert from 'node:assert/strict';
-import { execFileSync, execSync } from 'node:child_process';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { adminUrl, loadConfig } from '../../db/tools/lib/env.mjs';
+import { chromium } from 'playwright';
+import { RUN_DIR, adminUrl, loadConfig } from '../../db/tools/lib/env.mjs';
 
-const { chromium } = await import(`${execSync('npm root -g').toString().trim()}/playwright/index.mjs`);
 const config = loadConfig();
 const ORIGIN = config.db.SGN_RP_ORIGIN;
 const PASSWORD = config.ldap.SIM_LDAP_USER_PASSWORD;
-const RUN_DIR = join(import.meta.dirname, '..', '..', '.run');
 const results = { measured_at: new Date().toISOString(), viewport: '390x844', tests: {} };
 
 let browser;
@@ -74,7 +73,8 @@ async function layoutProblems(page, label) {
         if (document.documentElement.scrollWidth > window.innerWidth) out.push(`水平捲動 ${document.documentElement.scrollWidth}px`);
         for (const node of document.querySelectorAll('button, input, select, textarea, a')) {
             const r = node.getBoundingClientRect();
-            if (r.width > 0 && (r.width < 44 || r.height < 44)) out.push(`${node.tagName} "${node.textContent.trim().slice(0, 12)}" ${r.width}x${r.height}`);
+            if (r.width > 0 && (r.width < 44 || r.height < 44))
+                out.push(`${node.tagName} "${node.textContent.trim().slice(0, 12)}" ${r.width}x${r.height}`);
         }
         return out;
     });
@@ -222,28 +222,37 @@ test('沒有通行金鑰的證明就核准不了', async () => {
     // 4. 用主管登記過的憑證 id，配上別的金鑰的簽章
     const { credentials } = await manager.cdp.send('WebAuthn.getCredentials', { authenticatorId: manager.authenticatorId });
     const registeredId = Buffer.from(credentials[0].credentialId, 'base64').toString('base64url');
-    const forged = await manager.page.evaluate(async ({ challenge, registeredId }) => {
-        const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
-        const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
-        const clientData = new TextEncoder().encode(JSON.stringify({ type: 'webauthn.get', challenge, origin: location.origin }));
-        const rpHash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(location.hostname)));
-        const authData = new Uint8Array([...rpHash, 0x05, 0, 0, 0, 9]);
-        const clientHash = new Uint8Array(await crypto.subtle.digest('SHA-256', clientData));
-        const raw = new Uint8Array(await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, new Uint8Array([...authData, ...clientHash])));
-        const int = (b) => {
-            let x = [...b];
-            while (x.length > 1 && x[0] === 0 && x[1] < 0x80) x = x.slice(1);
-            if (x[0] >= 0x80) x = [0, ...x];
-            return [0x02, x.length, ...x];
-        };
-        const seq = [...int(raw.slice(0, 32)), ...int(raw.slice(32))];
-        const der = new Uint8Array([0x30, seq.length, ...seq]);
-        const proof = { authenticatorData: b64(authData), clientDataJSON: b64(clientData), signature: b64(der) };
-        return {
-            unregistered: { ...proof, credentialId: b64(crypto.getRandomValues(new Uint8Array(16))) },
-            stolenId: { ...proof, credentialId: registeredId },
-        };
-    }, { challenge: ch.challenge, registeredId });
+    const forged = await manager.page.evaluate(
+        async ({ challenge, registeredId }) => {
+            const b64 = (buf) =>
+                btoa(String.fromCharCode(...new Uint8Array(buf)))
+                    .replaceAll('+', '-')
+                    .replaceAll('/', '_')
+                    .replace(/=+$/, '');
+            const key = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+            const clientData = new TextEncoder().encode(JSON.stringify({ type: 'webauthn.get', challenge, origin: location.origin }));
+            const rpHash = new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(location.hostname)));
+            const authData = new Uint8Array([...rpHash, 0x05, 0, 0, 0, 9]);
+            const clientHash = new Uint8Array(await crypto.subtle.digest('SHA-256', clientData));
+            const raw = new Uint8Array(
+                await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, new Uint8Array([...authData, ...clientHash])),
+            );
+            const int = (b) => {
+                let x = [...b];
+                while (x.length > 1 && x[0] === 0 && x[1] < 0x80) x = x.slice(1);
+                if (x[0] >= 0x80) x = [0, ...x];
+                return [0x02, x.length, ...x];
+            };
+            const seq = [...int(raw.slice(0, 32)), ...int(raw.slice(32))];
+            const der = new Uint8Array([0x30, seq.length, ...seq]);
+            const proof = { authenticatorData: b64(authData), clientDataJSON: b64(clientData), signature: b64(der) };
+            return {
+                unregistered: { ...proof, credentialId: b64(crypto.getRandomValues(new Uint8Array(16))) },
+                stolenId: { ...proof, credentialId: registeredId },
+            };
+        },
+        { challenge: ch.challenge, registeredId },
+    );
     for (const [name, a] of Object.entries(forged)) {
         const res = await callApi(manager.page, '/api/case_decide_passkey', {
             challenge_id: ch.challenge_id,
@@ -273,9 +282,113 @@ test('沒有通行金鑰的證明就核准不了', async () => {
     results.tests.no_proof = { case_no: pending.caseNo, outcomes };
 });
 
+/** 從待簽清單做一個決定（核准或退回），走畫面與通行金鑰。 */
+async function decideFromInbox(p, caseNo, decision) {
+    await p.page.reload();
+    await p.page.click(`[data-testid=inbox-item][data-case-no="${caseNo}"]`);
+    await p.page.click(`[data-action=${decision}]`);
+    await p.page.click('[data-testid=confirm-passkey]');
+    await p.page.waitForSelector('#flash.ok');
+}
+
+async function auditStatus(auditor, caseNo) {
+    await auditor.page.goto(ORIGIN);
+    await auditor.page.waitForSelector('#f-case-no');
+    await auditor.page.fill('#f-case-no', String(caseNo));
+    await auditor.page.click('text=查詢');
+    await auditor.page.waitForSelector('[data-testid=audit-result]:not([data-status=pending])');
+    return auditor.page.getAttribute('[data-testid=audit-result]', 'data-status');
+}
+
+test('退回：陳建宏用通行金鑰退回 → 單回到林怡君手上（草稿）、待簽清單消失；稽核看得到退回與簽章', async () => {
+    const applicant = people.p04;
+    const manager = people.p03;
+    const auditor = people.p22;
+    await applicant.page.reload();
+    await applicant.page.waitForSelector('[data-testid=apply-form]');
+    const returned = await submitCase(applicant, { dataset: '東區會員資料', purpose: '測試退回' });
+    await decideFromInbox(manager, returned.caseNo, 'return');
+    assert.match(await manager.page.textContent('#flash'), /已退回/);
+    assert.equal(await manager.page.locator(`[data-testid=inbox-item][data-case-no="${returned.caseNo}"]`).count(), 0);
+
+    await applicant.page.reload();
+    const mine = applicant.page.locator(`[data-testid=mine-item][data-case-no="${returned.caseNo}"]`);
+    await mine.waitFor();
+    assert.equal(await mine.locator('[data-testid=state]').textContent(), '草稿');
+    const list = await callApi(applicant.page, '/api/case_list_mine');
+    assert.deepEqual(list.result.find((c) => c.case_no === returned.caseNo).actions, ['revise', 'submit']);
+
+    // 等錨定程式涵蓋後，稽核驗證通過，退回事件由陳建宏以通行金鑰簽章
+    let status;
+    for (const started = performance.now(); performance.now() - started < 30000; ) {
+        status = await auditStatus(auditor, returned.caseNo);
+        if (status !== 'warn') break;
+    }
+    assert.equal(status, 'ok');
+    assert.match(await auditor.page.textContent('[data-testid=audit-events] li[data-type="case.return"]'), /陳建宏.*通行金鑰簽章/);
+    results.tests.return = { case_no: returned.caseNo, applicant_actions_after_return: ['revise', 'submit'] };
+});
+
+test('尚未錨定：錨定程式暫停時，稽核畫面明確標示「尚未有外部摘要涵蓋」，不顯示驗證通過；恢復錨定後才通過', async () => {
+    const applicant = people.p04;
+    const manager = people.p03;
+    const auditor = people.p22;
+    const anchorPid = Number(readFileSync(join(RUN_DIR, 'anchor.pid'), 'utf8'));
+    process.kill(anchorPid, 'SIGSTOP');
+    let caseNo;
+    try {
+        await applicant.page.reload();
+        await applicant.page.waitForSelector('[data-testid=apply-form]');
+        caseNo = (await submitCase(applicant, { dataset: '西區庫存', purpose: '測試尚未錨定' })).caseNo;
+        await decideFromInbox(manager, caseNo, 'approve');
+        assert.equal(await auditStatus(auditor, caseNo), 'warn');
+        const headline = await auditor.page.textContent('[data-testid=audit-result]');
+        assert.match(headline, /尚未有外部摘要涵蓋/);
+        assert.doesNotMatch(headline, /驗證通過/);
+        const marked = await auditor.page
+            .locator('[data-testid=audit-events] li[data-anchored=false] [data-testid=unanchored]')
+            .allTextContents();
+        assert.ok(marked.length >= 3, `標示了 ${marked.length} 筆`);
+        assert.ok(marked.every((text) => text === '尚未有外部摘要涵蓋'));
+        results.tests.unanchored = { case_no: caseNo, marked_events: marked.length, headline };
+    } finally {
+        process.kill(anchorPid, 'SIGCONT');
+    }
+    let status;
+    for (const started = performance.now(); performance.now() - started < 30000; ) {
+        status = await auditStatus(auditor, caseNo);
+        if (status !== 'warn') break;
+    }
+    assert.equal(status, 'ok');
+    assert.equal(await auditor.page.locator('[data-testid=unanchored]').count(), 0);
+});
+
+test('登出：資料庫裡的工作階段失效，留下來的 cookie 再也打不開任何功能', async () => {
+    const p = await person('p05');
+    await login(p);
+    const [sid] = (await p.page.context().cookies()).filter((c) => c.name === 'sid');
+    assert.ok(sid?.value);
+    await p.page.click('text=登出');
+    await p.page.waitForSelector('[data-testid=login]');
+    // 攻擊者手上留著登出前的 cookie：換一個乾淨的瀏覽器環境帶著它打後端
+    const replay = await browser.newContext();
+    await replay.addCookies([{ name: 'sid', value: sid.value, url: ORIGIN }]);
+    const page = await replay.newPage();
+    await page.goto(ORIGIN);
+    const res = await callApi(page, '/api/me');
+    assert.equal(res.status, 401);
+    assert.equal(res.error.code, 'SESSION_INVALID');
+    await replay.close();
+    results.tests.logout = { replayed_status: res.status, code: res.error.code };
+});
+
+// 放在最後：竄改期間錨定程式若剛好重算到被改的那一筆，會依設計停下來，不能影響其他測試。
 test('稽核驗證抓得到竄改：資料庫最高權限者改了核准紀錄，稽核畫面顯示驗證失敗；改回後恢復通過', async () => {
     const auditor = people.p22;
-    const psql = (sql) => execFileSync('psql', ['-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', adminUrl(config), '-c', sql]).toString().trim();
+    const psql = (sql) =>
+        execFileSync('psql', ['-X', '-q', '-t', '-A', '-v', 'ON_ERROR_STOP=1', adminUrl(config), '-c', sql])
+            .toString()
+            .trim();
     const seq = psql(
         `select e.seq from sgn.audit_event e join sgn.request_case c on c.id = e.case_id where c.case_no = ${mainCaseNo} and e.event_type = 'case.approve'`,
     );
@@ -290,7 +403,10 @@ test('稽核驗證抓得到竄改：資料庫最高權限者改了核准紀錄�
         const problems = await auditor.page.locator('[data-testid=audit-problems] li').allTextContents();
         results.tests.tamper = { seq: Number(seq), status, problems };
         assert.equal(status, 'bad');
-        assert.ok(problems.some((p) => p.includes(`第 ${seq} 筆`)), problems.join('；'));
+        assert.ok(
+            problems.some((p) => p.includes(`第 ${seq} 筆`)),
+            problems.join('；'),
+        );
     } finally {
         psql(`set session_replication_role = replica;
               update sgn.audit_event set body = decode('${original}', 'base64') where seq = ${seq}`);

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import pg from 'pg';
-import { adminUrl, loadConfig, roleUrl } from '../../tools/lib/env.mjs';
+import { adminUrl, loadConfig, roleUrl } from '../../../tools/lib/env.mjs';
 import { SoftAuthenticator } from './authenticator.mjs';
 import { dexIdToken } from './oidc.mjs';
 

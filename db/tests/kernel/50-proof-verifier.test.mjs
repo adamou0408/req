@@ -3,7 +3,14 @@ import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { startVerifierService } from '../../testing/verifier-service.mjs';
 import {
-    closePools, createSubmittedCase, issueChallenge, login, newAuthenticator, one, pool, registerPasskey,
+    closePools,
+    createSubmittedCase,
+    issueChallenge,
+    login,
+    newAuthenticator,
+    one,
+    pool,
+    registerPasskey,
     rejectsPermission,
 } from './lib/harness.mjs';
 
@@ -84,5 +91,5 @@ test('(c) 殘餘風險（預期會成功）：拿到驗證服務的資料庫帳�
         ch.challenge_id,
         managerKey.credentialIdB64,
     ]);
-    assert.equal(row.state, 'approved');
+    assert.equal(row.state.state, 'approved');
 });

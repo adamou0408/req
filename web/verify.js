@@ -1,9 +1,10 @@
 // 稽核人員的瀏覽器自己做的驗證。不相信後端、也不相信資料庫算好的任何雜湊或判斷：
 //   1. 整條雜湊鏈從創世重算（hash_n = sha256(hash_{n-1} || body_n)），比對外部錨點與程式指紋
 //   2. 這張單的每筆事件都在重算過的鏈上
-//   3. 內容指紋 = sha256(內容原文)，和送審、核准時記下的一致
+//   3. 內容指紋 = sha256(RFC 8785 標準化的內容)，瀏覽器自己標準化，和送審、核准時記下的一致
 //   4. 核准的通行金鑰簽章用 WebCrypto 重驗，公鑰對得到鏈上的登記事件，簽章的人就是送審時指定的簽核人
-// 限制：這支程式本身由後端送來；正式環境的稽核工具要從獨立管道取得（見 probe/docs/path-findings.md）。
+// 限制：這支程式本身由後端送來；正式環境的稽核工具要從獨立管道取得（見 docs/handoff/probe-path-findings.md）。
+import { canonicalize } from './lib/jcs.js';
 import { unb64url } from './webauthn.js';
 
 const PAGE = 5000;
@@ -28,7 +29,7 @@ async function verifyChain(api) {
     let prev = new Uint8Array(32);
     let expected = 1;
     for (let after = 0; ; ) {
-        const rows = await api.auditChain(after, PAGE);
+        const rows = await api.call('audit_chain', { after_seq: after, limit: PAGE });
         for (const row of rows) {
             const seq = Number(row.seq);
             const body = fromB64(row.body);
@@ -62,7 +63,7 @@ async function verifyAnchors(api, chain) {
         else if (anchor.seq > 0 && chain.hashBySeq.get(anchor.seq) !== anchor.hash) problems.push(`第 ${anchor.seq} 筆和外部錨點不符`);
     }
     const last = anchors.at(-1);
-    if (last?.code_fingerprint && last.code_fingerprint !== (await api.auditCodeFingerprint())) {
+    if (last?.code_fingerprint && last.code_fingerprint !== (await api.call('audit_code_fingerprint')).code_fingerprint) {
         problems.push('資料庫的程式在最後一次錨定之後被改過');
     }
     return { problems, lastAnchorSeq: last?.seq ?? 0, anchorCount: anchors.length };
@@ -84,17 +85,15 @@ function derToRaw(der) {
 async function verifyPasskeyProof(proof, event, events, submitted) {
     const problems = [];
     const data = event.parsed.data;
-    if (hex(await sha256(new TextEncoder().encode(proof.raw_text))) !== data.proof_sha256) problems.push('證明原文和紀錄裡的指紋不符');
-    const raw = JSON.parse(proof.raw_text);
+    const raw = proof.raw;
+    if (hex(await sha256(new TextEncoder().encode(canonicalize(raw)))) !== data.proof_sha256) problems.push('證明原文和紀錄裡的指紋不符');
     const clientDataBytes = unb64url(raw.client_data_json);
     const clientData = JSON.parse(utf8.decode(clientDataBytes));
     const authData = unb64url(raw.authenticator_data);
     if (clientData.type !== 'webauthn.get' || clientData.challenge !== data.challenge) problems.push('簽章不是針對這次決定的挑戰值');
     if (clientData.origin !== location.origin) problems.push('簽章來自別的網站');
     if ((authData[32] & 0x05) !== 0x05) problems.push('簽章時沒有經過使用者驗證');
-    const key = await crypto.subtle.importKey('raw', unb64url(proof.public_key), { name: 'ECDSA', namedCurve: 'P-256' }, false, [
-        'verify',
-    ]);
+    const key = await crypto.subtle.importKey('raw', unb64url(proof.public_key), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
     const signed = concat(authData, await sha256(clientDataBytes));
     const valid = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key, derToRaw(unb64url(raw.signature)), signed);
     if (!valid) problems.push('通行金鑰簽章驗不過');
@@ -119,7 +118,7 @@ export async function verifyCase(api, audit) {
         if (recomputed !== chain.hashBySeq.get(e.seq)) problems.push(`這張單的第 ${e.seq} 筆紀錄和整條鏈對不上`);
     }
     const ownEvents = events.filter((e) => e.parsed.case_id === audit.case.case_id);
-    const contentHash = hex(await sha256(new TextEncoder().encode(audit.case.content_text)));
+    const contentHash = hex(await sha256(new TextEncoder().encode(canonicalize(audit.case.content))));
     if (contentHash !== audit.case.content_sha256) problems.push('申請內容和內容指紋不符');
     const submitted = ownEvents.findLast((e) => e.parsed.type === 'case.submitted');
     let proofsChecked = 0;
@@ -130,7 +129,9 @@ export async function verifyCase(api, audit) {
         else problems.push(...(await verifyPasskeyProof(proof, e, events, submitted)));
         proofsChecked += 1;
     }
-    const unanchored = ownEvents.filter((e) => e.seq > anchors.lastAnchorSeq).length;
+    // 錨點之後的紀錄只靠資料庫保護：逐筆標示，有任何一筆就不算驗證通過（status 是 warn，不是 ok）
+    for (const e of events) e.anchored = e.seq <= anchors.lastAnchorSeq;
+    const unanchored = ownEvents.filter((e) => !e.anchored).length;
     const checks = [
         `整條雜湊鏈 ${chain.lastSeq} 筆從頭重算`,
         `比對外部錨點 ${anchors.anchorCount} 個（最後一個到第 ${anchors.lastAnchorSeq} 筆）與程式指紋`,

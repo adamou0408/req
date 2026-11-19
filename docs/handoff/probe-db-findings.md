@@ -1,5 +1,7 @@
 # 架構探針：資料庫這一半的結論
 
+> **歷史紀錄（2026-11-19 探針）**：內容維持探針當時的原貌。之後探針已升格為正式目錄：`probe/db` → `db/`（SQL 在 `db/kernel/`、測試在 `db/tests/kernel/`）、`probe/api` → `api/`、`probe/web` → `web/`、`probe/e2e` → `e2e/`、`probe/run-all.sh` → `tools/run-all.sh`；角色與 schema 改名、以及本文列出的問題怎麼處理，見 [promote.md](promote.md)。
+
 日期：2026-11-19。範圍：`probe/db/`。這是驗證「架構做不做得出來」的探針，不是功能實作。
 本文分清楚三種狀態：**跑過且通過**（附指令）、**寫了但沒跑**、**沒做到**。
 

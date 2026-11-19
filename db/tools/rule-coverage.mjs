@@ -10,7 +10,7 @@ await db.connect();
 const { rows } = await db.query('select code from sgn.rule order by code');
 await db.end();
 
-const testDir = join(DB_DIR, 'test');
+const testDir = join(DB_DIR, 'tests', 'kernel');
 const names = readdirSync(testDir)
     .filter((f) => f.endsWith('.test.mjs'))
     .flatMap((f) => [...readFileSync(join(testDir, f), 'utf8').matchAll(/\btest\(\s*'([^']+)'/g)].map((m) => m[1]));

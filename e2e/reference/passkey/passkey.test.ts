@@ -1,16 +1,17 @@
 // 通行金鑰在 Node 端驗證的端對端測試（資料庫驗證的對照組）。
 // 真的 Chromium + CDP 虛擬驗證器（ctap2、內建、要求 UV），390px 寬。
-// 跑完會把真實的簽署資料寫成 probe/docs/webauthn-vectors.json。
+// 跑完會把真實的簽署資料寫到 .run/webauthn-vectors.json（執行期檔案）；資料庫測試用的是凍結在 db/tests/kernel/fixtures/ 的一份。
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { chromium, type Browser, type Page } from 'playwright';
 import { startRp, type RunningRp } from './rp-server.ts';
-import { userKeyOf } from '../../api/src/frontdoor/webauthn/service.ts';
-import type { AssertionEvidence } from '../../api/src/frontdoor/webauthn/store.ts';
+import { userKeyOf } from './src/webauthn/service.ts';
+import type { AssertionEvidence } from './src/webauthn/store.ts';
 
-const VECTORS_FILE = new URL('../../docs/webauthn-vectors.json', import.meta.url);
+const RUN_DIR = new URL('../../../.run/', import.meta.url);
+const VECTORS_FILE = new URL('webauthn-vectors.json', RUN_DIR);
 
 type Assertion = { challengeId: string; id: string; response: Record<string, string | null> };
 type VerifyResult = { ok: boolean; code?: string; signCount?: number };
@@ -20,10 +21,15 @@ let browser: Browser;
 let page: Page;
 const picked: Record<string, AssertionEvidence> = {};
 
-const sign = (binding: Record<string, unknown>) => page.evaluate((b) => (window as never as { probe: { sign(b: unknown): Promise<Assertion> } }).probe.sign(b), binding);
+const sign = (binding: Record<string, unknown>) =>
+    page.evaluate((b) => (window as never as { probe: { sign(b: unknown): Promise<Assertion> } }).probe.sign(b), binding);
 const submit = (assertion: Assertion) =>
     page.evaluate((a) => (window as never as { probe: { submit(a: unknown): Promise<VerifyResult> } }).probe.submit(a), assertion);
-const lastEvidence = (): AssertionEvidence => rp.service.store.exportFor(userKeyOf(rp.user)).assertions.at(-1)!;
+function required<T>(value: T | null | undefined, what: string): T {
+    if (value === undefined || value === null) throw new Error(`缺少 ${what}`);
+    return value;
+}
+const lastEvidence = (): AssertionEvidence => required(rp.service.store.exportFor(userKeyOf(rp.user)).assertions.at(-1), '證據紀錄');
 
 function flipLastByte(b64: string): string {
     const bytes = Buffer.from(b64, 'base64url');
@@ -83,7 +89,7 @@ describe('通行金鑰（Node 端驗證）', () => {
 
     it('竄改 signature 會失敗', async () => {
         const assertion = await sign({ case: 'tamper-signature' });
-        assertion.response.signature = flipLastByte(assertion.response.signature!);
+        assertion.response.signature = flipLastByte(required(assertion.response.signature, 'signature'));
         const result = await submit(assertion);
         assert.equal(result.ok, false);
         assert.equal(result.code, 'SIGNATURE_INVALID');
@@ -92,7 +98,7 @@ describe('通行金鑰（Node 端驗證）', () => {
 
     it('竄改 clientDataJSON（語意不變、只多一個空白）也會失敗', async () => {
         const assertion = await sign({ case: 'tamper-client-data' });
-        const text = Buffer.from(assertion.response.clientDataJSON!, 'base64url').toString('utf8');
+        const text = Buffer.from(required(assertion.response.clientDataJSON, 'clientDataJSON'), 'base64url').toString('utf8');
         const tampered = text.replace('"type":"webauthn.get"', '"type": "webauthn.get"');
         assert.notEqual(tampered, text);
         assertion.response.clientDataJSON = Buffer.from(tampered).toString('base64url');
@@ -105,7 +111,11 @@ describe('通行金鑰（Node 端驗證）', () => {
         const first = await sign({ case: 'replay-A' });
         assert.equal((await submit(first)).ok, true);
         const other = await page.evaluate(() =>
-            fetch('/confirm/options', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"binding":{"case":"replay-B"}}' }).then((r) => r.json()),
+            fetch('/confirm/options', {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: '{"binding":{"case":"replay-B"}}',
+            }).then((r) => r.json()),
         );
         const replayed = await submit({ ...first, challengeId: other.challengeId });
         assert.equal(replayed.code, 'CHALLENGE_MISMATCH');
@@ -132,7 +142,7 @@ describe('通行金鑰（Node 端驗證）', () => {
         });
         const file = {
             description:
-                '真實 Chromium（CDP 虛擬驗證器，ctap2/internal/UV）產生的 WebAuthn 簽署資料。由 probe/e2e/frontdoor/passkey.test.ts 自動產生，請勿手改。二進位值皆為 base64url（無 padding）。被簽的資料＝authenticatorData || SHA-256(clientDataJSON)；ES256 簽章為 DER。',
+                '真實 Chromium（CDP 虛擬驗證器，ctap2/internal/UV）產生的 WebAuthn 簽署資料。由 e2e/reference/passkey/passkey.test.ts 自動產生，請勿手改。二進位值皆為 base64url（無 padding）。被簽的資料＝authenticatorData || SHA-256(clientDataJSON)；ES256 簽章為 DER。',
             generatedAt: new Date().toISOString(),
             rpId: 'localhost',
             origin: rp.origin,
@@ -148,10 +158,19 @@ describe('通行金鑰（Node 端驗證）', () => {
             vectors: [
                 vector('valid', '有效的簽署', picked.valid),
                 vector('tampered-signature', 'signature 最後一個 byte 被翻轉', picked.tamperedSignature),
-                vector('tampered-clientDataJSON', 'clientDataJSON 的 type 後多一個空白（JSON 語意相同，bytes 不同）', picked.tamperedClientData),
-                vector('replay-other-challenge', '對挑戰值 A 的有效簽署，拿來回應挑戰值 B（expectedChallenge 是 B）', picked.replayOtherChallenge),
+                vector(
+                    'tampered-clientDataJSON',
+                    'clientDataJSON 的 type 後多一個空白（JSON 語意相同，bytes 不同）',
+                    picked.tamperedClientData,
+                ),
+                vector(
+                    'replay-other-challenge',
+                    '對挑戰值 A 的有效簽署，拿來回應挑戰值 B（expectedChallenge 是 B）',
+                    picked.replayOtherChallenge,
+                ),
             ],
         };
+        mkdirSync(RUN_DIR, { recursive: true });
         writeFileSync(VECTORS_FILE, `${JSON.stringify(file, null, 2)}\n`);
     });
 });

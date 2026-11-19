@@ -3,7 +3,16 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import {
-    call, closePools, createSubmittedCase, decideIdp, idToken, issueChallenge, login, one, pool, rejectsWith,
+    call,
+    closePools,
+    createSubmittedCase,
+    decideIdp,
+    idToken,
+    issueChallenge,
+    login,
+    one,
+    pool,
+    rejectsWith,
 } from './lib/harness.mjs';
 
 const app = pool('APP');
@@ -27,7 +36,9 @@ test('PRB-PROOF (b) 主管以身分提供者再驗證核准：資料庫驗章、
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
     assert.equal(await decideIdp(app, ch.challenge_id, 'approve', await idToken('p03', ch.challenge)), 'approved');
-    const event = await one(admin, `select actor_person_id from sgn.audit_event where case_id = $1 and event_type = 'case.approve'`, [caseId]);
+    const event = await one(admin, `select actor_person_id from sgn.audit_event where case_id = $1 and event_type = 'case.approve'`, [
+        caseId,
+    ]);
     assert.equal(event.actor_person_id, manager.personId);
 });
 

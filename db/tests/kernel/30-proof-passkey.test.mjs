@@ -3,8 +3,20 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import {
-    call, closePools, createSubmittedCase, decidePasskey, idToken, issueChallenge, login, newAuthenticator, one, pool,
-    registerPasskey, registrationNonce, rejectsPermission, rejectsWith,
+    call,
+    closePools,
+    createSubmittedCase,
+    decidePasskey,
+    idToken,
+    issueChallenge,
+    login,
+    newAuthenticator,
+    one,
+    pool,
+    registerPasskey,
+    registrationNonce,
+    rejectsPermission,
+    rejectsWith,
 } from './lib/harness.mjs';
 
 const app = pool('APP');
@@ -28,7 +40,11 @@ test('PRB-PROOF (a) 主管以自己的通行金鑰核准：資料庫驗章後從
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
     assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge)), 'approved');
-    const event = await one(admin, `select actor_person_id, convert_from(body, 'UTF8')::jsonb -> 'data' as data from sgn.audit_event where case_id = $1 and event_type = 'case.approve'`, [caseId]);
+    const event = await one(
+        admin,
+        `select actor_person_id, convert_from(body, 'UTF8')::jsonb -> 'data' as data from sgn.audit_event where case_id = $1 and event_type = 'case.approve'`,
+        [caseId],
+    );
     assert.equal(event.actor_person_id, manager.personId);
     assert.equal(event.data.proof_kind, 'passkey');
     assert.match(event.data.proof_sha256, /^[0-9a-f]{64}$/);
@@ -50,7 +66,10 @@ test('攻擊 (a)：拿主管的憑證 id 配上偽造的簽章 → PASSKEY_INVAL
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
     const forged = newAuthenticator().assert(ch.challenge);
-    await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', { ...forged, credentialId: managerKey.credentialIdB64 }), 'PASSKEY_INVALID');
+    await rejectsWith(
+        decidePasskey(app, ch.challenge_id, 'approve', { ...forged, credentialId: managerKey.credentialIdB64 }),
+        'PASSKEY_INVALID',
+    );
 });
 
 test('攻擊 (a)：同事用自己合法登記的通行金鑰簽主管的挑戰值 → NOT_APPROVER', async () => {
@@ -107,7 +126,10 @@ test('攻擊 (a)：A 單的證明用在 B 單 → PASSKEY_INVALID，A、B 都沒
     const chB = await issueChallenge(app, manager, caseB);
     await rejectsWith(decidePasskey(app, chB.challenge_id, 'approve', managerKey.assert(chA.challenge)), 'PASSKEY_INVALID');
     const states = await admin.query('select state from sgn.request_case where id = any($1)', [[caseA, caseB]]);
-    assert.deepEqual(states.rows.map((r) => r.state), ['submitted', 'submitted']);
+    assert.deepEqual(
+        states.rows.map((r) => r.state),
+        ['submitted', 'submitted'],
+    );
 });
 
 test('攻擊 (a)：內容改了之後用舊證明 → CONTENT_CHANGED', async () => {
@@ -131,9 +153,18 @@ test('攻擊 (a)：沒有使用者驗證（UV）、錯的 origin、錯的 rpId �
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
     await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge, { flags: 0x01 })), 'PASSKEY_INVALID');
-    await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge, { origin: 'https://evil.example' })), 'PASSKEY_INVALID');
-    await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge, { rpId: 'evil.example' })), 'PASSKEY_INVALID');
-    await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge, { type: 'webauthn.create' })), 'PASSKEY_INVALID');
+    await rejectsWith(
+        decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge, { origin: 'https://evil.example' })),
+        'PASSKEY_INVALID',
+    );
+    await rejectsWith(
+        decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge, { rpId: 'evil.example' })),
+        'PASSKEY_INVALID',
+    );
+    await rejectsWith(
+        decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge, { type: 'webauthn.create' })),
+        'PASSKEY_INVALID',
+    );
 });
 
 test('攻擊 (a)：複製出來的驗證器（計數器倒退） → PASSKEY_COUNTER', async () => {

@@ -5,7 +5,17 @@ import { ChallengeError, ChallengeRegistry, type IssuedChallenge } from './chall
 import { COSE_ALG_ES256, COSE_ALG_RS256 } from './cose.ts';
 import { CredentialStore, type AssertionEvidence, type StoredCredential } from './store.ts';
 import { verifyAssertion, verifyRegistration, WebAuthnError, type Expectation } from './verify.ts';
-import type { SessionUser } from '../session.ts';
+
+/** 登入的使用者（對照實作只需要這幾個欄位；正式路徑的身分由資料庫從 ID token 得出）。 */
+export interface SessionUser {
+    /** 穩定識別：iss + sub。 */
+    iss: string;
+    sub: string;
+    uid: string;
+    name: string;
+    email: string;
+    groups: string[];
+}
 
 export interface RelyingParty {
     rpId: string;
@@ -118,7 +128,11 @@ export class PasskeyService {
                 rpId: this.rp.rpId,
                 timeout: TIMEOUT_MS,
                 userVerification: 'required',
-                allowCredentials: credentials.map((c) => ({ type: 'public-key', id: c.credentialId, transports: c.registration.transports })),
+                allowCredentials: credentials.map((c) => ({
+                    type: 'public-key',
+                    id: c.credentialId,
+                    transports: c.registration.transports,
+                })),
             },
         };
     }
@@ -132,15 +146,26 @@ export class PasskeyService {
             evidence.expectedChallenge = b64(issued.challenge);
             evidence.binding = issued.binding;
             const credential = this.store.get(body.id);
-            if (!credential || credential.userKey !== userKey) throw new WebAuthnError('PASSKEY_UNKNOWN', '這把通行金鑰沒有註冊在這位使用者名下');
-            evidence.publicKey = { alg: credential.alg, cose: credential.publicKeyCose, spki: credential.publicKeySpki, pem: credential.publicKeyPem };
+            if (!credential || credential.userKey !== userKey)
+                throw new WebAuthnError('PASSKEY_UNKNOWN', '這把通行金鑰沒有註冊在這位使用者名下');
+            evidence.publicKey = {
+                alg: credential.alg,
+                cose: credential.publicKeyCose,
+                spki: credential.publicKeySpki,
+                pem: credential.publicKeyPem,
+            };
             evidence.storedSignCountBefore = credential.signCount;
             const input = {
                 authenticatorData: fromB64(body.response?.authenticatorData, 'authenticatorData'),
                 clientDataJSON: fromB64(body.response?.clientDataJSON, 'clientDataJSON'),
                 signature: fromB64(body.response?.signature, 'signature'),
             };
-            const result = verifyAssertion(input, Buffer.from(credential.publicKeyCose, 'base64url'), credential.signCount, this.expectation(issued));
+            const result = verifyAssertion(
+                input,
+                Buffer.from(credential.publicKeyCose, 'base64url'),
+                credential.signCount,
+                this.expectation(issued),
+            );
             this.store.updateSignCount(credential.credentialId, result.signCount);
             evidence.result = { ok: true, signCount: result.signCount };
         } catch (error) {
@@ -173,7 +198,12 @@ export class PasskeyService {
     }
 }
 
-function takeChallenge(registry: ChallengeRegistry, challengeId: unknown, purpose: 'register' | 'confirm', userKey: string): IssuedChallenge {
+function takeChallenge(
+    registry: ChallengeRegistry,
+    challengeId: unknown,
+    purpose: 'register' | 'confirm',
+    userKey: string,
+): IssuedChallenge {
     if (typeof challengeId !== 'string') throw new ChallengeError('CHALLENGE_UNKNOWN', '缺少 challengeId');
     return registry.take(challengeId, purpose, userKey);
 }

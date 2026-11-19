@@ -4,10 +4,10 @@
 //   node tools/anchor.mjs --every 60          每 60 秒錨定一次（常駐）
 // 每次錨定前先從上一個錨點增量重算；不一致就不寫，並以結束代碼 2 回報。
 import { anchorOnce } from './chain-lib.mjs';
-import { loadConfig, roleUrl } from './lib/env.mjs';
+import { anchorFile, loadConfig, roleUrl } from './lib/env.mjs';
 
 const config = loadConfig();
-const options = { dbUrl: roleUrl(config, 'JOB'), anchorFile: config.db.SGN_ANCHOR_FILE };
+const options = { dbUrl: roleUrl(config, 'JOB'), anchorFile: anchorFile(config) };
 const everyIndex = process.argv.indexOf('--every');
 
 async function runOnce() {

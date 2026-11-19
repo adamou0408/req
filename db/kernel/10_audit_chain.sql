@@ -143,7 +143,7 @@ security definer
 set search_path = pg_catalog, pg_temp
 as $$
     select seq, occurred_at, event_type, case_id, actor_person_id,
-           encode(body, 'base64'), encode(prev_hash, 'hex'), encode(hash, 'hex')
+           translate(encode(body, 'base64'), E'\n', ''), encode(prev_hash, 'hex'), encode(hash, 'hex')
     from sgn.audit_event
     where seq > p_after_seq
     order by seq

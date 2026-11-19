@@ -1,10 +1,10 @@
-// 離線重驗 probe/docs/webauthn-vectors.json：同一份資料用 Node 端的驗證器與「只用 PEM + OpenSSL」各驗一次，
+// 離線重驗 passkey.test.ts 剛產生的 .run/webauthn-vectors.json：同一份資料用 Node 端的驗證器與「只用 PEM + OpenSSL」各驗一次，
 // 結果必須和檔案裡的 expected 相同。資料庫那邊拿同一份檔案驗，應得到相同的成敗。
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, verify } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { verifyAssertion, WebAuthnError } from '../../api/src/frontdoor/webauthn/verify.ts';
+import { verifyAssertion, WebAuthnError } from './src/webauthn/verify.ts';
 
 interface Vector {
     name: string;
@@ -16,7 +16,7 @@ interface Vector {
     expected: { ok: boolean; code?: string };
 }
 
-const file = JSON.parse(readFileSync(new URL('../../docs/webauthn-vectors.json', import.meta.url), 'utf8')) as {
+const file = JSON.parse(readFileSync(new URL('../../../.run/webauthn-vectors.json', import.meta.url), 'utf8')) as {
     rpId: string;
     origin: string;
     credential: { publicKeyCose: string; publicKeyPem: string };

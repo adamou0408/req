@@ -35,13 +35,29 @@ const facts = (c) =>
     el(
         'dl',
         {},
-        el('dt', {}, t.caseNo), el('dd', {}, String(c.case_no)),
-        el('dt', {}, t.applicant), el('dd', {}, c.applicant_name),
-        el('dt', {}, t.dataset), el('dd', {}, c.content.dataset),
-        el('dt', {}, t.purpose), el('dd', {}, c.content.purpose),
-        el('dt', {}, t.until), el('dd', {}, c.content.until),
-        el('dt', {}, t.approver), el('dd', {}, c.approver_name ?? '—'),
+        el('dt', {}, t.caseNo),
+        el('dd', {}, String(c.case_no)),
+        el('dt', {}, t.applicant),
+        el('dd', {}, c.applicant_name),
+        el('dt', {}, t.dataset),
+        el('dd', {}, c.content.dataset),
+        el('dt', {}, t.purpose),
+        el('dd', {}, c.content.purpose),
+        el('dt', {}, t.until),
+        el('dd', {}, c.content.until),
+        el('dt', {}, t.approver),
+        el('dd', {}, c.approver_name ?? '—'),
     );
+
+// 系統開立的例外（例如簽核人由同步異動的主管關係決定）：簽核人決定前、稽核查閱時都要看得到。
+const exceptionNotice = (c) =>
+    c.exceptions.length
+        ? el(
+              'div',
+              { class: 'result warn', 'data-testid': 'case-exceptions' },
+              c.exceptions.map((x) => el('p', {}, t.exception[x.rule_code] ?? x.rule_code)),
+          )
+        : null;
 
 const stateBadge = (state) => el('span', { class: `badge state-${state}`, 'data-testid': 'state' }, t.state[state] ?? state);
 
@@ -54,7 +70,7 @@ async function renderInbox(section) {
             el('button', { class: 'primary', onclick: registerPasskey }, t.passkeyRegister),
         );
     }
-    const list = await api.inboxList();
+    const list = await api.call('inbox_list');
     if (list.length === 0) section.append(el('p', { class: 'muted', 'data-testid': 'inbox-empty' }, t.inboxEmpty));
     for (const c of list) {
         section.append(
@@ -74,11 +90,16 @@ function renderDetail(c) {
         el('button', { onclick: renderHome }, `← ${t.back}`),
         el('h2', {}, `${t.caseNo} ${c.case_no}`),
         el('div', { class: 'card' }, stateBadge(c.state), facts(c)),
+        exceptionNotice(c),
         el(
             'div',
             { class: 'actions' },
             c.actions.map((a) =>
-                el('button', { class: a === 'approve' ? 'primary' : '', 'data-action': a, onclick: () => confirmDecision(c, a) }, t.action[a]),
+                el(
+                    'button',
+                    { class: a === 'approve' ? 'primary' : '', 'data-action': a, onclick: () => confirmDecision(c, a) },
+                    t.action[a],
+                ),
             ),
         ),
     );
@@ -87,7 +108,7 @@ function renderDetail(c) {
 async function confirmDecision(c, decision) {
     let challenge;
     try {
-        challenge = await api.challengeIssue(c.case_id, decision);
+        challenge = await api.call('challenge_issue', { case_id: c.case_id, decision });
     } catch (err) {
         flash(explain(err));
         return;
@@ -104,15 +125,22 @@ async function confirmDecision(c, decision) {
             el(
                 'dl',
                 { 'aria-label': t.binding },
-                el('dt', {}, t.caseNo), el('dd', {}, String(b.case_no)),
-                el('dt', {}, t.version), el('dd', {}, String(b.version)),
-                el('dt', {}, t.contentHash), el('dd', { class: 'mono' }, b.content_sha256.slice(0, 16)),
+                el('dt', {}, t.caseNo),
+                el('dd', {}, String(b.case_no)),
+                el('dt', {}, t.version),
+                el('dd', {}, String(b.version)),
+                el('dt', {}, t.contentHash),
+                el('dd', { class: 'mono' }, b.content_sha256.slice(0, 16)),
             ),
             el(
                 'div',
                 { class: 'row sheet-buttons' },
                 el('button', { onclick: () => sheet.remove() }, t.cancel),
-                el('button', { class: 'primary', 'data-testid': 'confirm-passkey', onclick: () => decide(c, decision, challenge, sheet) }, t.confirmWithPasskey),
+                el(
+                    'button',
+                    { class: 'primary', 'data-testid': 'confirm-passkey', onclick: () => decide(c, decision, challenge, sheet) },
+                    t.confirmWithPasskey,
+                ),
             ),
         ),
     );
@@ -123,7 +151,14 @@ async function confirmDecision(c, decision) {
 async function decide(c, decision, challenge, sheet) {
     try {
         const assertion = await signChallenge(challenge.challenge);
-        await api.caseDecidePasskey(challenge.challenge_id, decision, assertion);
+        await api.call('case_decide_passkey', {
+            challenge_id: challenge.challenge_id,
+            decision,
+            credential_id: assertion.credentialId,
+            authenticator_data: assertion.authenticatorData,
+            client_data_json: assertion.clientDataJSON,
+            signature: assertion.signature,
+        });
         sheet.remove();
         await renderHome();
         flash(`${t.caseNo} ${c.case_no}：${t.decided[decision]}`, true);
@@ -135,7 +170,7 @@ async function decide(c, decision, challenge, sheet) {
 
 async function registerPasskey() {
     try {
-        const begin = await api.passkeyRegisterBegin();
+        const begin = await api.call('passkey_register_begin');
         const created = await createPasskey(me);
         const { redirect } = await api.passkeyReauth({
             challenge_id: begin.challenge_id,
@@ -168,11 +203,9 @@ function renderApply(section) {
         event.preventDefault();
         const content = Object.fromEntries(new FormData(form));
         try {
-            const created = await api.caseCreate(content);
-            await api.caseSubmit(created.case_id);
-            const mine = await api.caseListMine();
+            const submitted = await api.call('case_submit_new', { content });
             await renderHome();
-            flash(t.submitted(mine.find((c) => String(c.case_no) === String(created.case_no))), true);
+            flash(t.submitted(submitted), true);
         } catch (err) {
             flash(explain(err));
         }
@@ -181,7 +214,7 @@ function renderApply(section) {
 }
 
 async function renderMine(section) {
-    const list = await api.caseListMine();
+    const list = await api.call('case_list_mine');
     if (list.length === 0) section.append(el('p', { class: 'muted' }, t.mineEmpty));
     for (const c of list) {
         section.append(
@@ -190,7 +223,9 @@ async function renderMine(section) {
                 { class: 'card', 'data-testid': 'mine-item', 'data-case-no': c.case_no },
                 el('div', { class: 'row' }, el('strong', {}, `${t.caseNo} ${c.case_no}`), stateBadge(c.state)),
                 el('div', {}, `${c.content.dataset}・${t.approver} ${c.approver_name ?? '—'}`),
-                c.actions.filter((a) => t.action[a]).map((a) => el('button', { 'data-action': a, onclick: () => renderDetail(c) }, t.action[a])),
+                c.actions
+                    .filter((a) => t.action[a])
+                    .map((a) => el('button', { 'data-action': a, onclick: () => renderDetail(c) }, t.action[a])),
             ),
         );
     }
@@ -213,25 +248,59 @@ function renderAuditSearch(section) {
     section.append(form);
 }
 
+async function renderAuditExceptions(section) {
+    const list = await api.call('audit_exceptions');
+    section.append(
+        list.length === 0
+            ? el('p', { class: 'muted' }, t.exceptionsEmpty)
+            : el(
+                  'ul',
+                  { 'data-testid': 'audit-exceptions' },
+                  list.map((x) =>
+                      el(
+                          'li',
+                          {},
+                          el('button', { onclick: () => renderAudit(x.case_no) }, `${t.caseNo} ${x.case_no}`),
+                          `・${t.exception[x.rule_code] ?? x.rule_code}`,
+                      ),
+                  ),
+              ),
+    );
+}
+
 async function renderAudit(caseNo) {
     flash('');
     const result = el('div', { class: 'result warn', 'data-testid': 'audit-result', 'data-status': 'pending' }, t.auditVerifying);
     const body = el('div');
     main.replaceChildren(el('button', { onclick: renderHome }, `← ${t.audit}`), el('h2', {}, `${t.caseNo} ${caseNo}`), result, body);
     try {
-        const audit = await api.auditCase(caseNo);
+        const audit = await api.call('audit_case', { case_no: caseNo });
         const v = await verifyCase(api, audit);
-        const headline = { ok: t.auditOk, warn: t.auditOkUnanchored(v.unanchored), bad: t.auditBad }[v.status];
+        const headline = { ok: t.auditOk, warn: t.auditUnanchored(v.unanchored), bad: t.auditBad }[v.status];
         result.className = `result ${v.status}`;
         result.dataset.status = v.status;
         result.replaceChildren(
             el('div', {}, headline),
-            el('ul', { 'data-testid': 'audit-problems' }, v.problems.map((p) => el('li', {}, p))),
-            el('details', {}, el('summary', {}, t.auditChecks), el('ul', {}, v.checks.map((c) => el('li', {}, c)))),
+            el(
+                'ul',
+                { 'data-testid': 'audit-problems' },
+                v.problems.map((p) => el('li', {}, p)),
+            ),
+            el(
+                'details',
+                {},
+                el('summary', {}, t.auditChecks),
+                el(
+                    'ul',
+                    {},
+                    v.checks.map((c) => el('li', {}, c)),
+                ),
+            ),
         );
         body.replaceChildren(
             el('button', { onclick: () => renderAudit(caseNo) }, t.auditVerifyAgain),
             el('div', { class: 'card' }, stateBadge(audit.case.state), facts(audit.case)),
+            exceptionNotice(audit.case),
             el('h2', {}, t.auditEvents),
             el(
                 'ol',
@@ -239,10 +308,11 @@ async function renderAudit(caseNo) {
                 v.events.map((e) =>
                     el(
                         'li',
-                        { 'data-type': e.parsed.type },
+                        { 'data-type': e.parsed.type, 'data-anchored': String(e.anchored) },
                         el('strong', {}, t.eventType[e.parsed.type] ?? e.parsed.type),
                         `・${e.actor_name ?? '—'}・${new Date(e.parsed.at).toLocaleString('zh-TW')}`,
                         e.parsed.data.proof_kind ? `・${t.proofKind[e.parsed.data.proof_kind]}` : '',
+                        e.anchored ? null : el('span', { class: 'badge state-draft', 'data-testid': 'unanchored' }, t.notAnchored),
                         el('div', { class: 'mono muted' }, `#${e.seq} ${e.hash.slice(0, 16)}`),
                     ),
                 ),
@@ -262,7 +332,7 @@ async function renderHome() {
     const can = (c) => me.capabilities.includes(c);
     if (can('inbox')) sections.push([t.inbox, 'inbox', renderInbox]);
     if (can('case.submit')) sections.push([t.apply, 'apply', renderApply], [t.mine, 'mine', renderMine]);
-    if (can('audit')) sections.push([t.audit, 'audit', renderAuditSearch]);
+    if (can('audit')) sections.push([t.audit, 'audit', renderAuditSearch], [t.exceptions, 'exceptions', renderAuditExceptions]);
     const built = sections.map(([title, id, fill]) => {
         const section = el('section', { 'data-testid': `section-${id}`, 'aria-labelledby': `h-${id}` }, el('h2', { id: `h-${id}` }, title));
         return { section, fill };
@@ -281,10 +351,11 @@ function renderLogin() {
 async function boot() {
     const params = new URLSearchParams(location.search);
     if (params.get('notice') === 'PASSKEY_REGISTERED') flash(t.passkeyRegistered, true);
-    if (params.get('error')) flash(t.error[params.get('error')] ?? t.errorRetry);
+    // 登入往返失敗時，後端把錯誤目錄的訊息放在網址上帶回來，直接顯示
+    if (params.get('error')) flash(params.get('error'));
     if (params.size) history.replaceState(null, '', '/');
     try {
-        me = await api.me();
+        me = await api.call('me');
     } catch (err) {
         if (err instanceof ApiFailure && err.status === 401) return renderLogin();
         main.replaceChildren(el('p', {}, explain(err)));
@@ -292,7 +363,16 @@ async function boot() {
     }
     document.getElementById('who').replaceChildren(
         el('span', { 'data-testid': 'me' }, me.name),
-        el('button', { onclick: async () => { await api.logout(); location.href = '/'; } }, t.logout),
+        el(
+            'button',
+            {
+                onclick: async () => {
+                    await api.logout();
+                    location.href = '/';
+                },
+            },
+            t.logout,
+        ),
     );
     await renderHome();
 }
