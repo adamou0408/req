@@ -1,0 +1,12 @@
+{
+  "name": "probe-e2e-frontdoor",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.18" },
+  "scripts": {
+    "test": "PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers node --test --test-concurrency=1 *.test.ts"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
