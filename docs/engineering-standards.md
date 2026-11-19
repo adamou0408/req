@@ -84,7 +84,34 @@
 - 契約測試：路由表引用的每個 function 都存在且參數相符；每個 `api` function 都有路由，或明確列為只供內部排程使用。
 - 不得為了讓測試通過而跳過、停用或放寬測試。測試失敗就修程式。
 
-## 6. 工作方式
+## 6. 品質關卡
+
+所有檢查只有一個入口：`tools/check.sh`。本機和 CI 執行同一支腳本，任何一項失敗就算失敗。檢查工具用 `tools/install-dev-tools.sh` 安裝，版本固定。
+
+| 類別 | 檢查 | 工具 |
+|---|---|---|
+| 格式與靜態檢查 | TypeScript 格式、lint、型別 | Prettier、ESLint、`tsc --noEmit` |
+| | 沒用到的檔案、匯出與套件 | knip |
+| | SQL 格式與寫法 | sqlfluff（PostgreSQL 方言） |
+| | PL/pgSQL 靜態分析：不存在的欄位、型別不符、沒用到的變數、漏掉的 `return` | plpgsql_check（只裝在開發與 CI 的資料庫） |
+| | Shell 腳本 | shellcheck |
+| | Dockerfile | hadolint |
+| | GitHub Actions 設定 | actionlint |
+| 資安 | 套件弱點（HIGH 以上失敗） | Trivy、`npm audit` |
+| | 誤放進 repo 的密碼與金鑰 | Trivy secret |
+| | Dockerfile 與 compose 的錯誤設定 | Trivy misconfig |
+| | 套件授權 | Trivy license |
+| 測試 | 資料庫、後端、前端、瀏覽器端對端 | 見第 5 節 |
+| 一致性 | 產生檔重新產生後沒有差異 | 產生器 |
+| | 每個規則代碼都有測試 | 覆蓋檢查腳本 |
+| | 測試裡沒有 `.skip`、`.only`；程式裡沒有 `TODO`、`FIXME` | 檢查腳本 |
+
+規則：
+
+- 不得用忽略清單或關閉規則來讓檢查通過。確實需要例外時，逐項寫明原因，放在該工具的設定檔裡。
+- 每個階段完成、推上 `main` 之前，都要跑過 `tools/check.sh`。
+
+## 7. 工作方式
 
 - 動手前先讀：本文件、`docs/decisions.md`、與任務相關的契約段落、`docs/handoff/` 裡的交接紀錄。
 - 只修改自己負責的範圍。需要動到別人的範圍時，寫進交接紀錄並回報。
