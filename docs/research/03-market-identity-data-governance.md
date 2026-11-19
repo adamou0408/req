@@ -93,7 +93,7 @@
 | 產品 | 申請的粒度 | 核准方式 | 期限 | 核准與實際設定的關係 | 紀錄 | 部署與現況 |
 |---|---|---|---|---|---|---|
 | Immuta（Request app） | 【事實】資料庫、schema、資料表、整個 data product，或「a masking exception to view unmasked data within specific columns」[32] | 【事實】審核流程可分支；人工審核可設 Any 或 All；審核人來自指定使用者、群組、屬性、權限或目錄擁有者（目錄擁有者目前只支援 Atlan）[32]。【查不到】是否禁止自己核准自己 | 【事實】可要求核准的存取必須是暫時的並設最長期間；多位審核人選不同期間時取最短 [32] | 【事實】核准後自動開通或解除該欄位的遮罩 [32]。【事實】判定用的是當下的資格，之後資格被移除不會撤銷已給的存取 [32] | 【事實】「By default, Immuta audit logs expire after 7 days」；事件存在客戶設定的 Elasticsearch 或 OpenSearch，供客戶自行匯出 [33]。【未查證】匯出到 S3 或 ADLS Gen2 的細節（UAM 頁未寫，原稿依搜尋摘要）。【查不到】防竄改機制 | 【事實】SaaS（北美與歐洲區域）與自架（Kubernetes 1.29–1.35、PostgreSQL 15+；版本 2026.1）（搜尋摘要）[33]。部分文件頁註明 Marketplace app 為 private preview [33] |
-| Databricks Unity Catalog — Request for Access | 【事實】Unity Catalog 物件上的權限（如 SELECT），可替自己、服務主體、他人或群組申請；文件未提列或欄層級 [34] | 【事實】申請送到設定的目的地（email、Slack 等，各上限 5 個）；審核者接受時是把主體加入群組或直接授權；「any user who opens the review link and signs in to the workspace can decline it」[34]。【事實】核准時會檢查審核者權限 [34]。【事實】2025-08-20 以 Public Preview 發表；Azure Databricks 文件頁仍標 Public Preview，未查到 GA 公告 [34] | 【事實】文件未提授權期限；未處理的申請 7 天過期，email 目的地在第 3 天提醒 [34] | 【事實】審核者選擇「加入群組」或「直接授權」[34]。【已更正】原稿寫「授出的內容不受申請內容約束」，文件並未這樣寫，只是沒有說明授出內容必須等於申請內容；改列【推論】：文件未描述兩者的一致性檢查。【事實】在 Databricks 外完成的核准不會匯入，顯示為「Managed externally」[34] | 【事實】申請保留 365 天；事件寫入 audit log [34] | 雲端（平台原生功能） |
+| Databricks Unity Catalog — Request for Access | 【事實】Unity Catalog 物件上的權限（如 SELECT），可替自己、服務主體、他人或群組申請；文件未提列或欄層級 [34] | 【事實】申請送到設定的目的地（email、Slack 等，各上限 5 個）；審核者接受時是把主體加入群組或直接授權；「any user who opens the review link and signs in to the workspace can decline it」[34]。【事實】核准時會檢查審核者權限 [34]。【事實】2025-08-20 以 Public Preview 發表；Azure Databricks 文件頁仍標 Public Preview（搜尋摘要），未查到 GA 公告 [63] | 【事實】文件未提授權期限；未處理的申請 7 天過期，email 目的地在第 3 天提醒 [34] | 【事實】審核者選擇「加入群組」或「直接授權」[34]。【已更正】原稿寫「授出的內容不受申請內容約束」，文件並未這樣寫，只是沒有說明授出內容必須等於申請內容；改列【推論】：文件未描述兩者的一致性檢查。【事實】在 Databricks 外完成的核准不會匯入，顯示為「Managed externally」[34] | 【事實】申請保留 365 天；事件寫入 audit log [34] | 雲端（平台原生功能） |
 | Snowflake — organizational listing 的 request approval workflow | 【事實】listing 層級，綁角色；「cannot be used to grant access to roles and users」；文件未提列或欄 [35] | 【事實】單一決定（Grant 或 Deny）；核准人須對該 listing 有 OWNERSHIP 或 MODIFY [35]。2025-05-30 GA [35] | 【事實】文件未提期限 [35] | 【事實】核准人可以授予和申請不同的角色 [35]。【事實】走外部流程時，Snowflake 不會把外部工單系統的核准同步回來（搜尋摘要）[35] | 【事實】Provider Studio 的 Resolved requests；`OBJECT_ACCESS_REQUEST_HISTORY` 可查（搜尋摘要）[35] | 雲端 |
 | Snowflake — Request Access in Workspaces | 【事實】由 SQL 權限錯誤觸發；只能申請 account role，建議的角色僅供參考 [36] | 【事實】由 ACCOUNTADMIN 或 SECURITYADMIN 審核 [36] | 【事實】可設結束時間，但只適用「角色授予使用者」；授予既有角色時不能帶期限，且會讓持有該角色的所有人都得到權限 [36] | 【事實】審核者自行決定授什麼 [36] | 【事實】History 檢視；文件未描述稽核紀錄 [36] | 雲端 |
 | Snowflake — Multi-party Approval（管理操作，不是資料存取） | 【事實】停用 MFA、授予或撤銷管理角色、變更網路或驗證政策等 [37] | 【事實】最低核准數預設 2（1–20）；申請人自己的核准是否計入門檻，預設為 true [37] | 【事實】申請有效 1–14 天（預設 3）；核准後 3 天內可執行一次 [37] | 【事實】核准的操作只能執行一次 [37] | 【事實】`MULTI_PARTY_APPROVAL_REQUESTS` 等檢視 [37] | 【事實】需 Business Critical 以上版本 [37] |
@@ -218,7 +218,7 @@
 
 | # | 需求 | 依據 |
 |---|---|---|
-| M1 | 職責分離由引擎強制，不提供關閉選項：申請人不能簽自己的單、各關不同人；多張申請同時在途時也要正確比對（把在途申請算進去）。 | 結論 2；Q1 欄沒有一個通用產品做到預設且不可關 [10][19][31][37] |
+| M1 | 職責分離由引擎強制，不提供關閉選項：申請人不能簽自己的單（不論核准人是以群組、主管或「指定個人」方式設定）、各關不同人；多張申請同時在途時也要正確比對（把在途申請算進去）。 | 結論 2；Q1 欄沒有一個通用產品做到預設且不可關 [10][19][31][37][61]；Entra 對「各階不同人」只做文件建議 [1] |
 | M2 | 簽核綁定內容版本：核准後任何修改都產生新版本，擴大範圍必須重簽；被包裝成「角色」或「套件」的權限，內容變動要視為既有授權的變更。 | 結論 3；Entra 與 Snowflake 的反例 [7][35] |
 | M3 | 授權預設有期限、有負責人、可撤銷；到期自動失效，並通知下游系統。 | 結論 5；Databricks 與 Snowflake 原生功能缺期限 [34][35][36] |
 | M4 | 執行後驗證：核准的內容交付執行後，實際測試設定是否與核准相符，結果留紀錄。 | 結論 1；所有查到的文件都沒有這一步，是最清楚的差異點 |
@@ -262,7 +262,7 @@
 
 1. 各 IGA 產品（SailPoint、Okta、Saviynt、C1、Opal、Lumos、Veza、Zluri）稽核紀錄的防竄改機制。未找到任何官方文件說明；不代表沒有，可能只是不公開。
 2. SailPoint、Saviynt、One Identity、C1、Lumos、Zluri、Opal、Veza、Immuta、Evolveum 的價格。皆須詢價；文中的第三方數字未經證實。
-3. Okta Identity Governance 單獨加購的價格、核准階數、是否禁止自我核准。
+3. Okta Identity Governance 單獨加購的價格、核准階數上限。（是否禁止自我核准已於查證時補上：依核准人類型而定 [61]。）
 4. SailPoint IdentityIQ 的終止支援日期（政策在客戶入口網站 Compass）。
 5. Saviynt 是否仍提供純地端版本；是否禁止自我核准。
 6. One Identity Manager 語言包的中文是繁體還是簡體；在台灣的代理與支援。
@@ -325,7 +325,7 @@
 | 31 | Zluri — Pricing；Zluri Help — SoD Violation Insights in Access Requests；Zluri 部落格（廠商資料） | https://www.zluri.com/pricing ；https://help.zluri.com/docs/sod-violation-insights-in-access-requests ；https://www.zluri.com/blog/access-request-management ；https://www.zluri.com/blog/just-in-time-access-in-zluri | 前兩頁直接開啟；部落格為搜尋摘要 |
 | 32 | Immuta 文件 — Request: Introduction；Review flows | https://documentation.immuta.com/saas/request/introduction ；https://documentation.immuta.com/SaaS/request/review-access-requests/reference-guides/request-forms/review-flows | 直接開啟 |
 | 33 | Immuta 文件 — Deployment options；Self-hosted Immuta；Universal Audit Model (UAM)；Getting Started with Marketplace | https://documentation.immuta.com/saas/configuration/application-configuration/reference-guides/deployment-options ；https://documentation.immuta.com/knowledge-base/LmMmmLqSszWn8sdGe7gH/self-hosted-immuta ；https://documentation.immuta.com/2026.1/governance/detect-your-activity/audit/reference-guides/universal-audit-model-uam ；https://documentation.immuta.com/saas/knowledge-base/implementation/marketplace/getting-started-with-marketplace | 搜尋摘要 |
-| 34 | Databricks 文件 — Access requests（GCP 版）；Manage access request destinations（AWS 版） | https://docs.databricks.com/gcp/en/data-governance/unity-catalog/manage-privileges/access-requests ；https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/access-request-destinations | 第一頁直接開啟；第二頁搜尋摘要 |
+| 34 | Databricks 文件 — Access requests（GCP 版）；Manage access request destinations（AWS 版） | https://docs.databricks.com/gcp/en/data-governance/unity-catalog/manage-privileges/access-requests ；https://docs.databricks.com/aws/en/data-governance/unity-catalog/manage-privileges/access-request-destinations | 第一頁直接開啟（查證時重開）；第二頁搜尋摘要；Preview 狀態見 [63] |
 | 35 | Snowflake 文件 — Manage the request approval workflow；Request access workflow for organizational listings；Release note 2025-05-30（GA） | https://docs.snowflake.com/en/user-guide/collaboration/listings/organizational/request-approval-workflow ；https://docs.snowflake.com/en/user-guide/collaboration/listings/organizational/request-access-workflow ；https://docs.snowflake.com/en/release-notes/2025/other/2025-05-30-raw | 第一頁直接開啟；其餘搜尋摘要 |
 | 36 | Snowflake 文件 — Request Access in Workspaces | https://docs.snowflake.com/user-guide/access-requests-workspaces | 直接開啟 |
 | 37 | Snowflake 文件 — Multi-party Approval | https://docs.snowflake.com/en/user-guide/multi-party-approval | 直接開啟 |
@@ -352,3 +352,6 @@
 | 58 | Zluri 部落格〈SailPoint alternatives〉系列（競品廠商行銷文章，僅作痛點佐證） | https://www.zluri.com/eye-on-identity/sailpoint-saviynt-alternatives-modern-iga-platform-switch ；https://www.zluri.com/eye-on-identity/lightweight-iga-mid-market-saas-alternative-sailpoint | 搜尋摘要 |
 | 59 | Gartner 研究摘要頁：2026 Market Guide for Identity Governance and Administration（2026-08-28）；light IGA 相關研究（2026-03）。搜尋結果列出多個 Gartner 文件編號，哪一個編號對應哪一份未逐一確認 | https://www.gartner.com/en/documents/8321653 | 搜尋摘要（僅摘要，內文需付費） |
 | 60 | Microsoft Learn — Microsoft Entra on-premises application identity provisioning architecture；What is the Microsoft Entra provisioning agent? | https://learn.microsoft.com/entra/identity/app-provisioning/on-premises-application-provisioning-architecture ；https://learn.microsoft.com/en-us/entra/identity/hybrid/cloud-sync/what-is-provisioning-agent | 搜尋摘要 |
+| 61 | Okta Support〈Access request expected reviewer self-attestation behavior〉；Okta Help〈Configure an approval sequence〉 | https://support.okta.com/help/s/article/access-request-expected-reviewer-self-attestation-behavior ；https://help.okta.com/oie/en-us/content/topics/identity-governance/access-requests/rcar-approval-seq-edit.htm | 直接開啟（查證時新增） |
+| 62 | 經濟日報〈金管會發布「金融資安韌性藍圖」 4年推動盼部分措施落地全面實施〉（2025-12-30）；iThome 金融資安監理報導 | https://udn.com/news/story/7239/9235636 ；https://www.ithome.com.tw/news/173594 | 經濟日報直接開啟；iThome 為搜尋摘要（直接開啟回應 403）（查證時新增） |
+| 63 | Databricks 部落格〈Announcing Public Preview of Request for Access in Unity Catalog〉（2025-08-20） | https://www.databricks.com/en/blog/announcing-public-preview-request-access-unity-catalog | 直接開啟（查證時新增；併入 [34] 引用） |

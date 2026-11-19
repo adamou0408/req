@@ -600,3 +600,63 @@ Microsoft 的 ledger 文件把同樣的弱點講得很直接 [54]：
 | 72 | SailPoint 文件, "Managing Native Change Detection" | https://documentation.sailpoint.com/saas/help/sources/native_change_detection.html |
 | 73 | Okta, Identity Governance API – Campaigns（搜尋摘要）；Okta Help, "Understand remediation" | https://developer.okta.com/docs/api/iga/openapi/governance.api/tag/Campaigns/ ；https://help.okta.com/oie/en-us/content/topics/identity-governance/access-certification/remediation.htm |
 | 74 | 本 repo：`docs/platform-vision.md`、`docs/contract/00-spine.md` 第 11、12 節 | — |
+| 75 | OpenID Foundation, Shared Signals Working Group – Overview（新聞列表） | https://openid.net/wg/sharedsignals/ |
+| 77 | OCSF Schema Browser v1.9.0, "Account Change"、"User Access Management" 類別頁 | https://schema.ocsf.io/1.9.0/classes/account_change ；https://schema.ocsf.io/1.9.0/classes/user_access |
+| 78 | AWS Open Source Blog, "OCSF achieves ITU support…"（2026-03）（搜尋摘要） | https://aws.amazon.com/blogs/opensource/ocsf-achieves-itu-support-powering-ai-ready-security-operations |
+| 79 | ITU-T SG17 contribution T25-SG17-C-0764（2026-08-25）（搜尋摘要） | https://www.itu.int/md/T25-SG17-C-0764/ |
+| 80 | PCI SSC, RFC instructions PCI DSS v4.0.1（2026-06）（搜尋摘要） | https://www.pcisecuritystandards.org/rfc_instructions_pci-dss-v4-0-1-june2026/ |
+| 81 | 全國法規資料庫，電子簽章法（2024-05-15 修正） | https://law.moj.gov.tw/LawClass/LawAll.aspx?pcode=J0080037 |
+| 82 | 臺灣證券交易所，上市上櫃公司資通安全管控指引（修正條文對照表，113-09-10）（搜尋摘要；原檔下載被導向列表頁，未讀到全文） | https://dsp.twse.com.tw/public/static/downloads/listedCompany/上市上櫃公司資通安全管控指引(修正條文對照表)_Final_20240916092203.docx |
+| 83 | AuthZEN 工作組簡報（Google Slides，搜尋摘要） | https://docs.google.com/presentation/d/1Bu8VHMTu_j26EBXS6FyJmBDAQep62bm5/htmlpresent |
+| 84 | DEV Community, "I built an OPA plugin that turns it into an AuthZEN-compatible PDP"（個人文章，搜尋摘要） | https://dev.to/kanywst/i-built-an-opa-plugin-that-turns-it-into-an-authzen-compatible-pdp-i81 |
+
+---
+
+## 6. 查證紀錄
+
+查證日期 2026-11-19，由未參與撰寫的查證者執行。方法：挑出對產品決策影響最大的論點，逐一打開原始來源核對；PCI DSS 以 PDF 文字層核對。
+
+### 6.1 逐項結果
+
+| # | 論點 | 結果 | 來源 |
+|---|---|---|---|
+| 1 | AuthZEN Authorization API 1.0 為 Final；2026-01-12 公告；81／1／25 票，107／378，門檻 20% | 已確認 | [2] |
+| 2 | 規格日期 2026-01-11、三位編者；預設路徑、`evaluations_semantic` 三值與預設 `execute_all`；拒絕回 200＋`decision:false`；`X-Request-ID` 原值回傳 | 已確認 | [1] |
+| 3 | 「AuthZEN 只有 metadata 可簽章，沒有判定結果簽章」（N10） | **已更正**：§11.6 寫 PDP MAY 簽章判定回應，但未定義格式；已改 2.1.1 與 N10 | [1] |
+| 4 | 「PDP 驗證呼叫方，建議 OAuth 2.0（§2、§11.2）」 | **已更正（精確化）**：OAuth 2.0 的 RECOMMENDED 在 §2；§11.2 只列三種做法不指定 | [1] |
+| 5 | Keycloak 26.7.0 起實驗性支援，Evaluation、Evaluations、metadata，client credentials，2026-05-20 | 已確認（文中未提 Search） | [10] |
+| 6 | OpenFGA AuthZEN 為實驗性、四項限制 | 已確認並補充：路徑掛在 store 底下、不回傳呼叫方的 `X-Request-ID`、不提供 `signed_metadata` | [9] |
+| 7 | ARAP Draft 1、2026-11-06、單一作者、六種狀態、不變條件 | 已確認；**已更正**欄位細節：`approval` 必填 `id`、`approved_until`（`approved_at` 選填）；`denial` 內必填 `expires_at` 與 `evaluation_id`／`binding_token` 擇一；批次有 `partial` | [4] |
+| 8 | CAEP 1.0 Final 2025-08-29，8 種事件，沒有授權變更專用事件；`token-claims-change` 定義 | 已確認；補上工作組頁面的核准日 2025-09-02 | [20][75] |
+| 9 | Okta 發送方只支援 Session Revoked、Credential Change；連到 SSF ID3、CAEP ID2 | 已確認（傳遞方式文件未寫） | [24] |
+| 10 | SailPoint 接收方只支援這兩種事件（2026-04-08）；公告未提發送方 | 已確認 | [27] |
+| 11 | RFC 8936 §2.2「released from any obligation to retain the SET」；未確認事件可依部署條件丟棄 | 已確認 | [29] |
+| 12 | RFC 7643 §4.1.2 `entitlements`、`roles`「No vocabulary or syntax is specified」；群組異動 MUST 經 Group 資源 | 已確認 | [35] |
+| 13 | RFC 9967 為 2026-05 Proposed Standard | 已確認（datatracker） | [30] |
+| 14 | RFC 9700／BCP 240（2025-01）§2.5、§2.2.1、§2.3 | 已確認 | [40] |
+| 15 | Trillian 維護模式並建議 Tessera；immudb 為 BSL 1.1；Rekor v2 2025-10-10、只收兩種項目、無 attestation 儲存、不回傳簽章時間戳記、後端 Tessera | 已確認 | [49][51][52] |
+| 16 | PCI DSS v4.0.1 7.2.4（至少每六個月）、7.2.5.1（依目標風險分析頻率）、10.3.4、10.5.1（12 個月、最近 3 個月可立即分析） | 已確認（PDF 文字層逐字比對）；補上 v4.0.1 仍為現行版本 | [58][80] |
+| 17 | PostgreSQL：superuser、`BYPASSRLS` 繞過 RLS；擁有者通常也繞過 | 已確認；補上擁有者可用 `FORCE ROW LEVEL SECURITY` 自我限制，已加入 M13 | [56] |
+| 18 | OCSF 最新 1.9.0（2026-08-03）、前一版 1.8.0（2026-03）；3001、3005 的「D」 | 日期已確認；**已更正**：「D」是淘汰，改用 `user_management` | [64][77] |
+| 19 | Standard Webhooks 三個標頭、v1 HMAC 簽法、v2a ed25519、未給容許秒數、`410 Gone`、冪等鍵 | 已確認；補上 `v1a` 已淘汰 | [31] |
+| 20 | Microsoft Graph：`defaultDecision` 三值、兩開關同時開啟的警告、`recommendationLookBackDuration` 預設 30 天 | 已確認（應用程式的複查最多 30 天） | [70] |
+| 21 | Amazon QLDB 2025-07-31 終止 | 仍為搜尋摘要：AWS 開發者指南（在地化頁面摘要）寫「until end of support on 07/31/2025」，英文頁面回 404，未逐字核對；保留「（搜尋摘要）」標示 | [53] |
+
+沒有刪除論點；無法確認者維持「（搜尋摘要）」或列在第 4 節。
+
+### 6.2 補充搜尋（不同角度）
+
+1. AuthZEN 最新消息與一致性認證：工作組簡報稱已定義 PDP 一致性認證設定檔（搜尋摘要），未見認證名單 → 更新 U2。
+2. OPA 對 AuthZEN 的支援（反面證據）：仍只有社群外掛 → 更新 2.1.1 與 U1。
+3. Microsoft Entra 是否提供 SSF：仍查不到官方文件 → U4 不變。
+4. OCSF 的 ITU 標準化：2026-06 目標，但 2026-08 仍為草案 → 更新 U11。
+5. PCI DSS 是否已有新版：v4.0.1 仍現行，2026 年中開放意見徵詢 → 補在 2.5.4。
+6. 台灣：電子簽章法 2024 修正（全國法規資料庫原文）、上市櫃資安管控指引第 23 條（搜尋摘要）、金管會 2025-12 金融資安韌性發展藍圖與零信任轉為必備（新聞報導，未讀原文，未寫入正文）→ 新增 2.5.4「台灣在地參考」、更新 U15。
+
+### 6.3 對產品影響最大的結論（查證後）
+
+1. `check` 採 AuthZEN 1.0 仍成立；判定回應簽章是規格允許的選項（§11.6），但沒有格式，第一版不做。
+2. 事件通知不能依賴 SSF／CAEP：沒有授權事件、主要廠商只收發兩種事件、輪詢確認後即可丟棄；必須自建可重播事件端點。
+3. 雜湊鏈要搭配外部錨定與資料庫權限分離（含 `FORCE ROW LEVEL SECURITY`）才有意義；PCI DSS 10.3.4 要的是「改了會告警」。
+4. OCSF 會淘汰類別（1.9.0 已淘汰 3001、3005），只能當衍生格式並標版本，正本用 JSON Lines。
+5. 台灣的平台內簽核屬「電子簽章」而非有推定效力的「數位簽章」；若客戶需要推定效力，要另支援憑證簽署。
