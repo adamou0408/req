@@ -143,7 +143,8 @@ sim_service_state() {
 }
 
 # 從 service.env 彙整位址：每個 *_PORT 變數配上同名的 *_HOST（沒有就用 127.0.0.1）。
-# 輸出：每行「<用途> <主機>:<埠>」。埠對照表只從這裡產生，不另外手抄。
+# 輸出：每行「[<用途> ]<主機>:<埠>」；用途取自變數名稱（SIM_MAIL_SMTP_PORT → smtp），
+# 服務只有一個埠時（SIM_LDAP_PORT）沒有用途。埠對照表只從這裡產生，不另外手抄。
 sim_service_endpoints() {
     local name="$1" env_file
     env_file="$(sim_service_dir "$name")/service.env"
@@ -161,8 +162,8 @@ sim_service_endpoints() {
             label="${prefix#SIM_}"
             label="${label#"${strip}"_}"
             [[ "$label" != "$strip" ]] || label=""
-            printf '%s %s:%s\n' "$(tr '[:upper:]' '[:lower:]' <<<"${label:-port}")" \
-                "${!host_var:-127.0.0.1}" "${!key}"
+            label="$(tr '[:upper:]' '[:lower:]' <<<"$label")"
+            printf '%s%s:%s\n' "${label:+${label} }" "${!host_var:-127.0.0.1}" "${!key}"
         done < <(grep -oE '^[A-Za-z_][A-Za-z0-9_]*_PORT=' "$env_file" | tr -d '=')
     )
 }
