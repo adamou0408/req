@@ -18,7 +18,7 @@
 2. 國際工具也不預設禁止自簽：Jira Service Management 的「禁止 reporter 核准自己的請求」需求從 2017 年開到現在未解決；Zoho Creator 文件直接描述申請人與核准人是同一人的情況；Camunda 的排除名單需求仍是 Open。[20][30][35]
 3. 核准後的內容可由管理角色修改，文件沒有提到要重簽：Kissflow 的 Process Admin 可在流程完成後編輯任何項目；鼎新客戶案例中，已核准單據要改得由 IT 進後台。[26][27][2]
 4. 紀錄的可信度靠權限與保存期設定，不靠防竄改設計：UOF X 活動日誌最長保留 12 個月、到期自動刪除不可還原；Teams Approvals 存在不支援備份的 Dataverse 預設環境，資料層稽核要另外啟用；Power Automate 執行紀錄保留 30 天；Pipefy 歷史 180 天。這次查到的官方文件沒有一家宣稱雜湊鏈或只增不改。[9][22][24][33]
-5. 代理、轉派、管理者介入是稽核盲點：Nintex 手動轉派核准工作後，追蹤畫面看不到原受派人與轉派人（2026-02 夥伴回報，原廠確認需另提需求）；ServiceNow 核准紀錄被移除後不會進還原模組（2013 年原廠員工回覆）。[34][38]
+5. 代理、轉派、管理者介入是稽核盲點：Nintex 手動轉派核准工作後，追蹤畫面看不到原受派人與轉派人，資料只能從 API 的 taskAssignments 取得（2026-02 夥伴回報，原廠請對方另提需求）；ServiceNow 核准紀錄被移除後不會進還原模組（2013 年原廠員工回覆）。[34][38]
 6. 「核准之後還有效嗎」只有 IGA 類產品在處理，而且只限存取權：Entra、Opal、C1 提供限時授權、到期自動移除、定期複查；這次查到的簽核／BPM 產品文件都沒有有效期的概念。[40][42][44]
 7. IGA 產品多數把「不得核准自己的申請」做成預設（Entra、Opal），但不一致：Okta 指定特定使用者為核准人時允許自簽，SailPoint IdentityIQ 8.4 沒有全域開關。[39][41][42][43]
 8. GRC 與合規自動化產品不產生核准，只收集別的系統產生的證據：ServiceNow 的證據是受指派者上傳的附件或網址；Hyperproof 從 GitHub 等系統抓 proof；Drata 不會拉進直接建在外部系統的 ticket；Secureframe 靠 Indent 匯入核准證據。Vanta 自己做了 access request，但核准不會實際授權，也還沒接上複查與離職流程。[45][47][48][49][50]
@@ -70,9 +70,9 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 |---|---|---|---|---|
 | ServiceNow（平台核准） | 【查不到】官方文件對預設行為的說明。【事實】社群有十多則「如何禁止申請人核准自己的請求或變更」的提問（搜尋結果所列；其中一則為 2024-03 [37]），該則被採納的解法是自己在 Approval 資料表寫 business rule。【推論】不是預設行為，要客製。 | 【查不到】 | 【事實】移除核准人時核准紀錄會消失；原廠員工回覆：刪除「is not audited in such a way that they show up in the Restore Deleted Records module」，要到 sys_audit 查（2013 年，論壇性質，現況可能已變）。 | [37][38] |
 | Jira Service Management | 【事實】可以。JSDSERVER-5231：「At the moment, a reporter can approve their own request if permission is given.」2017-07-06 建立，狀態 Gathering Interest，40 票，未解決。Cloud 版類似需求 JSDCLOUD-6678 以重複單關閉。 | 【查不到】 | 【查不到】 | [20][21] |
-| Microsoft Power Automate／Teams Approvals | 【查不到】平台層禁止自簽的設定。 | 【查不到】 | 【事實】Approvals 存在預設 Dataverse 環境，「which doesn't support backups at this time」。【事實】更細的稽核要自行對 Approval、Approval Request、Approval Response 啟用；「Create, update, and delete operations are auditable events for Approval records」，也就是紀錄可被更新與刪除。【事實】流程等待核准超過期限會失敗，核准留在行動中心，「The requestor or environment admin then needs to manually delete these approvals」。【事實】執行時間上限與執行紀錄保留都是 30 天（known issues 頁寫 28 天，兩頁不一致）。 | [22][23][24] |
+| Microsoft Power Automate／Teams Approvals | 【查不到】平台層禁止自簽的設定。 | 【查不到】 | 【事實】Approvals 存在預設 Dataverse 環境，「which doesn't support backups at this time」；同段也寫「Admins can set custom retention policies for data stored within Dataverse tables」，以範本建立的核准，回覆存在 Microsoft Forms。【事實】更細的稽核要自行對 Approval、Approval Request、Approval Response 啟用；「Create, update, and delete operations are auditable events for Approval records」，也就是紀錄可被更新與刪除。【事實】流程等待核准超過期限會失敗，核准留在行動中心，「The requestor or environment admin then needs to manually delete these approvals」。【事實】執行時間上限與執行紀錄保留都是 30 天（known issues 頁寫 28 天，兩頁不一致）。 | [22][23][24] |
 | Kissflow | 【查不到】 | 【事實】可以，由管理員改。「The Process Admin can edit a process form when it's in progress or even after it has completed all the workflow steps.」管理員還可重開已完成或已否決的項目、改派、批次刪除（30 天內可還原）、直接標記完成而「skipping all the future steps」。文件沒提到要重簽。 | 【事實】管理員編輯「will be recorded in the process audit log」；流程稽核日誌只有 Process Admin 能查。保存期限與能否刪改【查不到】。 | [26][27][28] |
-| Nintex Automation Cloud | 【查不到】 | 【查不到】 | 【事實】手動轉派核准工作後，追蹤畫面沒有原受派人、轉派人、轉派時間（2026-02-27 夥伴回報）；原廠員工指出資料在 API 的 taskAssignments 裡，並請對方到 Ideas 提需求。同類需求 2024-09 已有人提過（論壇性質）。 | [34] |
+| Nintex Automation Cloud | 【查不到】 | 【查不到】 | 【事實】手動轉派核准工作後，追蹤畫面沒有原受派人、轉派人、轉派時間（2026-02-27 夥伴回報）；原廠員工指出資料在 Get a Task API 的 taskAssignments 裡（含 delegatedBy、delegatedDate），並請對方到 Ideas 提需求。同類需求 CNV-I-312 於 2024-09 提出，當時只有 3 票（論壇性質）。【推論】轉派有留紀錄，問題是業務端與稽核端看不到。 | [34] |
 | Camunda | 【事實】沒有內建。CAM-14479「Exclusion list for task assignment - 4 eyes principle」2022-03-22 建立，Open，未解決。論壇做法是自寫 task listener。 | 【查不到】 | 【事實】Camunda 7 的 user operation log 只在「performed in the context of a logged in user」且 history level 為 FULL 時記錄；可對紀錄加註解。能否刪除、清理策略的影響【查不到】。 | [35][36] |
 | Pipefy | 【查不到】原生職責分離控制 | 【查不到】能否鎖定已核准欄位 | 【事實】「Up to 180 days of pipe history available」；CSV 匯出只含最近 30 天；設定變更只有 Pipe Admin 看得到。文件沒有說明紀錄如何防修改。 | [33] |
 | Zoho Creator | 【事實】可以。「If the requester and approver are the same person, the approver can also recall the request」。 | 【事實】申請人可 recall 後修改再送。核准後的修改【查不到】。 | 【事實】申請人與核准人可看 approval history。保護方式【查不到】。 | [30][31] |
@@ -110,7 +110,7 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 |---|---|---|---|
 | ServiceNow IRM／Audit Management | 【事實】稽核人員發證據請求；「The assignee can either attach the requested evidence or provide a URL or location that contains the required evidence.」敏感證據可加核准人審核。另以 indicator 從平台資料表收集監控資料（僅搜尋摘要）。 | 【推論】IRM 本身不提供業務簽核；核准發生在同平台的 ITSM 或自建流程，再被引用為證據。 | [45] |
 | Archer | 【事實】2025-11-19 發表持續控制監控：「automating evidence collection across critical IT environments」，並「automatically compares configuration and access data against controls requirements」，涵蓋 SOC 2、ISO 27001、NIST CSF、HIPAA、SOX ITGC。 | 【查不到】 | [46] |
-| AuditBoard（2026-03-09 更名 Optro） | 【查不到】官方文件。廠商部落格只談到 PBC 請求要寫明是否需要 sign-off 與 review 的證據（僅搜尋摘要）。 | 【查不到】 | [51] |
+| AuditBoard（2026-03-09 更名 Optro，見 [61]） | 【查不到】官方文件。廠商部落格只談到 PBC 請求要寫明是否需要 sign-off 與 review 的證據（僅搜尋摘要）。 | 【查不到】 | [51] |
 | Hyperproof | 【事實】Hypersync 自動從外部系統抓 proof；文件舉例是從 GitHub 取得「approval details for all pull requests」。核准記錄在 GitHub，不在 Hyperproof。 | 沒有業務簽核（文件未提） | [47] |
 | Vanta | 【事實】有自己的 access request：申請、指定核准人、Slack 通知與 `/vanta request access`。但「Approving an access request in Vanta doesn't create an account or grant permissions in the requested application」；管理員要在 Vanta 之外開權限，再回來標記已開通，而標記「doesn't change access in the application」。【事實】「We're actively building support to surface access requests during reviews and offboarding」——核准紀錄還沒接上複查與離職流程。有效期文件未提。 | 只有存取申請這一種 | [48] |
 | Drata | 【事實】ticket 用來追蹤控制、測試、風險的補救工作。「Drata does not pull in tickets that were created directly in the external ticketing system.」 | 沒有業務簽核（文件未提） | [49] |
@@ -147,7 +147,7 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 | | Q1 職責分離由引擎強制 | Q2 簽核綁定內容版本 | Q3 執行→驗證→存續閉環 | Q4 紀錄防竄改、記下規則與版本 | 第五件事：供其他系統查詢、通知、對帳 |
 |---|---|---|---|---|---|
 | **台灣簽核／BPM**（UOF X、EasyFlow、Agentflow、nuBPM） | **沒有**。申請者可為簽核角色；找不到人可跳關且不顯示在簽核歷程 [5][7] | **部分**。有欄位變更紀錄與取回歷程；負責人可把已通過改回簽核中 [6][8]；後台修改 [2] | **沒有**。只有結案後起單 [12] | **沒有**。日誌最長 12 個月自動刪除 [9]；流程定義有版本但可刪 [4] | **沒有**。有整合 API，但文件沒有把簽核結果定位成權限依據 |
-| **國際簽核／低程式碼**（Power Automate、Kissflow、Nintex、Pipefy、Zoho Creator） | **沒有**。Zoho 明示可同一人 [30]；其餘【查不到】平台層禁止 | **沒有**。Kissflow 管理員可在完成後改內容 [27] | **沒有** | **沒有**。保存期 30 天至 180 天不等；紀錄可更新刪除 [22][24][33]；轉派不留痕 [34] | **沒有** |
+| **國際簽核／低程式碼**（Power Automate、Kissflow、Nintex、Pipefy、Zoho Creator） | **沒有**。Zoho 明示可同一人 [30]；其餘【查不到】平台層禁止 | **沒有**。Kissflow 管理員可在完成後改內容 [27] | **沒有** | **沒有**。保存期 30 天至 180 天不等；紀錄可更新刪除 [22][24][33]；轉派資訊只在 API，追蹤畫面看不到 [34] | **沒有** |
 | **ITSM**（ServiceNow、Jira Service Management） | **部分**。要自寫 business rule [37]；JSM 沒有選項 [20] | 【查不到】 | **部分**。變更管理有執行與結案階段；有效期與複查不是核准的屬性（【推論】） | **部分**。有稽核表，但核准紀錄刪除的可追性有疑問 [38] | **部分**。平台內可引用，跨系統要自建 |
 | **流程引擎**（Camunda） | **沒有**內建 [35] | 要自建 | 要自建 | **部分**。操作日誌有前提條件 [36] | 要自建 |
 | **IGA／存取申請**（Entra、Okta、Opal、C1、SailPoint） | **部分到有**。Entra、Opal 預設禁止；Okta、SailPoint 視設定 [39][41][42][43] | 不適用（核准對象是固定的權限項目）。Opal 展延免重簽 [42] | **有，但只限存取權**。限時、到期移除、複查 [40][42][44] | 【查不到】防竄改設計 | **部分**。對已串接的應用程式做開通與移除；不是通用的判定介面 |
@@ -174,7 +174,7 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 
 - 【事實】台灣與國際的流程廠商都把 AI Agent 當主軸：Agentflow 產品頁以 AI Agent 與 RPA 為主要篇幅 [4]；EasyFlow AiGP 主打「AI 數智員工」[1]；C1 的申請入口列出 MCP，申請者含 workloads 與 agents [44]；Entra 把 agent ID 納入 access package [40]。
 - 【推論】當申請者或執行者是 AI agent，「這件事現在能不能做」必須由機器即時查詢。這讓對外的判定介面從加分項變成必要條件。
-- 【事實】GRC 產品朝持續控制監控走：Archer 2025-11 發表 [46]。ServiceNow 2026-11 宣布 agentic 持續控制監控（僅搜尋摘要）。
+- 【事實】GRC 產品朝持續控制監控走：Archer 2025-11 發表 [46]。ServiceNow 2026-11-10 新聞稿宣布 IRM 的 agentic 持續控制監控，「Evidence from every source flows into a central layer around the clock」，正式上市預計 2027 年第一季（另有報導寫 2026-12，時程以新聞稿為準）[60]。新聞稿沒有描述核准流程，只寫控制負責人在既有工具中回覆以完成 attestation。
 - 【推論】持續監控需要「應該是什麼」的權威來源才有東西可比。已核准且仍有效的授權清單正是這個來源。
 
 ### 2.8 結論：定位、切入點、差異化、可能的替代者
@@ -210,7 +210,7 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 
 | 替代者 | 會在什麼情況下取代 | 本平台的防線 |
 |---|---|---|
-| Microsoft Entra ID Governance | 客戶的受控資源都能用 Entra 群組或應用程式角色表達，且已有 E5 或 Entra Suite 授權 | 非 Entra 資源（資料庫、地端系統、非存取類決定）；可驗證的紀錄；在地部署 |
+| Microsoft Entra ID Governance | 客戶的受控資源都能用 Entra 群組或應用程式角色表達，且已有 Entra ID Governance 或 Entra Suite 授權（定價頁：Governance 每人每月 7 美元、Suite 12 美元，均年繳；E5 只列含 P2，不含 Governance [62]） | 非 Entra 資源（資料庫、地端系統、非存取類決定）；可驗證的紀錄；在地部署 |
 | ServiceNow（ITSM 加 IRM） | 客戶已是 ServiceNow 大戶，願意付客製費用 | 四個問題開箱即有，不用寫 business rule [37]；成本 |
 | 在地 BPM 廠商加上稽核功能 | 廠商把禁止自簽、紀錄鎖定做成開關。技術上不難 | 版本綁定、存續閉環、對外介面牽涉核心資料模型，不是加開關能補的；先佔住「稽核級」這個定位 |
 | IGA 新創（C1、Opal、Lumos） | 客戶只在意雲端 SaaS 與基礎設施的存取 | 通用領域；台灣在地支援與法規對照 |
@@ -228,7 +228,7 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 | M2 | **找不到合格簽核人時停住並升級，不可自動跳關。** 所有被略過、改派、代簽的關卡都要出現在主要的簽核歷程，不能藏在次要畫面。 | 結論 1。UOF X 的跳關站點不顯示在簽核歷程 [5]。Okta 的做法是把工作留空待指派，可參考 [41] |
 | M3 | **簽核綁定內容版本；任何人（含管理者、表單負責人、後台）修改已核准內容都產生新版本並依規則重簽。** 不提供「把已通過改回簽核中」這種不留決定理由的後門。 | 結論 3。Kissflow 管理員完成後可改 [27]；UOF X 變更單據狀態 [6]；鼎新案例 IT 進後台 [2] |
 | M4 | **紀錄只增不改、雜湊鏈串接、可由第三方獨立驗證；保存期不能由管理者設定為自動清除。** 透過 API 或服務帳號的操作要記到實際的人或明確的系統身分。 | 結論 4。UOF X 最長 12 個月自動刪除、SDK 異動只顯示 Client 名稱 [9]；Dataverse 可更新刪除 [22]；Power Automate 30 天 [24]；Pipefy 180 天 [33] |
-| M5 | **代理、轉派、管理者介入全部進同一條稽核鏈**，記下原受派人、動作人、時間、理由。 | 結論 5。Nintex 轉派不留痕 [34]；ServiceNow 核准紀錄刪除 [38] |
+| M5 | **代理、轉派、管理者介入全部進同一條稽核鏈**，記下原受派人、動作人、時間、理由。 | 結論 5。Nintex 轉派資訊只在 API、追蹤畫面看不到 [34]；ServiceNow 核准紀錄刪除 [38] |
 | M6 | **每筆決定記下規則代碼、當時參數值、當時流程版本。** | 2.6：這次沒查到競品有；流程定義版本在 Agentflow 可被刪除 [4]，所以版本本身也要受保護 |
 | M7 | **存續是核心能力，適用所有流程：有效期、到期自動失效、隨時撤銷、定期複查、負責人異動時處理。展延視為擴大，要重新核准。** | 結論 6。簽核／BPM 類沒有；IGA 類有但限存取權 [40][44]；Opal 展延免核准是反例 [42] |
 | M8 | **對外介面：查詢與判定、事件通知、對帳。** 核准必須能變成實際權限的依據，並能發現「沒核准卻存在」的權限。 | 結論 8。Vanta 核准不改變實際存取、開通靠人工回報 [48]；Archer 以實際存取資料比對控制要求 [46]；AI agent 成為申請者後需要機器可查的判定（2.7） |
@@ -271,15 +271,17 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 5. **ServiceNow 的官方預設行為。** 「申請人預設能否核准自己的請求」沒找到官方文件明文，只有社群提問（推論為預設不擋）。核准紀錄刪除不可還原的說法是 2013 年的回覆，現行版本可能已改。IRM 定價頁 403。
 6. **Power Automate 是否有平台層的禁止自簽設定。** 沒找到。另外官方兩頁對等待期限的寫法不一致（28 天 [23]、30 天 [24]）。
 7. **Kissflow、Nintex、Pipefy 能否禁止自簽。** 官方文件沒提。
-8. **SailPoint Identity Security Cloud、Saviynt 的官方說明。** 搜尋額度用完，只有 IdentityIQ 8.4 的社群回覆 [43]。Okta 的有效期與複查、Lumos 也未查。
-9. **AuditBoard（Optro）收集核准證據的官方文件。** 沒找到；更名一事只有搜尋摘要 [51]。
+8. **SailPoint Identity Security Cloud、Saviynt 的官方說明。** 只有 IdentityIQ 8.4 的社群回覆 [43]。查證時另搜 Saviynt：沒找到官方文件，只有論壇回覆稱 ARS 沒有針對 entitlement owner 的自核設定、要在 workflow 寫條件處理（論壇性質，未查證）。Okta 的有效期與複查、Lumos 也未查。
+9. **AuditBoard（Optro）收集核准證據的官方文件。** 沒找到。更名一事已由 PR Newswire 新聞稿確認（2026-03-09）[61]。
 10. **稽核準則對 email、聊天訊息、截圖作為核准證據的直接評價。** PCAOB AS 1105 原文 403。2.5 的問題整理是推論，建議與法規調查（本目錄其他文件）對照。
 11. **Jira Service Management、Camunda、Pipefy、Nintex 的官方價格。** 官方頁內容被截斷或未查。第三方文章有數字但彼此不一致，未採用。
 12. **台灣電子簽核／BPM 的市場規模、各廠市占。** 沒有公開數字。
-13. **有沒有任何競品採用雜湊鏈或只增不改的紀錄。** 這次查到的官方文件都沒提，但沒提不等於沒有。這是差異化主張的核心，對外宣稱前應再查一次（特別是 ServiceNow、SailPoint、Saviynt）。
+13. **有沒有任何競品採用雜湊鏈或只增不改的紀錄。** 這次查到的官方文件都沒提，但沒提不等於沒有。這是差異化主張的核心，對外宣稱前應再查一次（特別是 ServiceNow、SailPoint、Saviynt）。查證時加做反面搜尋：英文搜尋只找到開源模組（如 Drupal audit_trail，自稱 tamper-evident 而非 tamper-proof）、技術文章與學術預印本，沒有找到商用簽核產品；中文搜尋找到台灣捷而思 PDFSign 把電子合約上區塊鏈的報導（DIGITIMES，僅搜尋摘要）[63]。【推論】「簽核紀錄防竄改」在台灣已有文件簽署端的競品敘事，本平台對外應強調「整個決定（資格、規則、版本、存續）可驗證」，而不是只說「上鏈」或「防竄改」。
 14. **市場數字的品質。** 第 2.7 節的數字來自商業研究機構的公開摘要頁，方法說明不完整；[57][58] 只有搜尋摘要。只適合用來說明量級。
 
-本次搜尋工具額度在調查後段用完，第 8、9、11 項受此影響。
+初稿搜尋工具額度在調查後段用完，第 8、9、11 項受此影響；第 8、9 項已在查證時部分補上。
+
+15. **台灣法規與主管機關對電子簽核紀錄的直接要求。** 查證時搜尋證交所、金管會相關資料，只找到 2021 年底公布的「上市上櫃公司資通安全管控指引」等間接資訊（僅搜尋摘要），沒有找到針對電子簽核稽核軌跡的明文規範。電子簽章法修法的時間與內容這次未開原文，未查證；請以本目錄的法規調查文件為準。
 
 ---
 
@@ -346,6 +348,7 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 | 43 | SailPoint Developer Community "Prevent Managers Self approval access request" | https://developer.sailpoint.com/discuss/t/prevent-managers-self-approval-access-request/175731 | 論壇；2025-09-02；IdentityIQ 8.4 |
 | 44 | C1（原 ConductorOne）Access Requests | https://www.c1.ai/products/access-requests | 廠商產品頁（conductorone.com 轉址） |
 | 59 | Microsoft Learn "Configure separation of duties checks for an access package" | https://learn.microsoft.com/en-us/entra/id-governance/entitlement-management-access-package-incompatible | 官方文件；僅搜尋摘要 |
+| 62 | Microsoft Entra plans and pricing | https://www.microsoft.com/en-us/security/business/microsoft-entra-pricing | 官方定價頁；查證時讀取 |
 
 ### GRC 與合規自動化
 
@@ -358,6 +361,9 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 | 49 | Drata Help "Create and manage tickets in Drata" | https://help.drata.com/en/articles/13688350-create-and-manage-tickets-in-drata | 官方文件 |
 | 50 | Secureframe Blog "Secureframe + Indent Simplifies Compliance for Access Control Change Management" | https://secureframe.com/blog/indent-partnership | 廠商部落格；頁面無日期，搜尋摘要標示 2022 年 |
 | 51 | Optro Blog "Meet Optro: AuditBoard Unveils New Identity as AI Transforms GRC" | https://optro.ai/blog/meet-optro-auditboard-unveils-new-identity-as-ai-transforms-grc | 僅搜尋摘要；2026-03-09 |
+| 60 | ServiceNow 新聞稿 "ServiceNow Brings Agentic Monitoring to Every Control in the Enterprise at Machine Speed" | https://newsroom.servicenow.com/press-releases/details/2026/ServiceNow-Brings-Agentic-Monitoring-to-Every-Control-in-the-Enterprise-at-Machine-Speed/ | 廠商新聞稿，2026-11-10；查證時讀取 |
+| 61 | PR Newswire "Meet Optro: AuditBoard Unveils New Identity as AI Transforms GRC" | https://tools.prnewswire.com/en-us/live/20823/release/20260309EN03678 | 新聞稿，2026-03-09；搜尋結果多家轉載一致 |
+| 63 | DIGITIMES〈捷而思PDFSign電子合約上區塊鏈之整合應用〉 | https://www.digitimes.com.tw/tech/dt/n/shwnws.asp?CnlID=13&id=643103 | 僅搜尋摘要；日期未確認 |
 
 ### Slack
 
@@ -375,3 +381,54 @@ UOF X 是唯一公開完整操作手冊的產品，所以證據最細。其他�
 | 56 | Verdantix 新聞稿 "Geopolitical Shocks And AI Risks Push GRC Software Market Towards $11 Billion…" | https://www.verdantix.com/insights/press-release/geopolitical-shocks-and-ai-risks-push-grc-software-market-towards--11-billion-as-legacy-risk-tools-struggle-to-keep-pace | 研究機構新聞稿，2026-07-22 |
 | 57 | MarketsandMarkets "eGRC Market" 新聞稿 | https://www.marketsandmarkets.com/PressReleases/enterprise-governance-risk-compliance.asp | 403，僅搜尋摘要 |
 | 58 | Grand View Research "Identity Governance and Administration Market"（經 MarketResearch.com 列表） | https://www.marketresearch.com/Grand-View-Research-v4060/Identity-Governance-Administration-Size-Share-42298019 | 僅搜尋摘要 |
+
+---
+
+## 6. 查證紀錄
+
+查證日期：2026-11-19。查證者未參與撰寫，逐一重開原始來源核對。
+
+### 6.1 逐項查核（22 項，挑對產品決策影響最大者）
+
+| # | 論點 | 來源 | 結果 |
+|---|---|---|---|
+| 1 | UOF X 找不到簽核者自動跳關，跳關站點不顯示在簽核歷程、只在詳細記錄 | [5] | 已確認（原文逐字相符；需表單設計者啟用） |
+| 2 | UOF X 申請者是可選的簽核角色 | [7] | 已確認 |
+| 3 | UOF X 表單負責人可把已結案單據復原為簽核中，只發通知、手冊未提理由或重簽 | [6] | 已確認（手冊另有「需要謹慎操作」提醒） |
+| 4 | UOF X 活動日誌保留 3／6／9／12 個月、排程刪除不可還原；SDK 異動顯示 Client 名稱 | [9] | 已確認 |
+| 5 | EasyFlow 內建 164 張表單、17 張 ISO 27001 表單；「完整稽核軌跡」未說明機制 | [1] | 已確認 |
+| 6 | JSDSERVER-5231：2017-07-06 建立、Gathering Interest、40 票、未解決 | [20] | 已確認 |
+| 7 | Teams Approvals 存在不支援備份的 Dataverse 預設環境；Approval 紀錄的建立、更新、刪除是稽核事件 | [22] | 已確認，補上遺漏：同段寫管理員可對 Dataverse 資料表設保留政策；範本型核准的回覆存在 Forms |
+| 8 | Power Automate 執行時間上限與執行紀錄保留 30 天；known issues 寫核准等待 28 天、孤兒核准要人工刪除 | [23][24] | 已確認（兩頁數字確實不一致） |
+| 9 | Kissflow Process Admin 可在流程完成後編輯；動作記入 process audit log；可重開、批次刪除 30 天內可還原、標記完成跳過後續步驟 | [26][27] | 已確認 |
+| 10 | Nintex 轉派「不留痕」（2.6、M5 的寫法） | [34] | **已更正**：原文是追蹤畫面看不到，但 API 的 taskAssignments 有 delegatedBy、delegatedDate。改寫為「轉派資訊只在 API，追蹤畫面看不到」 |
+| 11 | Camunda CAM-14479 2022-03-22 建立、Open | [35] | 已確認 |
+| 12 | Entra：核准人不能核准自己的 access package 申請；逾期自動拒絕；最多三階段 | [39] | 已確認 |
+| 13 | Okta：群組、主管、代理擋自簽；指定特定使用者或 Requester 允許 | [41] | 已確認（「輪值」對應原文的 Rotate 設定） |
+| 14 | Opal：申請人不能核准；到期自動撤銷；展延不需重新核准 | [42] | 已確認 |
+| 15 | Vanta：核准不開通權限、標記開通不改變存取、複查與離職整合仍在開發 | [48] | 已確認；原文也沒提自簽與有效期 |
+| 16 | Slack 成員預設可編輯、刪除訊息，刪除是永久的；Audit Logs API 限 Enterprise 方案、不含訊息內容 | [52][53] | 已確認 |
+| 17 | Pipefy 歷史 180 天、CSV 只含最近 30 天、設定變更只有 Pipe Admin 可看 | [33] | 已確認 |
+| 18 | Drata 不拉進直接在外部系統建立的 ticket | [49] | 已確認 |
+| 19 | 市場規模：workflow automation 237.7 億、IGA 92.9 億（CAGR 15.16%）、GRC 軟體 65 億→109 億 | [54][55][56] | 已確認（三頁數字都相符） |
+| 20 | ServiceNow 2026-11 agentic 持續控制監控（原標僅搜尋摘要） | [60] | 已確認並升級為【事實】：新聞稿 2026-11-10，GA 預計 2027 Q1 |
+| 21 | AuditBoard 2026-03-09 更名 Optro（原標僅搜尋摘要） | [61] | 已確認 |
+| 22 | 替代者表「已有 E5 或 Entra Suite 授權」即可用 Entra ID Governance | [40][62] | **已更正**：需要 Entra ID Governance 或 Entra Suite；定價頁列 E5 含 P2，未列含 Governance。補上官方價格（Governance 7 美元、Suite 12 美元／人／月，年繳） |
+
+統計：已確認 20 項（其中 2 項由「僅搜尋摘要」升級為一手來源確認，1 項補上遺漏的反向事實）；已更正 2 項；刪除 0 項；降級 0 項。
+
+### 6.2 補漏搜尋（8 次，不同角度）
+
+1. **反面證據：有沒有商用簽核產品採雜湊鏈或只增不改紀錄。** 英文搜尋只找到開源模組、技術文章與預印本，沒有商用簽核產品。結果寫入第 4 節第 13 項。
+2. **台灣在地：區塊鏈存證與簽核。** 找到捷而思 PDFSign 電子合約上鏈（僅搜尋摘要）[63]、司法院聯盟鏈等。寫入第 4 節第 13 項，並提醒對外訊息不要只講「上鏈」。
+3. **最新消息：ServiceNow 持續控制監控。** 開新聞稿確認 [60]，更新 2.7。
+4. **最新消息：AuditBoard 更名 Optro。** 確認 [61]。
+5. **反面證據：Saviynt 是否預設禁止自核。** 沒有官方文件，只有論壇；寫入第 4 節第 8 項。
+6. **反面證據：ServiceNow 有沒有官方的禁止自核設定。** 結果全是社群論壇、解法都是 business rule，沒有官方屬性，支持 2.2 原本的推論。
+7. **台灣在地法規：證交所、金管會對電子簽核稽核軌跡的要求。** 沒找到直接規範，寫入第 4 節第 15 項。
+8. **替代者成本：Entra 官方定價。** 開官方定價頁確認 [62]，更正 2.8 替代者表。
+
+### 6.3 仍未查證、決策前應處理
+
+- Saviynt、SailPoint ISC 的官方自核設定；PDFSign 上鏈報導原文與日期 [63]。
+- 台灣廠商（EasyFlow、Agentflow、nuBPM）的實際行為仍只能靠試用環境實測。
