@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import {
-    closePools, createSubmittedCase, decidePasskey, idToken, issueChallenge, login, newAuthenticator, one, pool,
+    call, closePools, createSubmittedCase, decidePasskey, idToken, issueChallenge, login, newAuthenticator, one, pool,
     registerPasskey, registrationNonce, rejectsPermission, rejectsWith,
 } from './lib/harness.mjs';
 

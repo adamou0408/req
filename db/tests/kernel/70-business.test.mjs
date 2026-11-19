@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
-import { syncDirectory } from '../tools/directory-sync.mjs';
-import { verifyChain } from '../tools/chain-lib.mjs';
-import { REPO_DIR, roleUrl } from '../tools/lib/env.mjs';
+import { syncDirectory } from '../../tools/directory-sync.mjs';
+import { verifyChain } from '../../tools/chain-lib.mjs';
+import { REPO_DIR, roleUrl } from '../../tools/lib/env.mjs';
 import {
-    closePools, config, createSubmittedCase, decidePasskey, issueChallenge, login, one, pool, registerPasskey,
+    call, closePools, config, createSubmittedCase, decidePasskey, issueChallenge, login, one, pool, registerPasskey,
     rejectsWith,
 } from './lib/harness.mjs';
 

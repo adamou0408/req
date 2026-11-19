@@ -6,7 +6,7 @@ import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
 import {
-    closePools, config, createSubmittedCase, decidePasskey, idToken, issueChallenge, login, one, pool,
+    call, closePools, config, createSubmittedCase, decidePasskey, idToken, issueChallenge, login, one, pool,
     registrationNonce,
 } from './lib/harness.mjs';
 

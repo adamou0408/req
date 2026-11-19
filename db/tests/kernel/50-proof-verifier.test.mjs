@@ -1,7 +1,7 @@
 // 架構 (c)：簽章由獨立的驗證服務驗，服務以 sgn_test_verifier 呼叫 api_verified；一般後端無權呼叫。
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { startVerifierService } from '../tools/verifier-service.mjs';
+import { startVerifierService } from '../../testing/verifier-service.mjs';
 import {
     closePools, createSubmittedCase, issueChallenge, login, newAuthenticator, one, pool, registerPasskey,
     rejectsPermission,

@@ -7,8 +7,8 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import pg from 'pg';
-import { anchorOnce, readAnchors, verifyChain } from '../tools/chain-lib.mjs';
-import { DB_DIR, adminUrl, roleUrl } from '../tools/lib/env.mjs';
+import { anchorOnce, readAnchors, verifyChain } from '../../tools/chain-lib.mjs';
+import { DB_DIR, adminUrl, roleUrl } from '../../tools/lib/env.mjs';
 import {
     closePools, config, createSubmittedCase, decidePasskey, issueChallenge, login, newAuthenticator, one, pool,
     registerPasskey,

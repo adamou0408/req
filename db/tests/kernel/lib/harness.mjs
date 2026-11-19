@@ -42,6 +42,13 @@ export async function one(db, sql, params = []) {
     return rows[0];
 }
 
+/** 呼叫一個 api function（每個都回傳 jsonb），回傳解析後的值。 */
+export async function call(db, fn, ...args) {
+    const placeholders = args.map((_, i) => `$${i + 1}`).join(', ');
+    const { rows } = await db.query(`select api.${fn}(${placeholders}) as result`, args);
+    return rows[0].result;
+}
+
 export async function idToken(login, nonce) {
     return dexIdToken(config, login, nonce);
 }
@@ -77,10 +84,9 @@ export async function registerPasskey(db, user, authenticator = newAuthenticator
     return authenticator;
 }
 
-export async function createSubmittedCase(db, applicant, content = { dataset: 'sales_monthly', purpose: 'probe', n: Math.random() }) {
-    const created = await call(db, 'case_create', applicant.session, content);
-    await db.query('select api.case_submit($1, $2)', [applicant.session, created.case_id]);
-    return created.case_id;
+export async function createSubmittedCase(db, applicant, content = { dataset: 'sales_monthly', purpose: 'test', n: Math.random() }) {
+    const submitted = await call(db, 'case_submit_new', applicant.session, content);
+    return submitted.case_id;
 }
 
 export async function issueChallenge(db, approver, caseId, decision = 'approve') {
@@ -88,18 +94,20 @@ export async function issueChallenge(db, approver, caseId, decision = 'approve')
 }
 
 export async function decidePasskey(db, challengeId, decision, assertion) {
-    const row = await one(db, 'select api.case_decide_passkey($1, $2, $3, $4, $5, $6) as state', [
+    const decided = await call(
+        db,
+        'case_decide_passkey',
         challengeId,
         decision,
         assertion.credentialId,
         assertion.authenticatorData,
         assertion.clientDataJSON,
         assertion.signature,
-    ]);
-    return row.state;
+    );
+    return decided.state;
 }
 
 export async function decideIdp(db, challengeId, decision, token) {
-    const row = await one(db, 'select api.case_decide_idp($1, $2, $3) as state', [challengeId, decision, token]);
-    return row.state;
+    const decided = await call(db, 'case_decide_idp', challengeId, decision, token);
+    return decided.state;
 }

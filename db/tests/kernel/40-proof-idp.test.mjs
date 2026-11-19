@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { generateKeyPairSync, sign } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import {
-    closePools, createSubmittedCase, decideIdp, idToken, issueChallenge, login, one, pool, rejectsWith,
+    call, closePools, createSubmittedCase, decideIdp, idToken, issueChallenge, login, one, pool, rejectsWith,
 } from './lib/harness.mjs';
 
 const app = pool('APP');
