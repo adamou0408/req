@@ -2693,7 +2693,7 @@ rules.md 沒有、來自骨幹的一條：骨幹第 11 節（對外整合介面�
 | `operations` | 客戶服務或營運作業 | false | 50 |
 | `other` | 其他（需說明） | true | 60 |
 
-種子資料（只載入開發與測試環境）：`db/seed/data_access_catalog.sql`（以 `api.data_access_catalog_sync` 匯入 acceptance-cases.md §1.1 的快照）、`db/seed/data_access_grants.sql`（acceptance-cases.md §1.3 的五筆既有授權，用假時鐘呼叫對外 function 走完流程產生，讓稽核紀錄與雜湊鏈完整）。
+種子資料（只載入開發與測試環境）：`db/seed/packs/data_access/010_catalog.sql`（以 `api.data_access_catalog_sync` 匯入 acceptance-cases.md §1.1 的快照）、`020_grants.sql`（acceptance-cases.md §1.3 的五筆既有授權，用假時鐘呼叫對外 function 走完流程產生，讓稽核紀錄與雜湊鏈完整）、`030_templates.sql`（acceptance-cases.md §1.4 的標準範本）。
 
 ### 10.2 測試（`db/tests/packs/data_access/`）
 
