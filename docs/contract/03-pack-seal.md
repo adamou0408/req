@@ -922,7 +922,7 @@ pack_seal.build_fulfilment(p_case_id bigint) returns jsonb  -- stable
 
 | 時點 | 狀態 | 可以做什麼 | 規則 |
 |---|---|---|---|
-| 用印前 | `draft`、`in_approval`、`returned`、`pending_fulfilment` | 申請人、任一位已經簽過或正在簽這張單的簽核人可以取消，必須填原因 | `SEAL-CANCEL`、`K-REVOKE` |
+| 用印前 | `draft`、`in_approval`、`returned`、`pending_fulfilment` | 申請人、任一位簽核人可以取消，必須填原因（「簽核人」的範圍依核心對 `K-REVOKE` 的定義） | `SEAL-CANCEL`、`K-REVOKE` |
 | 用印後 | `verifying`、`completed` | 取消與撤銷一律拒絕 | `SEAL-CANCEL`（選項 `revocable_after_fulfilment = false`，D-14） |
 
 「用印」的時點以印鑑管理人標記完成為準。印鑑管理人已經認領但還沒標記完成時，申請單仍然可以取消；所以檢查清單與通知都要求用印後立刻標記完成。
@@ -1045,7 +1045,7 @@ rules.md 的每一段、每一列、每個預設值各一列。「實作」欄�
 | `seal_arch hooks_are_registered_with_spine_signatures` | 8 個 hook 存在、簽章符合骨幹第 6 節、擁有者是 `sgn_owner`、固定 `search_path` |
 | `seal_arch unregistered_hooks_use_kernel_default` | `stage_scopes`、`automated_checks`、`build_verification_cases`、`on_grant_event` 沒有登記 |
 | `seal_arch functions_do_not_write_kernel_tables` | `pack_seal` 所有 function 的原始碼沒有對 `sgn.` 的 `insert`、`update`、`delete`、`truncate` |
-| `seal_arch no_hardcoded_threshold_or_workdays` | `pack_seal` 所有 function 的原始碼沒有出現 `1000000`，也沒有寫死的工作天數 |
+| `seal_arch no_hardcoded_threshold` | `pack_seal` 所有 function 的原始碼沒有出現 `1000000`（門檻只能從參數讀取） |
 | `seal_arch no_api_functions_and_app_role_has_no_access` | `api` schema 沒有 `seal_` 開頭的 function；`sgn_app` 對 `pack_seal` 沒有任何權限 |
 
 需要核心流程配合的測試（例如退回後縮小、催辦與升級、確認逾期）用假時鐘 `sgn.fake_now` 與 [seed-directory.md](seed-directory.md) 的人員，透過核心的對外 function 操作，不直接寫核心資料表。

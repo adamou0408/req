@@ -30,12 +30,12 @@
   color: var(--tone-danger-fg);
 }
 
-.tag--l3 {
-  background: var(--tone-l3-bg);
-  color: var(--tone-l3-fg);
+.tag--tier {
+  background: var(--tone-tier-bg);
+  color: var(--tone-tier-fg);
 }
 
-.tag--l4 {
-  background: var(--tone-l4-bg);
-  color: var(--tone-l4-fg);
+.tag--tier-high {
+  background: var(--tone-tier-high-bg);
+  color: var(--tone-tier-high-fg);
 }

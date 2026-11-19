@@ -11,6 +11,8 @@
 #   change.sh group-set <群組> <uid>...                  把群組成員換成指定的人（單一持有人換人）
 # 群組以 cn 指定，例如 mis、ciso、ciso_deputy、data_owner:客戶主檔。
 set -euo pipefail
+# 讓 $(...) 裡的函式也在出錯時立刻停止；否則查不到人時會帶著空值繼續修改目錄。
+shopt -s inherit_errexit
 
 # shellcheck source=SCRIPTDIR/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -69,45 +71,49 @@ modify() {
     } | sim_ldap_as_admin ldapmodify >/dev/null
 }
 
-set_manager() {
+# 輸出「把主管改成指定的人」的 modify 內容；none 表示沒有主管。
+manager_change() {
     local dn="$1" manager_uid="$2" manager
-    if [[ "$manager_uid" == none ]]; then
-        # 原本就沒有主管時，刪除會回報沒有這個屬性；結果一樣，所以用 replace 成空值。
-        modify "$dn" <<<$'replace: manager\n'
-        return
-    fi
+    # replace 不帶值就是清空，原本有沒有主管都適用。
+    printf 'replace: manager\n'
+    [[ "$manager_uid" != none ]] || return 0
     manager="$(person_dn "$manager_uid")"
     [[ "$manager" != "$dn" ]] || sim_die "主管不能是自己"
-    modify "$dn" <<LDIF
-replace: manager
-manager: ${manager}
-LDIF
+    printf 'manager: %s\n' "$manager"
 }
 
 cmd_transfer() {
     [[ "$#" -eq 3 ]] || usage
-    local dn unit="$2"
+    local dn unit="$2" manager_lines
     dn="$(person_dn "$1")"
     find_dn "$SIM_LDAP_ORG_DN" "(&(objectClass=organizationalUnit)(ou=$(filter_escape "$unit")))" \
         "單位 ${unit}" >/dev/null
-    set_manager "$dn" "$3"
+    manager_lines="$(manager_change "$dn" "$3")"
+    # 單位與主管放在同一次修改，不會出現只改了一半的狀態。
     modify "$dn" <<LDIF
 replace: ou
 ou:: $(b64 "$unit")
+-
+${manager_lines}
 LDIF
     sim_log "$1 已調到 ${unit}，主管 $3"
 }
 
 cmd_set_manager() {
     [[ "$#" -eq 2 ]] || usage
-    set_manager "$(person_dn "$1")" "$2"
+    local dn manager_lines
+    dn="$(person_dn "$1")"
+    manager_lines="$(manager_change "$dn" "$2")"
+    modify "$dn" <<<"$manager_lines"
     sim_log "$1 的主管已改為 $2"
 }
 
 cmd_offboard() {
     [[ "$#" -eq 1 ]] || usage
+    local dn
+    dn="$(person_dn "$1")"
     # 只停用、不刪除、不動群組：真實環境裡人離職後，群組常常晚一步才清，測試要能重現這種落差。
-    modify "$(person_dn "$1")" <<LDIF
+    modify "$dn" <<LDIF
 replace: employeeType
 employeeType: terminated
 -
@@ -117,28 +123,32 @@ LDIF
     sim_log "$1 已離職停用（群組成員資格未變動，需要時用 group-remove 移除）"
 }
 
+# 用法：cmd_group_member add|delete <群組> <uid>
 cmd_group_member() {
-    local operation="$1"
-    shift
-    [[ "$#" -eq 2 ]] || usage
-    modify "$(group_dn "$1")" <<LDIF
+    [[ "$#" -eq 3 ]] || usage
+    local operation="$1" group member
+    group="$(group_dn "$2")"
+    member="$(person_dn "$3")"
+    modify "$group" <<LDIF
 ${operation}: member
-member: $(person_dn "$2")
+member: ${member}
 LDIF
 }
 
 cmd_group_set() {
     [[ "$#" -ge 2 ]] || usage
-    local group="$1" uid members=""
+    local name="$1" group uid member members=""
     shift
+    group="$(group_dn "$name")"
     for uid in "$@"; do
-        members+="member: $(person_dn "$uid")"$'\n'
+        member="$(person_dn "$uid")"
+        members+="member: ${member}"$'\n'
     done
-    modify "$(group_dn "$group")" <<LDIF
+    modify "$group" <<LDIF
 replace: member
 ${members}
 LDIF
-    sim_log "群組 ${group} 的成員已換成：$*"
+    sim_log "群組 ${name} 的成員已換成：$*"
 }
 
 [[ "$#" -ge 1 ]] || usage

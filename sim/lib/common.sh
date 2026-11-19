@@ -55,6 +55,19 @@ sim_load_env() {
     set +a
 }
 
+# 行程是否還在跑。已結束但還沒被回收的行程（殭屍）kill -0 仍然成功，要另外排除，
+# 否則在不會即時回收的環境（例如容器）裡，停掉的服務會一直被當成還在。
+sim_process_running() {
+    local pid="$1" stat
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    kill -0 "$pid" 2>/dev/null || return 1
+    if [[ -r "/proc/${pid}/stat" ]]; then
+        stat="$(<"/proc/${pid}/stat")" || return 1
+        # 格式是「pid (名稱) 狀態 ...」；名稱可能含空白與括號，所以從最後一個「) 」之後取狀態。
+        [[ "${stat##*) }" != Z* ]] || return 1
+    fi
+}
+
 # pid 檔記錄的行程是否還活著，而且確實是本服務啟動的。
 # 只看 pid 不夠：重開機後 pid 會被別的行程重用，stop.sh 會誤殺。
 # 所以啟動時在行程的環境變數放標記 SIM_SERVICE，這裡比對（需要 /proc；沒有時退回只看 pid）。
@@ -63,8 +76,7 @@ sim_pid_alive() {
     pid_file="$(sim_pid_file "$1" "${2:-$1}")"
     [[ -s "$pid_file" ]] || return 1
     pid="$(<"$pid_file")"
-    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
-    kill -0 "$pid" 2>/dev/null || return 1
+    sim_process_running "$pid" || return 1
     if [[ -r "/proc/${pid}/environ" ]]; then
         # 直接讓 grep 讀檔（-z：以 NUL 分隔）。不能接管線：grep -q 一找到就結束，
         # 前一段會收到 SIGPIPE，在 pipefail 下整條管線算失敗，活著的行程會被誤判成不在。
@@ -105,7 +117,7 @@ sim_stop_daemon() {
     fi
     pid="$(<"$pid_file")"
     kill -TERM "$pid" 2>/dev/null || true
-    while kill -0 "$pid" 2>/dev/null; do
+    while sim_process_running "$pid"; do
         if [[ "$waited" -ge $((timeout * 10)) ]]; then
             sim_log "${name}/${proc}（pid ${pid}）${timeout} 秒內沒有結束，強制停止"
             kill -KILL "$pid" 2>/dev/null || true

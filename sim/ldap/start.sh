@@ -41,7 +41,7 @@ password-hash {SSHA}
 database mdb
 suffix "${SIM_LDAP_BASE_DN}"
 rootdn "${SIM_LDAP_ADMIN_DN}"
-rootpw $(slappasswd -s "$SIM_LDAP_ADMIN_PASSWORD")
+rootpw ${admin_password_hash}
 directory ${data_dir}
 maxsize 67108864
 index objectClass,uid,mail,member,memberOf,simLoginName eq
@@ -81,6 +81,7 @@ abort_start() {
     sim_die "$1"
 }
 
+admin_password_hash="$(slappasswd -s "$SIM_LDAP_ADMIN_PASSWORD")"
 render_config >"$config_file"
 chmod 600 "$config_file"
 sim_start_daemon "$SIM_LDAP_NAME" "$SIM_LDAP_NAME" slapd -d stats \

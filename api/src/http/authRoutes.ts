@@ -91,7 +91,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthDeps): void {
   }));
 
   // ── 開發用登入 ────────────────────────────────────────────────
-  if (true) {
+  if (config.authMode === 'dev') {
     app.post(`${base}/dev-login`, async (req, reply) => {
       throttle('login', req);
       const raw = plainBody(req).actor_id;

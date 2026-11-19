@@ -83,10 +83,10 @@
   --tone-danger-bg: #fee4e2;
   --tone-danger-fg: #9f1f12;
   --tone-danger-border: #f1b0aa;
-  --tone-l3-bg: #e7eff9;
-  --tone-l3-fg: #0b4a8c;
-  --tone-l4-bg: #fbe9e7;
-  --tone-l4-fg: #9f2a1b;
+  --tone-tier-bg: #e7eff9;
+  --tone-tier-fg: #0b4a8c;
+  --tone-tier-high-bg: #fbe9e7;
+  --tone-tier-high-fg: #9f2a1b;
 
   --skeleton: #e3e7ec;
   --skeleton-shine: #f1f3f6;
@@ -133,10 +133,10 @@
     --tone-danger-bg: #4a1b17;
     --tone-danger-fg: #ffb4a8;
     --tone-danger-border: #7d2f28;
-    --tone-l3-bg: #12324f;
-    --tone-l3-fg: #a9d1fa;
-    --tone-l4-bg: #4a1f1a;
-    --tone-l4-fg: #ffb4a8;
+    --tone-tier-bg: #12324f;
+    --tone-tier-fg: #a9d1fa;
+    --tone-tier-high-bg: #4a1f1a;
+    --tone-tier-high-fg: #ffb4a8;
 
     --skeleton: #252c35;
     --skeleton-shine: #2f3742;

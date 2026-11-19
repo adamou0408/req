@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import type { Level, RequestStatus } from "../api/endpoints";
-import { formatLevel, formatStatus } from "../lib/format";
+import type { CaseStatus } from "../api/endpoints";
+import { formatStatus, formatTier } from "../lib/format";
 import type { TagTone } from "../lib/tone";
 import "./Tag.css";
 
@@ -15,18 +15,20 @@ export function Tag({ tone = "neutral", children }: TagProps) {
   return <span className={`tag tag--${tone}`}>{children}</span>;
 }
 
-export interface LevelTagProps {
-  /** null 代表還沒選欄位、級別未判定。 */
-  level: Level | null;
+export interface TierTagProps {
+  /** 級別的名稱（後端給的）；null 代表內容還不足以判定級別。 */
+  name: string | null;
+  /** 需要特別留意的級別（由後端決定），用醒目的顏色。 */
+  elevated?: boolean;
 }
 
-export function LevelTag({ level }: LevelTagProps) {
-  const { label, tone } = formatLevel(level);
+export function TierTag({ name, elevated }: TierTagProps) {
+  const { label, tone } = formatTier(name, elevated);
   return <Tag tone={tone}>{label}</Tag>;
 }
 
 export interface StatusTagProps {
-  status: RequestStatus;
+  status: CaseStatus;
   /** 接在狀態後面的補充，例如目前停在哪一關。 */
   detail?: string;
 }

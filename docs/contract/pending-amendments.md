@@ -19,3 +19,11 @@
 | A13 | 補齊簽核動作：駁回、提問與回覆、加簽、轉簽、撤回，各有規則代碼與紀錄；狀態機與畫面對應更新 | 00-spine、01-kernel、04-screens | decision-log D16 |
 | A14 | 多語：文案與通知範本採多語架構，提供繁體中文與英文 | 01-kernel（通知範本）、04-screens | decision-log D17 |
 | A15 | 真實情境檢查的裁決結果（docs/reality-check/00-decisions.md）逐項納入 | 全部 | decision-log D18 |
+| A16 | 受管系統（`resource_system`）：業務擁有單位、系統管理人角色（依系統指派，可為外部人員）、整合方式（api／file／manual）、平台維運能否查閱內容；資源（例如主題包）隸屬於受管系統；執行、驗證、對帳依系統的管理人與整合方式進行 | 00-spine、01-kernel、02、05-integration、seed-directory | decision-log D19、D21 |
+| A17 | 資料授權的最後一關拆成兩件事：資安合規檢查（資安或 MIS）與執行設定（該系統的管理人）。資料不經過 DC 的系統（例如外購的人資系統）走自己的整合方式 | packs/data-access/rules.md（補充說明，不改既有規則）、02 | decision-log D19 |
+| A18 | 外部人員：廠商人員可以作為執行人，必須有內部保證人、有期限、只看得到執行所需的最少內容；帳號來源可以不在公司的身分系統內 | 00-spine、01-kernel、04-screens | decision-log D19 |
+| A19 | 機密欄位：流程類型可標示機密欄位，寫入資料庫前加密，金鑰由金鑰 port 提供且不存放在資料庫；分級與摘要只能使用非機密欄位或在加密前算出的衍生值；維運與資料庫管理員讀不到 | 00-spine、01-kernel、後端、engineering-standards（port 清單） | decision-log D20 |
+| A20 | 平台管理角色分離：技術維運、流程管理（可依公司別、流程類型、受管系統委派給業務單位）、稽核；取代單一的 `sys_admin` | 00-spine、01-kernel、seed-directory | decision-log D20 |
+| A21 | 檔案與人工的整合方式：權限清單檔案上傳對帳；人工執行後由未參與的人獨立驗證；證據格式與 API 方式一致 | 05-integration、01-kernel | decision-log D21 |
+| A22 | 每個角色的方便程度都要有驗收標準：申請人、簽核人、資料或系統擁有者、系統管理人（含業務單位與外部廠商）、流程管理者、稽核、技術維運 | ux-acceptance、04-screens | decision-log D22 |
+

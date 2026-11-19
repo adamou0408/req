@@ -16,8 +16,9 @@ version="${SIM_MAIL_MAILPIT_VERSION:?service.env 必須設定 SIM_MAIL_MAILPIT_V
 run_dir="$(sim_run_dir "$NAME")"
 bin="${run_dir}/bin/mailpit"
 
-if [[ -x "$bin" ]] && "$bin" version --no-release-check 2>/dev/null | grep -qF " ${version} "; then
-    exit 0
+if [[ -x "$bin" ]]; then
+    installed="$("$bin" version --no-release-check 2>/dev/null || true)"
+    [[ "$installed" != *" ${version} "* ]] || exit 0
 fi
 
 sim_require_cmd go npm jq

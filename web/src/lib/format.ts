@@ -2,7 +2,7 @@
  * 日期、工作天、級別、狀態的格式化都集中在這裡。
  * 只做「怎麼顯示」：工作天數、剩餘天數、狀態本身都由後端算好再傳來。
  */
-import type { GranteeType, Level, RequestStatus, Role } from "../api/endpoints";
+import type { CaseStatus, PrincipalType } from "../api/endpoints";
 import type { TagTone } from "./tone";
 import { t } from "../i18n/zh-Hant";
 
@@ -86,41 +86,36 @@ export interface TagDisplay {
   tone: TagTone;
 }
 
-const LEVEL_TONE: Record<Level, TagTone> = {
-  L1: "neutral",
-  L2: "neutral",
-  L3: "l3",
-  L4: "l4",
-};
-
-/** null 代表還沒選欄位，級別未判定。 */
-export function formatLevel(level: Level | null): TagDisplay {
-  if (level === null) return { label: t.level.undetermined, tone: "neutral" };
-  return { label: t.level.labels[level], tone: LEVEL_TONE[level] };
+/**
+ * 級別是流程包定義的資料（代碼與名稱由後端給），這裡不認任何級別代碼。
+ * elevated 表示這個級別需要特別留意（例如最高級），用醒目的顏色；由後端決定。
+ * 名稱為 null 代表內容還不足以判定級別。
+ */
+export function formatTier(name: string | null, elevated = false): TagDisplay {
+  if (name === null) return { label: t.tier.undetermined, tone: "neutral" };
+  return { label: name, tone: elevated ? "tier-high" : "tier" };
 }
 
-const STATUS_TONE: Record<RequestStatus, TagTone> = {
+const STATUS_TONE: Record<CaseStatus, TagTone> = {
   draft: "neutral",
-  in_review: "info",
+  in_approval: "info",
   returned: "danger",
-  pending_apply: "warn",
+  pending_fulfilment: "warn",
   verifying: "warn",
   active: "ok",
+  completed: "ok",
   expired: "neutral",
   revoked: "danger",
+  cancelled: "neutral",
 };
 
-export function formatStatus(status: RequestStatus): TagDisplay {
+export function formatStatus(status: CaseStatus): TagDisplay {
   return { label: t.status[status], tone: STATUS_TONE[status] };
 }
 
-export function formatRole(role: Role): string {
-  return t.roles[role];
-}
-
 /** 「專案：北區客戶流失分析」。 */
-export function formatGrantee(type: GranteeType, name: string): string {
-  return t.format.grantee(t.grantee[type], name);
+export function formatPrincipal(type: PrincipalType, name: string): string {
+  return t.format.principal(t.principal[type], name);
 }
 
 /** 「待我簽（6）」。 */

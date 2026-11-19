@@ -8,10 +8,10 @@ import { t } from "../i18n/zh-Hant";
 
 /** 不是後端回的、由前端自己產生的錯誤代碼。 */
 export const CLIENT_ERROR = {
-  network: "CLIENT_NETWORK_ERROR",
-  badResponse: "CLIENT_BAD_RESPONSE",
-  mfaCancelled: "CLIENT_MFA_CANCELLED",
-  unexpected: "CLIENT_UNEXPECTED",
+  network: "client_network_error",
+  badResponse: "client_bad_response",
+  mfaCancelled: "client_mfa_cancelled",
+  unexpected: "client_unexpected",
 } as const;
 
 export class ApiError extends Error {
@@ -82,16 +82,21 @@ export interface RequestOptions {
   responseType?: "json" | "blob";
 }
 
+export interface MfaOptions {
+  /** 後端表示「這個動作要先通過 MFA」的錯誤代碼。 */
+  requiredCodes: readonly string[];
+  /** 後端表示「驗證碼不對，可以再輸入一次」的錯誤代碼。 */
+  invalidCodes: readonly string[];
+  /** 把驗證碼交給後端驗證的請求（POST）；通過後原本的請求會原樣重送。 */
+  verifyRequest: (code: string) => { path: string; body: unknown };
+}
+
 export interface ClientOptions {
   baseUrl?: string;
   credentials?: RequestCredentials;
   /** 非 GET 請求一律加上的標頭，後端用來擋跨站請求。 */
   unsafeMethodHeader: { name: string; value: string };
-  mfaRequiredCodes: readonly string[];
-  mfaInvalidCodes: readonly string[];
-  /** 重試時怎麼把驗證碼交給後端。 */
-  mfaHeaders: (code: string) => Record<string, string>;
-  maxMfaAttempts?: number;
+  mfa: MfaOptions;
   fetch?: typeof fetch;
 }
 
@@ -111,7 +116,6 @@ export interface ApiClient {
 }
 
 const SAFE_METHODS = new Set(["GET", "HEAD"]);
-const DEFAULT_MAX_MFA_ATTEMPTS = 3;
 
 export function buildUrl(baseUrl: string, path: string, query?: Query): string {
   const params = new URLSearchParams();
@@ -221,8 +225,7 @@ class HttpClient implements ApiClient {
     path: string,
     options: RequestOptions = {},
   ): Promise<T> {
-    const resend: Resend = (extra) =>
-      this.send(method.toUpperCase(), path, options, extra);
+    const resend = () => this.send(method.toUpperCase(), path, options);
     try {
       return (await this.sendWithMfa(resend, options.mfa)) as T;
     } catch (error) {
@@ -231,26 +234,23 @@ class HttpClient implements ApiClient {
     }
   }
 
-  /** 「需要 MFA」也可能用 401 回，那不代表登入過期。 */
+  private hasCode(error: unknown, codes: readonly string[]): boolean {
+    return isApiError(error) && codes.includes(error.code);
+  }
+
   private isSessionExpired(error: unknown): boolean {
-    if (!isApiError(error) || error.status !== 401) return false;
-    const { mfaRequiredCodes, mfaInvalidCodes } = this.options;
-    return (
-      !mfaRequiredCodes.includes(error.code) &&
-      !mfaInvalidCodes.includes(error.code)
-    );
+    return isApiError(error) && error.status === 401;
   }
 
   private async sendWithMfa(
-    resend: Resend,
+    resend: () => Promise<unknown>,
     prompt?: MfaPrompt,
   ): Promise<unknown> {
     try {
-      return await resend({});
+      return await resend();
     } catch (error) {
       const handler = this.mfaHandler;
-      const needsMfa =
-        isApiError(error) && this.options.mfaRequiredCodes.includes(error.code);
+      const needsMfa = this.hasCode(error, this.options.mfa.requiredCodes);
       if (!handler || !needsMfa) throw error;
       return this.exclusive(() => this.retryWithMfa(handler, resend, prompt));
     }
@@ -263,12 +263,15 @@ class HttpClient implements ApiClient {
     return run;
   }
 
+  /**
+   * 向使用者要驗證碼 → 交給後端驗證 → 通過後重送原本的請求。
+   * 驗證碼不對就帶著後端的訊息再問一次；輸入幾次會被鎖由後端決定。
+   */
   private async retryWithMfa(
     handler: MfaHandler,
-    resend: Resend,
+    resend: () => Promise<unknown>,
     prompt?: MfaPrompt,
   ): Promise<unknown> {
-    const maxAttempts = this.options.maxMfaAttempts ?? DEFAULT_MAX_MFA_ATTEMPTS;
     let rejected: ApiError | undefined;
     try {
       for (let attempt = 1; ; attempt += 1) {
@@ -278,36 +281,34 @@ class HttpClient implements ApiClient {
           ...(prompt && { prompt }),
         });
         if (code === null) {
-          throw new ApiError(
-            CLIENT_ERROR.mfaCancelled,
-            t.errors.mfaCancelled,
-            0,
-          );
+          throw new ApiError(CLIENT_ERROR.mfaCancelled, t.errors.mfaCancelled, 0);
         }
-        try {
-          return await resend(this.options.mfaHeaders(code));
-        } catch (error) {
-          const invalid =
-            isApiError(error) &&
-            this.options.mfaInvalidCodes.includes(error.code);
-          if (!invalid || attempt >= maxAttempts) throw error;
-          rejected = error;
-        }
+        rejected = await this.verifyMfa(code);
+        if (!rejected) return await resend();
       }
     } finally {
       handler.settle();
     }
   }
 
-  private buildInit(
-    method: string,
-    request: RequestOptions,
-    extra: Record<string, string>,
-  ): RequestInit {
+  /** 回傳 undefined 代表通過；回傳錯誤代表驗證碼不對、可以再試。其他錯誤直接丟出。 */
+  private async verifyMfa(code: string): Promise<ApiError | undefined> {
+    const { path, body } = this.options.mfa.verifyRequest(code);
+    try {
+      await this.send("POST", path, { body });
+      return undefined;
+    } catch (error) {
+      if (isApiError(error) && this.hasCode(error, this.options.mfa.invalidCodes)) {
+        return error;
+      }
+      throw error;
+    }
+  }
+
+  private buildInit(method: string, request: RequestOptions): RequestInit {
     const headers: Record<string, string> = {
       Accept: "application/json",
       ...request.headers,
-      ...extra,
     };
     if (!SAFE_METHODS.has(method)) {
       const { name, value } = this.options.unsafeMethodHeader;
@@ -330,13 +331,12 @@ class HttpClient implements ApiClient {
     method: string,
     path: string,
     request: RequestOptions,
-    extra: Record<string, string>,
   ): Promise<unknown> {
     const doFetch = this.options.fetch ?? fetch;
     const url = buildUrl(this.options.baseUrl ?? "", path, request.query);
     let response: Response;
     try {
-      response = await doFetch(url, this.buildInit(method, request, extra));
+      response = await doFetch(url, this.buildInit(method, request));
     } catch (cause) {
       if (isAbortError(cause)) throw cause;
       throw new ApiError(CLIENT_ERROR.network, t.errors.network, 0, cause);
@@ -347,7 +347,6 @@ class HttpClient implements ApiClient {
   }
 }
 
-type Resend = (extraHeaders: Record<string, string>) => Promise<unknown>;
 
 export function createClient(options: ClientOptions): ApiClient {
   return new HttpClient(options);

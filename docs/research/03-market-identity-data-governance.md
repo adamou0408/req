@@ -19,7 +19,7 @@
 4. 紀錄防竄改幾乎沒有產品在文件中說明機制：Entra 稽核紀錄預設只留 30 天、Immuta 預設 7 天，都要自行匯出；只查到 EmpowerID（2026-08 白皮書）與 BeyondTrust Entitle 宣稱有雜湊鏈或簽章紀錄。[5][33][45][57]
 5. 資料平台原生的申請核准功能很薄：Databricks 是單步、沒有授權期限、平台外的核准不會匯回；Snowflake 的核准流程只到 listing 與角色層級；查到支援欄位層級申請的只有 Immuta（masking exception）。[32][34][35][36]
 6. 公開標價的只有 Microsoft（Entra ID Governance 每人每月 7 美元，另需 P1）、Okta（套裝每人每月 6／14／17 美元，年約最低 1,500 美元）與 ManageEngine（每網域每年 595 美元起）；SailPoint、Saviynt、One Identity、C1、Lumos、Zluri、Opal、Immuta 都要詢價。[4][18][24][28][31][54]
-7. 需要地端部署的中型企業選擇正在變少：Microsoft Identity Manager 2016 支援到 2029-01-09 為止，新一代產品（C1、Lumos、Zluri、Okta、Entra）都是雲端服務；查到明確支援自架的是 One Identity Manager、SailPoint IdentityIQ、midPoint、Opal（含 airgapped）、Teleport、Immuta、ManageEngine。[23][26][33][43][54][55][56]
+7. 需要地端部署的中型企業選擇正在變少：Microsoft Identity Manager 2016 支援到 2029-01-09 為止，新一代產品（C1、Lumos、Zluri、Okta、Entra）都是雲端服務；查到文件寫明可自架的是 One Identity Manager、SailPoint IdentityIQ、Opal（含 airgapped）、Teleport、Immuta；midPoint 為開源軟體。[23][26][33][43][55][56]
 8. 使用者最痛的是人工作業與整合：84% 的組織主要靠人工做存取複查與開通（Zilla，2025，n=300），83% 說與既有 IGA 整合困難是自動化的最大障礙；近 60% 認為現有 IGA 的總持有成本過高（Omada，2025，n>500）。[46][47]
 9. 2025–2026 市場正在圍繞 AI agent 與非人類身分重組：Palo Alto Networks 併 CyberArk（2026-02-11 完成）、ServiceNow 併 Veza（2026-03-02 完成）、Microsoft Entra Agent ID 與 Agent 365、Okta for AI Agents、SailPoint Agentic Fabric 都在 2026 年上市。[9][16][21][30][44]
 10. 繁體中文與台灣在地支援：SailPoint Identity Security Cloud 列有 zh-TW、在台有 4 家合作夥伴；Okta 只有終端使用者介面有繁體中文，管理介面沒有；其餘產品的繁體中文與在台支援查不到公開依據。[13][14][20]
@@ -34,8 +34,8 @@
 
 | 產品 | 定位與客群 | 部署 | 公開價格 | 繁體中文／台灣 |
 |---|---|---|---|---|
-| Microsoft Entra ID Governance | 【事實】Entra ID P1／P2 客戶的進階治理加購；含 entitlement management、access reviews、PIM、lifecycle workflows [3] | 【事實】雲端服務；地端應用程式靠 provisioning agent 連回雲端 [3]。【推論】完全離線的環境無法使用 | 【事實】Entra ID Governance 每人每月 7.00 美元（年繳）；P1 7.00、P2 10.00、Entra Suite 12.00；Governance 需租戶內另有含 P1 或 P2 的訂閱 [3][4]。訪客另以每月活躍使用者計費 [3] | 【查不到】本次未取得 My Access 的語言清單 |
-| SailPoint Identity Security Cloud（2026 起文件稱 Human Fabric） | 【事實】企業級 IGA [11] | 【事實】雲端服務 [10] | 【查不到】無公開標價 | 【事實】支援 22 種語言，含 `Chinese (Traditional) \| 'zh-TW'` [13]；台灣合作夥伴：中飛科技（代理）、頤合資訊、凱信資訊、凌羣電腦 [14] |
+| Microsoft Entra ID Governance | 【事實】Entra ID P1／P2 客戶的進階治理加購；含 entitlement management、access reviews、PIM、lifecycle workflows [3] | 【事實】雲端服務；地端應用程式靠 provisioning agent 連回 Entra 租戶 [3][60]。【推論】完全離線的環境無法使用 | 【事實】Entra ID Governance 每人每月 7.00 美元（年繳）；P1 7.00、P2 10.00、Entra Suite 12.00；Governance 需租戶內另有含 P1 或 P2 的訂閱 [3][4]。訪客另以每月活躍使用者計費 [3] | 【查不到】本次未取得 My Access 的語言清單 |
+| SailPoint Identity Security Cloud（2026 起文件稱 Human Fabric） | 【事實】企業級 IGA [11] | 【事實】雲端服務（官方文件歸在 SaaS 文件集）[10] | 【查不到】無公開標價 | 【事實】支援 22 種語言，含 `Chinese (Traditional) \| 'zh-TW'` [13]；台灣合作夥伴：中飛科技（代理）、頤合資訊、凱信資訊、凌羣電腦 [14] |
 | SailPoint IdentityIQ | 【事實】地端版 IGA；SailPoint 有 IdentityIQ 的 End of Life Policy 與往雲端遷移的工具 [17] | 地端 | 【查不到】 | 同上合作夥伴 [14]；【查不到】IdentityIQ 的確切終止支援日期（政策放在客戶入口網站，未公開）[17] |
 | Saviynt Identity Cloud | 【事實】IGA 加應用程式層 SoD（SAP、Oracle、Workday 等內建規則集）[22] | 【事實】AWS Marketplace 列為 SaaS [22]。【查不到】是否仍有純地端版 | 【查不到】無公開標價；第三方文章舉例 5,000 人年約 12 萬美元（約每人每年 24 美元），未經證實 [22] | 【查不到】 |
 | Okta Identity Governance | 【事實】Okta Workforce Identity 的加購，含 Access Governance、Lifecycle Management、Workflows [18] | 【推論】雲端服務（定價頁僅列訂閱方案）[18] | 【事實】年約最低 1,500 美元 [18]；套裝 Starter 6、Core Essentials 14、Essentials 17 美元／人／月，Professional 與 Enterprise 詢價（搜尋摘要）[18]。【查不到】治理單獨加購價 | 【事實】終端使用者介面有「繁體中文」；Admin Console 只有英、法、日文 [20] |
@@ -65,7 +65,7 @@
 
 | 產品 | 有期限／JIT | 定期複查 | 偵測未經核准的權限（對帳） |
 |---|---|---|---|
-| Entra | 【事實】到期可設日期、天數（0–3660）、小時或永不；可允許延長並要求延長也須核准；到期前 14 天與 1 天寄信 [2] | 【事實】可單階或最多三階；審核人可選群組擁有者、指定人員、主管，或「Users review their own access」；無人回應時可設不變、移除、核准或採系統建議；可要求填理由 [8] | 【事實】Azure Monitor 活頁簿「Application role assignment activity」可列出不是由 entitlement management 產生的角色指派 [6]。【推論】要另外把稽核事件送到 Azure Monitor，屬於報表而不是自動處置 |
+| Entra | 【事實】到期可設日期、天數（0–3660）、小時或永不；可允許延長並要求延長也須核准；允許延長時，到期前 14 天與 1 天寄信提醒 [2] | 【事實】可單階或最多三階；審核人可選群組擁有者、指定人員、主管，或「Users review their own access」；無人回應時可設不變、移除、核准或採系統建議；可要求填理由 [8] | 【事實】Azure Monitor 活頁簿「Application role assignment activity」可列出不是由 entitlement management 產生的角色指派 [6]。【推論】要另外把稽核事件送到 Azure Monitor，屬於報表而不是自動處置 |
 | SailPoint ISC | 【查不到】本次取得的頁面只提到 sunset date 提醒信 [10] | 【事實】certification campaign（搜尋摘要）[11] | 【事實】Native Change Detection：「detects when accounts have been created, updated, or deleted out-of-band」，在 aggregation 時比對；可觸發事件、用範本流程自動撤銷並通知來源擁有者 [12] |
 | Okta | 【查不到】 | 【事實】Access Certifications 可複查並處理有 SoD 衝突的既有權限 [19] | 【查不到】 |
 | One Identity Manager | 【查不到】 | 【事實】attestation 可排程或隨時發動，對象包含權限、申請與例外核准 [23] | 【查不到】 |
@@ -128,7 +128,8 @@
 | 2026-04-29 | Okta for AI Agents 正式上市；Cross App Access 成為 MCP 的 Enterprise-Managed Authorization 擴充 | [21] |
 | 2026-05-11 | SailPoint 發布 Agentic Fabric；10 月加入 agent kill switch 與 shadow AI 探索 | [16] |
 | 2026-05 | Palo Alto Networks《2026 Identity Security Landscape》（2,930 位受訪者）：機器身分與人類身分平均 109:1 | [50] |
-| 2026-09 | Opal 發布 Opal Zero（AI agent 的 JIT 存取治理）；C1 推出 MCP Gateway 與 LLM Gateway | [24][27] |
+| 2026-09 | Opal 發布 Opal Zero（AI agent 的 JIT 存取治理） | [27] |
+| 查閱當日 | C1 的定價頁已把 MCP Gateway、LLM Gateway、Vault、Agents 列為產品模組（上市日期未查到） | [24] |
 
 【事實】Microsoft 的授權表顯示，agent 身分用的是同一套機制（access package、多階核准、到期），只是多了「sponsor」這個人類負責人角色，並另外計價 [3]。
 【推論】主流廠商沒有為 agent 另造一套簽核，而是把 agent 當成另一種主體，套用既有的申請、核准、到期，再加上「一定要有人類負責人」。本平台的主體模型若一開始就容納非人類主體與負責人，就不必日後改核心。
@@ -181,8 +182,8 @@
 |---|---|---|
 | One Identity Manager | 【事實】有地端版 [23] | 【查不到】公開價格；【事實】預設語言英、德文，中文語言包只影響 Web 介面 [23] |
 | SailPoint IdentityIQ | 【事實】地端版；台灣有 4 家合作夥伴 [14] | 【事實】廠商有終止支援政策並主推遷往雲端，2026-06 推出免費的遷移工具 [17]；【查不到】確切終止日期與價格 |
-| Evolveum midPoint | 【事實】開源、可自架；含申請核准、存取認證、SoD（廠商資料表與 KuppingerCole 評述）[55] | 【事實】官方不公開訂閱價，須洽廠商或夥伴 [55]；【推論】需要自有的導入與維運人力 |
-| ManageEngine ADManager Plus | 【事實】授權以 XML 檔交付、依網域計價；Professional 版才有 Workflow；存取認證與風險評估在 Governance, Risk and Compliance 加購（495 美元）[54] | 【推論】以 Active Directory 為中心，不是通用的申請核准平台 |
+| Evolveum midPoint | 【事實】開源；含申請核准、存取認證、SoD（廠商資料表與 KuppingerCole 評述）[55]。【推論】開源軟體可自行部署在地端 | 【事實】官方不公開訂閱價，須洽廠商或夥伴 [55]；【推論】需要自有的導入與維運人力 |
+| ManageEngine ADManager Plus | 【事實】授權以 XML 檔交付、依網域計價（Standard 595 美元起、Professional 795 美元起，年繳）；Professional 版才有 Workflow；存取認證與風險評估在 Governance, Risk and Compliance 加購（495 美元）[54]。【查不到】定價頁未寫明部署方式 | 【推論】以 Active Directory 為中心，不是通用的申請核准平台 |
 | Opal（自架） | 【事實】EKS 或 GKE，支援 airgapped [26] | 【推論】需要 Kubernetes 維運能力；【查不到】價格與繁體中文 |
 | Microsoft Identity Manager 2016 | 【事實】地端 | 【事實】支援終止日 2029-01-09（由 2026-01-13 延後），主流支援已於 2021-01 結束 [56] |
 | Immuta（自架，資料存取） | 【事實】Kubernetes 自架 [33] | 【推論】只涵蓋資料存取；Request app 部分仍在 preview [33] |
@@ -347,4 +348,5 @@
 | 56 | Microsoft Learn — Microsoft Identity Manager 2016：Deprecated features and planning for the future | https://learn.microsoft.com/en-us/microsoft-identity-manager/microsoft-identity-manager-2016-deprecated-features | 搜尋摘要 |
 | 57 | EmpowerID 白皮書〈Continuous Evidence〉（2026-08；廠商宣稱） | https://empowerid.com/resources/white-papers/continuous-evidence | 直接開啟 |
 | 58 | Zluri 部落格〈SailPoint alternatives〉系列（競品廠商行銷文章，僅作痛點佐證） | https://www.zluri.com/eye-on-identity/sailpoint-saviynt-alternatives-modern-iga-platform-switch ；https://www.zluri.com/eye-on-identity/lightweight-iga-mid-market-saas-alternative-sailpoint | 搜尋摘要 |
-| 59 | Gartner 研究摘要頁：2026 Market Guide for Identity Governance and Administration（2026-08-28）；light IGA 相關研究（2026-03） | https://www.gartner.com/en/documents/8321653 ；https://www.gartner.com/en/documents/7539049 | 搜尋摘要（僅摘要，內文需付費） |
+| 59 | Gartner 研究摘要頁：2026 Market Guide for Identity Governance and Administration（2026-08-28）；light IGA 相關研究（2026-03）。搜尋結果列出多個 Gartner 文件編號，哪一個編號對應哪一份未逐一確認 | https://www.gartner.com/en/documents/8321653 | 搜尋摘要（僅摘要，內文需付費） |
+| 60 | Microsoft Learn — Microsoft Entra on-premises application identity provisioning architecture；What is the Microsoft Entra provisioning agent? | https://learn.microsoft.com/entra/identity/app-provisioning/on-premises-application-provisioning-architecture ；https://learn.microsoft.com/en-us/entra/identity/hybrid/cloud-sync/what-is-provisioning-agent | 搜尋摘要 |

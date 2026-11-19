@@ -134,7 +134,7 @@ sim_service_state() {
     for pid_file in "${SIM_RUN_ROOT}/${name}"/*.pid; do
         [[ -s "$pid_file" ]] || continue
         pid="$(<"$pid_file")"
-        if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
+        if sim_process_running "$pid"; then
             echo unhealthy
             return 0
         fi
