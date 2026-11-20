@@ -443,3 +443,14 @@ video.scanner {
     background: #000;
     border-radius: 8px;
 }
+
+/* 交付與驗證（D63）：外部系統的錯誤訊息可能很長，在 390px 內折行 */
+.delivery-list {
+    margin: 0;
+    padding-left: 1.2rem;
+    overflow-wrap: anywhere;
+}
+
+.delivery-list li {
+    margin-bottom: 0.5rem;
+}

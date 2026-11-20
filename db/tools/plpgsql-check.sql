@@ -14,6 +14,6 @@ cross join lateral plpgsql_check.plpgsql_check_function_tb(
     coalesce(trg.tgrelid, 0),
     extra_warnings => true
 ) as r
-where p.pronamespace::regnamespace::text in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_verified')
+where p.pronamespace::regnamespace::text in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_delivery', 'api_verified')
    or p.pronamespace::regnamespace::text like 'pack\_%'
 order by 1;

@@ -82,9 +82,11 @@ async function auditExceptions() {
                   list.map((x) =>
                       el(
                           'li',
-                          {},
-                          // 人員同步、角色來源的例外不屬於任何一張單
-                          x.case_no === null ? t.exceptionNoCase : el('a', { href: `#audit/${x.case_no}` }, `${t.caseNo} ${x.case_no}`),
+                          { 'data-rule': x.rule_code },
+                          // 人員同步、角色來源、外部系統層級（對帳、清除）的例外不屬於任何一張單
+                          x.case_no === null
+                              ? (t.exceptionScope[x.rule_code] ?? t.exceptionNoCase)
+                              : el('a', { href: `#audit/${x.case_no}` }, `${t.caseNo} ${x.case_no}`),
                           `・${t.exception[x.rule_code] ?? t.exceptionUnknown}`,
                       ),
                   ),

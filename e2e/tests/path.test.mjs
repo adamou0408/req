@@ -7,7 +7,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { RUN_DIR, adminUrl, loadConfig } from '../../db/tools/lib/env.mjs';
-import { decisionChallenge, pool as dbPool } from '../../db/tests/kernel/lib/harness.mjs';
+import { decisionChallenge, pool as dbPool, setSetting } from '../../db/tests/kernel/lib/harness.mjs';
 import { fingerprintFromPayload, fingerprintPayload } from '../../web/lib/qr.js';
 import {
     API,
@@ -45,7 +45,12 @@ import {
 const config = loadConfig();
 const results = { measured_at: new Date().toISOString(), viewport: '390x844', tests: {} };
 
-before(startBrowser);
+before(async () => {
+    await startBrowser();
+    // 這個檔案測人工執行的退路（系統管理人認領、看規則、以通行金鑰標記已套用）：資料中心在這裡設定為人工。
+    // 系統對系統的交付（種子的預設，D63）在 system-delivery.test.mjs，排在這個檔案之後。
+    await setSetting(dbPool('ADMIN'), 'delivery.mode', 'manual', 'system:dc');
+});
 after(async () => {
     await stopBrowser();
     mkdirSync(RUN_DIR, { recursive: true });

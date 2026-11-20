@@ -5,7 +5,16 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { after, before, test } from 'node:test';
-import { backendCalls, jobCalls, packRoutes, routes, shapeProblems, syncCalls } from '../../../packages/contract/src/routes.ts';
+import {
+    backendCalls,
+    deliveryCalls,
+    jobCalls,
+    packRoutes,
+    routes,
+    shapeProblems,
+    syncCalls,
+} from '../../../packages/contract/src/routes.ts';
+import { activeSalesOrderCase, salesOrderContent } from '../packs/data_access/delivery-lib.mjs';
 import {
     call,
     challengeFor,
@@ -66,10 +75,11 @@ test('契約：每個 api function 都有歸屬（路由或後端流程），沒
     assert.deepEqual(orphans, []);
 });
 
-test('契約：人員同步與排程的允許清單（syncCalls、jobCalls）引用的 function 都存在、參數名稱與順序相符，且沒有清單外的 function', async () => {
+test('契約：人員同步、排程與交付程式的允許清單（syncCalls、jobCalls、deliveryCalls）引用的 function 都存在、參數名稱與順序相符，且沒有清單外的 function', async () => {
     for (const [schema, calls] of [
         ['api_sync', Object.values(syncCalls)],
         ['api_job', Object.values(jobCalls)],
+        ['api_delivery', Object.values(deliveryCalls)],
     ]) {
         const { rows } = await admin.query(
             `select p.proname as fn, coalesce(p.proargnames[1:p.pronargs], '{}') as args
@@ -108,7 +118,7 @@ async function functionSources() {
         `select n.nspname || '.' || p.proname as fn, p.prosrc as src
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
          join pg_language l on l.oid = p.prolang
-         where (n.nspname in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_verified') or n.nspname like 'pack\\_%')
+         where (n.nspname in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_delivery', 'api_verified') or n.nspname like 'pack\\_%')
            and l.lanname in ('sql', 'plpgsql')`,
     );
     return rows;
@@ -135,6 +145,7 @@ const AUTHORIZATION_CODES = [
     'PASSKEY_ENDORSER_NOT_ALLOWED',
     'PASSKEY_SELF_ONLY',
     'ROLE_CHANGE_CEREMONY',
+    'NOT_REVOKER',
 ];
 // 授權入口：denial_reason 是唯一的判斷；決定者資格（職責分離）拆成 decider_denial，由 denial_reason 與解析器共用，
 // 所以「能不能被指派」和「能不能做決定」是同一個判斷（K-DECISION-ELIGIBLE）。
@@ -168,6 +179,9 @@ test('架構：授權檢查只有一個入口——授權的錯誤代碼、角�
 const TRANSITION_WITHOUT_AUTHORIZE = {
     'sgn_internal.case_advance': '關卡推進：只由已授權的送審、決定、執行完成之後呼叫，執行的是 system 動作',
     'sgn_internal.decision_apply': '套用決定：只由 decision_commit 呼叫，decision_commit 先以證明得出的人授權',
+    'sgn_internal.fulfilment_progress': '執行關的進度：只由關卡收尾與交付回報（api_delivery，系統）呼叫，執行的是 system 動作',
+    'sgn_internal.fulfilment_fail': '交付或驗證失敗：只由交付回報（api_delivery，系統）呼叫，執行的是 system 動作或系統撤銷',
+    'sgn_internal.grant_end': '授權結束：撤銷由 api.case_revoke 先授權；到期與驗證失敗是排程與交付回報的 system 動作',
 };
 
 test('架構：會改狀態或讀稽核資料的 function 都經過授權入口', async () => {
@@ -329,6 +343,10 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
         }),
     );
     await check('passkey_revoke_passkey', revoke.challenge_id, r.credentialId, r.authenticatorData, r.clientDataJSON, r.signature);
+    // 生效之後縮小、撤銷（D63）：資料授權的單經交付程式與模擬的外部系統生效之後
+    const active = await activeSalesOrderCase(app, admin, applicant, 2008);
+    await check('case_reduce', applicant.session, active, salesOrderContent(2008, ['amount', 'order_no']), null, '契約測試：縮小');
+    await check('case_revoke', applicant.session, active, '契約測試：撤銷');
     // 登出
     await check('session_close', opened.session_token);
 

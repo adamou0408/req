@@ -3,7 +3,7 @@
 // 回傳一律是 jsonb，結構寫在 returns；db/tests/kernel/90-contract.test.mjs 檢查 function 的簽章與實際回傳。
 // 刻意沒有「只憑工作階段就能做決定」的路由：做決定只有 case_decide_passkey，身分由資料庫從通行金鑰的簽章得出。
 // 這張表也是資料庫執行權限的唯一來源：db/tools/grants-sql.mjs 只把這裡列出的 function 授權給各執行期帳號
-// （後端 sgn_app：routes、packRoutes、backendCalls；人員同步 sgn_sync：syncCalls；排程 sgn_job：jobCalls），
+// （後端 sgn_app：routes、packRoutes、backendCalls；人員同步 sgn_sync：syncCalls；排程 sgn_job：jobCalls；交付程式 sgn_delivery：deliveryCalls），
 // db/tests/kernel/12-grants.test.mjs 檢查實際權限與這裡完全相等。
 import type { Shape } from './shape.ts';
 
@@ -158,6 +158,58 @@ export const caseDetail: Shape = {
          * 送出後 resume（從退回的那一關繼續）還是 restart（從第一關重簽）。其他的單為 null。
          */
         resubmit: { nullable: { object: { change_kind: 'text', mode: 'text' } } },
+        /**
+         * 核准之後的系統對系統交付（裁決 D63）：每一筆交付（套用、撤回、清除、驗證）與每一輪自動驗證。
+         * 執行關沒有人工工作時，畫面只顯示這裡的進度；人工退路只在有人工工作時出現。
+         */
+        delivery: {
+            object: {
+                ops: {
+                    array: {
+                        object: {
+                            op_id: 'int',
+                            channel: 'text',
+                            /** apply（套用）、withdraw（撤回）、purge（清除到期）、verify（驗證） */
+                            kind: 'text',
+                            version: { nullable: 'int' },
+                            /** queued、sending、done、rejected、superseded */
+                            status: 'text',
+                            attempts: 'int',
+                            created_at: 'timestamp',
+                            finished_at: { nullable: 'timestamp' },
+                            next_attempt_at: { nullable: 'timestamp' },
+                            last_http_status: { nullable: 'int' },
+                            last_error: { nullable: 'text' },
+                        },
+                    },
+                },
+                verifications: {
+                    array: {
+                        object: {
+                            run_id: 'int',
+                            channel: 'text',
+                            version: 'int',
+                            /** pending、passed、failed、cancelled */
+                            status: 'text',
+                            created_at: 'timestamp',
+                            finished_at: { nullable: 'timestamp' },
+                            cases: {
+                                array: {
+                                    object: {
+                                        code: 'text',
+                                        description: 'text',
+                                        expected: 'text',
+                                        actual: { nullable: 'text' },
+                                        /** 實際等於預期（核心判斷）；還沒有結果為 null */
+                                        match: { nullable: 'bool' },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
     },
 };
 
@@ -323,6 +375,10 @@ export const routes = [
     { fn: 'inbox_list', params: ['session'], returns: { array: caseSummary } },
     { fn: 'task_claim', params: ['session', 'case_id'], returns: caseSummary },
     { fn: 'challenge_issue', params: ['session', 'case_id', 'decision', 'input'], returns: challenge },
+    /** 撤銷生效中的授權（不需要簽核，必須填原因）；外部系統上的權限自動撤回 */
+    { fn: 'case_revoke', params: ['session', 'case_id', 'reason'], returns: caseDetail },
+    /** 生效中的授權只做縮小（不用重簽）；新的一版自動送出並重新驗證 */
+    { fn: 'case_reduce', params: ['session', 'case_id', 'content', 'terms', 'reason'], returns: caseDetail },
     {
         fn: 'case_decide_passkey',
         params: ['challenge_id', 'decision', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
@@ -487,4 +543,19 @@ export const jobCalls = {
     notificationMark: { fn: 'notification_mark', params: ['id', 'sent', 'error'] },
     /** 超過時間還沒寄出的通知開例外 K-NOTIFY-STUCK（寫入通知的交易也會檢查，不只靠排程） */
     notificationStuckCheck: { fn: 'notification_stuck_check', params: [] },
+    /** 交付超過時間還沒有結果時開例外 K-DELIVERY-STUCK 並通知升級對象 */
+    deliveryStuckCheck: { fn: 'delivery_stuck_check', params: [] },
+    /** 授權迄日已過的授權結束並排清除 */
+    grantExpireDue: { fn: 'grant_expire_due', params: [] },
+    /** 對帳（api/src/reconciler.ts）：外部系統的對帳回報交給資料庫比對 */
+    reconciliationSubmit: { fn: 'reconciliation_submit', params: ['channel', 'report'] },
+} as const satisfies Record<string, Grant>;
+
+/**
+ * 交付程式（api/src/delivery.ts，帳號 sgn_delivery）能執行的 api_delivery function。
+ * 和後端（sgn_app）、排程（sgn_job）分開：被入侵的後端不能領取交付，也不能謊報外部系統的結果。
+ */
+export const deliveryCalls = {
+    deliveryClaim: { fn: 'delivery_claim', params: ['channel', 'limit'] },
+    deliveryReport: { fn: 'delivery_report', params: ['op_id', 'lease_token', 'outcome'] },
 } as const satisfies Record<string, Grant>;

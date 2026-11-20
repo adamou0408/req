@@ -4,7 +4,7 @@
 // 不再「整個 schema 授權」。先撤掉所有非系統 schema 的 function 對 PUBLIC 與三個執行期帳號的 EXECUTE，再逐一授權；
 // 列出的 function 不存在時 GRANT 失敗，建置就失敗。db/tests/kernel/12-grants.test.mjs 檢查實際權限與清單完全相等。
 // 測試專用的帳號（sgn_test_verifier）由 db/testing/ 自己授權，這裡不動。
-import { backendCalls, jobCalls, packRoutes, routes, syncCalls } from '../../packages/contract/src/routes.ts';
+import { backendCalls, deliveryCalls, jobCalls, packRoutes, routes, syncCalls } from '../../packages/contract/src/routes.ts';
 import { loadConfig } from './lib/env.mjs';
 
 /** 每個執行期帳號（sgn.env 的鍵名後綴）能執行的 function：schema 與名稱。 */
@@ -12,6 +12,7 @@ export const allowlist = {
     APP: { schema: 'api', fns: [...routes, ...Object.values(packRoutes).flat(), ...Object.values(backendCalls)].map((c) => c.fn) },
     SYNC: { schema: 'api_sync', fns: Object.values(syncCalls).map((c) => c.fn) },
     JOB: { schema: 'api_job', fns: Object.values(jobCalls).map((c) => c.fn) },
+    DELIVERY: { schema: 'api_delivery', fns: Object.values(deliveryCalls).map((c) => c.fn) },
 };
 
 const ident = (name) => `"${name.replaceAll('"', '""')}"`;
@@ -28,6 +29,7 @@ export function grantsSql(config = loadConfig()) {
     ];
     for (const [key, { schema, fns }] of Object.entries(allowlist)) {
         const role = config.db[`SGN_ROLE_${key}`];
+        lines.push(`grant usage on schema ${ident(schema)} to ${ident(role)};`);
         for (const fn of [...new Set(fns)].sort()) lines.push(`grant execute on function ${ident(schema)}.${ident(fn)} to ${ident(role)};`);
     }
     return `${lines.join('\n')}\n`;

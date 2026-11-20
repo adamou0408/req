@@ -11,6 +11,7 @@ import {
     pool,
     registerPasskey,
     rejectsWith,
+    setSetting,
 } from '../../kernel/lib/harness.mjs';
 import { addMonths, DA, decide, l3Content, l4Content, principals, terms, today } from './lib.mjs';
 
@@ -26,6 +27,9 @@ before(async () => {
         users[uid].key = await registerPasskey(app, users[uid]);
     }
     P = await principals(app, users.p04.session);
+    // 這個檔案測的是人工執行的退路（執行設定由受管系統的管理人認領、以通行金鑰標記完成）：資料中心在這裡設定為人工。
+    // 系統對系統的交付在 50-delivery.test.mjs（種子的預設，D63）。
+    await setSetting(admin, 'delivery.mode', 'manual', 'system:dc');
 });
 after(closePools);
 

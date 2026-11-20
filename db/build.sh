@@ -4,7 +4,7 @@
 #       db/build.sh --no-test        只建置
 #       db/build.sh --bench          另外建置效能比較用的資料庫並跑效能量測（約數分鐘）
 #       db/build.sh --plpgsql-check  只建置 sgn_test 的 schema，跑 plpgsql_check 靜態分析（tools/check.sh 用）
-# 前提：PostgreSQL 16 在跑；sim 的 ldap、idp、mail 在跑（sim/up.sh）；根目錄已 npm ci。
+# 前提：PostgreSQL 16 在跑；sim 的 ldap、idp、mail 在跑（sim/up.sh）；根目錄已 npm ci。sim/dc 由這裡重新啟動（信任清單要先更新）。
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,7 +27,7 @@ log() { printf '[db] %s\n' "$*"; }
 admin_url_for() { local db="$1"; printf '%s' "${SGN_PG_ADMIN_URL%/*}/$db"; }
 psql_admin() { local db="$1"; shift; psql -X -q -v ON_ERROR_STOP=1 "$(admin_url_for "$db")" "$@"; }
 
-login_roles=("$SGN_ROLE_APP" "$SGN_ROLE_SYNC" "$SGN_ROLE_JOB" "$SGN_ROLE_TEST_VERIFIER")
+login_roles=("$SGN_ROLE_APP" "$SGN_ROLE_SYNC" "$SGN_ROLE_JOB" "$SGN_ROLE_DELIVERY" "$SGN_ROLE_TEST_VERIFIER")
 
 recreate_roles() {
     local db role
@@ -47,7 +47,7 @@ recreate_roles() {
 # （90_grants.sql，再由 db/tools/grants-sql.mjs 收斂成路由表的允許清單）→ 環境設定。新建的 function 預設不對 PUBLIC 開放。
 # 套用順序依骨幹第 1.1 節：核心全部 → 各流程包。90_grants.sql 帶變數，最後單獨套用。
 build_schema() {
-    local db="$1" with_testing="$2" connect="$SGN_ROLE_APP\", \"$SGN_ROLE_SYNC\", \"$SGN_ROLE_JOB"
+    local db="$1" with_testing="$2" connect="$SGN_ROLE_APP\", \"$SGN_ROLE_SYNC\", \"$SGN_ROLE_JOB\", \"$SGN_ROLE_DELIVERY"
     (( with_testing )) && connect="$connect\", \"$SGN_ROLE_TEST_VERIFIER"
     psql_admin postgres -c "create database \"$db\" owner \"$SGN_ROLE_OWNER\""
     psql_admin "$db" -c "revoke all on database \"$db\" from public" -c "grant connect on database \"$db\" to \"$connect\"" \
@@ -71,7 +71,18 @@ build_schema() {
     psql_admin "$db" -c "set role \"$SGN_ROLE_OWNER\"" \
         -c "select sgn_internal.register_setting_value('webauthn.rp_id', 'global', to_jsonb('$SGN_RP_ID'::text), 'db/build.sh：開發環境')" \
         -c "select sgn_internal.register_setting_value('webauthn.origin', 'global', to_jsonb('$SGN_WEB_ORIGIN'::text), 'db/build.sh：開發環境（頁面的 origin）')" \
-        -c "select sgn_internal.register_setting_value('audit.anchor_max_lag_seconds', 'global', to_jsonb(30), 'db/build.sh：開發環境每 2 秒錨定一次')" >/dev/null
+        -c "select sgn_internal.register_setting_value('audit.anchor_max_lag_seconds', 'global', to_jsonb(30), 'db/build.sh：開發環境每 2 秒錨定一次')" \
+        -c "select sgn_internal.signing_key_create('sgn-$db')" >/dev/null
+}
+
+# 外部系統（sim/dc）信任平台的交付簽章公鑰：私鑰在各資料庫裡產生、不離開資料庫（docs/handoff/delivery.md）。
+# 把兩個資料庫目前的公鑰併進 sim/dc 的信任清單（位置見 sim/dc/lib.sh 的 SIM_DC_TRUSTED_KEYS_FILE），重新啟動並清空 sim/dc。
+trust_dc() {
+    local trusted="$repo/sim/.run/dc/keys/trusted-keys.json"
+    "$repo/sim/dc/start.sh" >/dev/null
+    node "$here/tools/delivery-keys.mjs" "$trusted" "$SGN_DB_TEST" "$SGN_DB_E2E"
+    "$repo/sim/dc/stop.sh" >/dev/null
+    "$repo/sim/dc/start.sh" --reset >/dev/null
 }
 
 # 核心（不含 01_core 與 90_grants）與各流程包的 migration，各自依檔名的版本序。
@@ -110,7 +121,7 @@ run_plpgsql_check() {
         echo "plpgsql_check 發現問題" >&2
         return 1
     fi
-    log "plpgsql_check：沒有問題（$(psql_admin "$db" -t -A -c "select count(*) from pg_proc p join pg_language l on l.oid = p.prolang where l.lanname = 'plpgsql' and (p.pronamespace::regnamespace::text in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_verified') or p.pronamespace::regnamespace::text like 'pack\\_%')") 個 PL/pgSQL function）"
+    log "plpgsql_check：沒有問題（$(psql_admin "$db" -t -A -c "select count(*) from pg_proc p join pg_language l on l.oid = p.prolang where l.lanname = 'plpgsql' and (p.pronamespace::regnamespace::text in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_delivery', 'api_verified') or p.pronamespace::regnamespace::text like 'pack\\_%')") 個 PL/pgSQL function）"
 }
 
 log "檢查 PostgreSQL"
@@ -143,6 +154,8 @@ for db in "$SGN_DB_TEST" "$SGN_DB_E2E"; do
     # 測試的舊金鑰（db/tests/kernel/lib/harness.mjs）只對這一次建置的資料庫有效
     rm -f "$repo/.run/anchors-$db.jsonl" "$repo/.run/passkeys-$db.json"
 done
+log "sim/dc 信任這兩個資料庫的交付簽章公鑰，並清空 sim/dc"
+trust_dc
 
 if (( run_bench )); then
     log "比較用的效能資料庫（plpython3u，不在執行路徑）"

@@ -156,12 +156,18 @@ test('K-DECISION-PROOF 沒有證明就沒有決定：改狀態的入口是固定
         ).rows.map((r) => r.fn);
     // 設計改變：決定的套用移到 decision_apply（只由 decision_commit 呼叫）；關卡推進（case_advance）與認領（task_claim）
     // 是新的狀態入口，不需要證明的動作（送審、修改、認領）各自經授權入口
+    // D63：生效後縮小（api.case_reduce，不需要證明、經授權入口）與交付的系統動作（執行關的進度、交付或驗證失敗、授權結束）
+    // 是新的狀態入口；它們都不是需要證明的動作（下面 needs_proof 的清單不變）
     assert.deepEqual(await callers('sgn_internal.case_transition'), [
+        'api.case_reduce',
         'api.case_revise',
         'api.task_claim',
         'sgn_internal.case_advance',
         'sgn_internal.case_submit_draft',
         'sgn_internal.decision_apply',
+        'sgn_internal.fulfilment_fail',
+        'sgn_internal.fulfilment_progress',
+        'sgn_internal.grant_end',
     ]);
     assert.deepEqual(await callers('sgn_internal.decision_apply'), ['sgn_internal.decision_commit']);
     // 紅隊 高-2：後端帳號能用的決定入口只剩通行金鑰（身分提供者再驗證的比較版本在 api_verified，只有測試帳號能用）

@@ -1,5 +1,6 @@
 // 申請單詳情（申請人、簽核人、系統管理人共用）。最上面是做決定需要的事實，完整內容在下方；
-// 按鈕只依資料庫回傳的 actions：核准、退回、認領、標記已套用固定在底部，縮小後核准、駁回、撤回、修改在內文。
+// 按鈕只依資料庫回傳的 actions：核准、退回、認領、標記已套用固定在底部，縮小後核准、駁回、撤回、修改、撤銷在內文。
+// 標記已套用（人工退路）只在執行關有人工工作時出現；系統對系統的交付與驗證顯示在「交付與驗證」。
 // 決定畫面的判斷內容（級別、例外、誰申請、給誰、哪些資料、多久、差異、重疊、使用情境、下一關）一律只從資料庫產生的
 // 顯示摘要 c.display 畫出（裁決 D75），簽的也是它；不拿資料目錄或 case_get 的其他欄位來畫。
 import { api } from '../api.js';
@@ -10,13 +11,17 @@ import { actionBar, dateText, el, explain, facts, flash, go, section, sheet, sta
 import { versionDiff } from './diff.js';
 
 const BAR_ACTIONS = ['claim', 'fulfil', 'return', 'approve'];
-const BODY_ACTIONS = ['approve_reduced', 'reject', 'recall', 'revise'];
+const BODY_ACTIONS = ['approve_reduced', 'reject', 'recall', 'revise', 'revoke'];
+/** 不需要通行金鑰的動作（撤銷不用簽核，但要原因；裁決 D63 的撤銷自動送到外部系統） */
+const NO_PROOF_ACTIONS = ['claim', 'revise', 'submit', 'revoke', 'reduce'];
 const REASON_ACTIONS = new Set(['return', 'reject', 'recall']);
 
 function waitingText(c) {
     const stage = c.current_stage;
     if (!stage) return null;
     if (stage.status === 'halted') return el('span', { class: 'bad-text' }, t.halted(stage.name));
+    // 系統對系統的執行關沒有人工工作：進度看交付與驗證
+    if (stage.phase === 'fulfilment' && c.stages.at(-1)?.tasks.length === 0) return `${stage.name}・${t.autoDelivery[c.state] ?? ''}`;
     const claim = c.stages.at(-1)?.tasks.some((x) => x.status === 'unclaimed');
     return `${stage.name}・${(claim ? t.waitingClaim : t.waitingOn)(c.waiting_on)}`;
 }
@@ -138,11 +143,90 @@ function reduceSheet(ctx, c, pack, cat) {
     );
 }
 
+/** 撤銷生效中的授權：不用簽核、要原因；外部系統上的權限由平台自動撤回。 */
+function revokeSheet(c) {
+    const reason = el('textarea', { id: 'revoke-reason', rows: 3, 'data-testid': 'revoke-reason' });
+    const submit = async () => {
+        try {
+            await api.call('case_revoke', { case_id: c.case_id, reason: reason.value });
+            panel.remove();
+            go(`#case/${c.case_id}`, { text: t.revokedNotice(c.case_no), ok: true });
+        } catch (err) {
+            flash(explain(err));
+        }
+    };
+    const panel = sheet(
+        t.revokeTitle,
+        el('p', {}, t.revokeHint),
+        el('label', { for: 'revoke-reason' }, t.reasonLabel),
+        reason,
+        el(
+            'div',
+            { class: 'row sheet-buttons' },
+            el('button', { onclick: () => panel.remove() }, t.cancel),
+            el('button', { class: 'primary', 'data-testid': 'revoke-submit', onclick: submit }, t.action.revoke),
+        ),
+    );
+}
+
+const caseMark = (x) => (x.match === null ? '…' : x.match ? '✓' : '✗');
+
+function verificationView(r) {
+    return el(
+        'div',
+        { 'data-testid': 'verification', 'data-status': r.status },
+        el('h3', {}, t.verificationHead(r.version, t.verificationStatus[r.status] ?? r.status)),
+        el(
+            'ul',
+            { class: 'delivery-list' },
+            r.cases.map((x) =>
+                el(
+                    'li',
+                    { 'data-code': x.code, 'data-match': String(x.match) },
+                    el('span', { class: x.match === false ? 'bad-text' : 'ok-text' }, caseMark(x)),
+                    ` ${x.description}`,
+                    el('div', { class: 'muted' }, t.verificationCase(x.expected, x.actual)),
+                ),
+            ),
+        ),
+    );
+}
+
+/** 核准之後的交付與驗證（裁決 D63）：每一筆送到外部系統的動作、每一輪自動驗證的案例與結果。 */
+function deliveryView(c) {
+    const { ops, verifications } = c.delivery;
+    if (ops.length === 0) return null;
+    return section(
+        'delivery',
+        t.deliveryTitle,
+        el(
+            'div',
+            { class: 'card', 'data-testid': 'delivery' },
+            el(
+                'ol',
+                { class: 'delivery-list' },
+                ops.map((o) =>
+                    el(
+                        'li',
+                        { 'data-kind': o.kind, 'data-status': o.status },
+                        el('strong', {}, `${t.deliveryKind[o.kind] ?? o.kind}・${t.deliveryStatus[o.status] ?? o.status}`),
+                        el('div', { class: 'muted' }, t.deliveryLine(o.attempts, dateText(o.finished_at ?? o.created_at))),
+                        o.next_attempt_at ? el('div', { class: 'muted' }, t.deliveryRetryAt(dateText(o.next_attempt_at))) : null,
+                        o.last_error && o.status !== 'done' ? el('div', { class: 'muted' }, o.last_error) : null,
+                    ),
+                ),
+            ),
+            verifications.map(verificationView),
+        ),
+    );
+}
+
 function actionButton(ctx, c, pack, cat, action) {
     const handlers = {
         claim: () => claim(c),
         revise: () => go(`#edit/${c.case_id}`),
         approve_reduced: () => reduceSheet(ctx, c, pack, cat),
+        revoke: () => revokeSheet(c),
     };
     const onclick = handlers[action] ?? (() => decide(ctx, c, pack, action));
     return el(
@@ -240,7 +324,7 @@ export async function renderCase(ctx, caseId) {
     const d = c.display;
     const pack = packOf(d.process.code);
     const cat = await pack.catalog();
-    const needsProof = c.actions.some((a) => !['claim', 'revise', 'submit'].includes(a));
+    const needsProof = c.actions.some((a) => !NO_PROOF_ACTIONS.includes(a));
     return [
         el('a', { href: '#', class: 'back' }, `← ${t.home}`),
         el('h2', { 'data-testid': 'case-title' }, `${t.caseNo} ${d.case_no} `, tierBadge(d.tier?.name), ' ', stateBadge(c.state)),
@@ -255,6 +339,7 @@ export async function renderCase(ctx, caseId) {
         needsProof ? passkeyNotice(ctx.me) : null,
         decisionFacts(d, pack),
         waitingText(c) ? el('p', { class: 'muted', 'data-testid': 'progress' }, `${t.progress}：`, waitingText(c)) : null,
+        deliveryView(c),
         c.actions.some((a) => BODY_ACTIONS.includes(a))
             ? el(
                   'div',
