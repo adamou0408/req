@@ -45,6 +45,8 @@ export const t = {
     principalOption: (p) =>
         `${t.principalKind[p.kind] ?? p.kind}・${p.name}（負責人 ${p.owner_name}${p.ends_on ? `，到 ${p.ends_on}` : ''}）`,
     principalKind: { team: '團隊', project: '專案', agent: 'agent' },
+    principalShown: (p) => `${t.principalKind[p.kind] ?? p.kind}・${p.name}（負責人 ${p.owner?.name ?? '—'}）`,
+    duplicates: '有內容完全相同的申請正在進行中，請確認是不是重複送出：',
 
     state: {
         draft: '草稿',
@@ -149,21 +151,26 @@ export const t = {
 
     passkeyMissing: '做決定需要通行金鑰。登記一次後，之後用指紋或臉部辨識就能確認。',
     passkeyRegister: '登記通行金鑰',
-    passkeyRegistered: '通行金鑰已登記，等待核准。請把下面的短碼念給你的主管或登記人核對。',
-    passkeyPending: '你的通行金鑰在等待核准：已經有舊金鑰就用舊金鑰核准；第一把金鑰請你的主管或登記人當面或電話核對下面的短碼後背書。',
-    passkeyPendingNoCode: '這個瀏覽器沒有登記這把金鑰，看不到短碼。不是你本人登記的，請立刻通知資安。',
+    passkeyRegistered: '通行金鑰已登記，等待核准。請把下面的 12 位數核對碼念給你的主管或登記人核對。',
+    passkeyPending:
+        '你的通行金鑰在等待核准：已經有舊金鑰，就在舊裝置上輸入下面的 12 位數核對碼後用舊金鑰核准；第一把金鑰請把核對碼念給你的主管或登記人，由他當面或電話核對後背書。',
+    passkeyPendingNoCode: '這個瀏覽器沒有登記這把金鑰，看不到核對碼。不是你本人登記的，請立刻通知資安。',
+    passkeyCodeComputing: '計算核對碼中（約一秒）…',
+    passkeyCodeUnavailable: '核對碼的參數不在允許的範圍，不能核對。請通知資安。',
+    passkeyFingerprint: (fp) => `完整指紋：${fp.replace(/(.{8})(?=.)/g, '$1 ')}`,
     passkeyCooling: (at) => `你的通行金鑰已核准，${dateText(at)} 之後才能用來做決定（新金鑰的冷卻期）。`,
     passkeys: {
         title: '通行金鑰登記',
         open: '待核准的通行金鑰登記',
         empty: '目前沒有等你核准的通行金鑰登記。',
-        hint: '核准前請和本人當面或電話核對短碼：兩邊畫面上的短碼一樣，才是同一把金鑰。',
+        hint: '核准前請本人念出新裝置畫面上的 12 位數核對碼，輸入在下面：這個頁面會從資料庫記下的金鑰指紋自己算一次，一樣才是同一把金鑰。',
         person: '誰的金鑰',
-        shortCode: '短碼',
         requestedAt: '登記時間',
-        endorse: '核對短碼後用通行金鑰核准',
+        codeLabel: '本人新裝置上的 12 位數核對碼',
+        codeMismatch: '核對碼不一樣：這不是本人新裝置上的那把金鑰，不要核准，並通知資安。',
+        endorse: '核對',
         confirmTitle: '核准通行金鑰登記',
-        consequence: (e, code) => `你確認 ${e.person_name} 畫面上的短碼是 ${code}。核准後這把金鑰過了冷卻期就能以他的名義做決定。`,
+        consequence: (name, code) => `核對碼一致（${code}）。核准後這把金鑰過了冷卻期就能以 ${name} 的名義做決定。`,
         endorsed: '已核准，新金鑰過了冷卻期才能用。',
     },
     passkeyCancelled: '沒有完成通行金鑰驗證，所以沒有送出決定。可以再按一次重試。',
@@ -183,6 +190,7 @@ export const t = {
         'K-RESOLVE-HALT': '例外：有一關找不到合格的簽核人，流程停住。',
         'K-HR-SYNC': '例外：人員同步被整批拒絕，或停用、恢復在職、改姓名與 email 被延後到冷卻期之後。請確認是不是真的人事異動。',
         'K-ROLE-SOURCE': '例外：人員同步想帶入不能由同步指派的角色，或業務角色有異動（冷卻期內不生效）。',
+        'K-SOD-ROLE-ESCALATED': '例外：這一關的角色持有人都因職責分離不能簽，已升級給其他人。核准前請確認這個人有資格判斷這一關。',
     },
     exceptionUnknown: '例外：請查看稽核紀錄。',
     exceptionNoCase: '人員與角色',
@@ -228,8 +236,7 @@ export const t = {
         submit: '用通行金鑰確認並送出',
         proposed: '已送出，等另一位有權的人核准。',
         confirmProposeTitle: '確認提出角色指派變更',
-        proposeConsequence: (q) =>
-            `你要提出：${q.holder_name}${q.change === 'grant' ? '取得' : '失去'}「${q.role_name}」${q.scope_ref ? `（範圍 ${q.scope_ref}）` : ''}。原因：${q.reason}`,
+        proposeConsequence: (d) => `你要提出：${d.holder.name}${d.change === 'grant' ? '取得' : '失去'}「${d.role.name}」。`,
         proposedBy: '提出',
         approvedBy: '核准',
         status: '狀態',
@@ -243,14 +250,14 @@ export const t = {
         blockedBy: '擋下',
         block: '擋下這張變更',
         confirmBlockTitle: '擋下角色指派變更',
-        blockConsequence: (q) =>
-            `擋下後這張變更不會生效：${q.holder_name}${q.change === 'grant' ? '不會取得' : '不會失去'}「${q.role_name}」。`,
+        blockConsequence: (d) =>
+            `擋下後這張變更不會生效：${d.holder.name}${d.change === 'grant' ? '不會取得' : '不會失去'}「${d.role.name}」。`,
         blocked: '已擋下，這張變更不會生效。',
-        summary: (q, change) => `${q.holder_name}：${change}「${q.role_name}」`,
+        summary: (d, change) => `${d.holder.name}：${change}「${d.role.name}」`,
         approve: '核准',
         confirmTitle: '核准角色指派變更',
-        consequence: (q) =>
-            `核准後生效（治理類角色有冷卻期）：${q.holder_name}${q.change === 'grant' ? '取得' : '失去'}「${q.role_name}」。`,
+        consequence: (d) =>
+            `核准後生效（治理類角色有冷卻期）：${d.holder.name}${d.change === 'grant' ? '取得' : '失去'}「${d.role.name}」。`,
         approved: '已核准，角色指派已生效。',
     },
 

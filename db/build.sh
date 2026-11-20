@@ -4,7 +4,7 @@
 #       db/build.sh --no-test        只建置
 #       db/build.sh --bench          另外建置效能比較用的資料庫並跑效能量測（約數分鐘）
 #       db/build.sh --plpgsql-check  只建置 sgn_test 的 schema，跑 plpgsql_check 靜態分析（tools/check.sh 用）
-# 前提：PostgreSQL 16 在跑；sim 的 ldap、idp 在跑（sim/up.sh）；根目錄已 npm ci。
+# 前提：PostgreSQL 16 在跑；sim 的 ldap、idp、mail 在跑（sim/up.sh）；根目錄已 npm ci。
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -128,8 +128,8 @@ if [[ "$mode" == plpgsql-check ]]; then
     exit 0
 fi
 
-log "檢查 sim（ldap、idp）"
-"$repo/sim/status.sh" --strict ldap idp >/dev/null || { echo "sim 沒有在跑，請先 sim/up.sh" >&2; exit 1; }
+log "檢查 sim（ldap、idp、mail）"
+"$repo/sim/status.sh" --strict ldap idp mail >/dev/null || { echo "sim 沒有在跑，請先 sim/up.sh" >&2; exit 1; }
 
 mkdir -p "$repo/.run"
 for db in "$SGN_DB_TEST" "$SGN_DB_E2E"; do
@@ -140,7 +140,8 @@ for db in "$SGN_DB_TEST" "$SGN_DB_E2E"; do
     seed_from_sim "$db"
     load_seed "$db"
     SGN_DATABASE="$db" node "$here/tools/bootstrap-registrar.mjs" >/dev/null
-    rm -f "$repo/.run/anchors-$db.jsonl"
+    # 測試的舊金鑰（db/tests/kernel/lib/harness.mjs）只對這一次建置的資料庫有效
+    rm -f "$repo/.run/anchors-$db.jsonl" "$repo/.run/passkeys-$db.json"
 done
 
 if (( run_bench )); then

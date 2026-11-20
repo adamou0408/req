@@ -598,35 +598,97 @@ test('K-ROLE-SOURCE 稽核角色只能在平台內指派：鍾國強在手機上
     assert.deepEqual(problems, []);
 });
 
-test('K-PASSKEY-ENROLL 第一把通行金鑰由主管背書：鄭雅文登記後畫面顯示短碼，張美玲在自己的手機上看到同一組短碼，用通行金鑰核准；冷卻期內還不能做決定', async () => {
+test('K-PASSKEY-ENROLL 第一把通行金鑰由主管背書：鄭雅文的新裝置顯示 12 位數核對碼，張美玲在自己的手機上輸入、頁面從指紋自己算一次，一樣才用通行金鑰核准；冷卻期內還不能做決定', async () => {
     const owner = await loggedIn('p11');
     const staff = await loggedIn('p13');
     // 鄭雅文沒有待簽的單：從她自己送出的申請單（撤回要通行金鑰）進去，畫面才有登記的提示
     const { caseNo } = await apply('p13', l3({ principal: '季度業績看板', description: '登記金鑰測試' }));
-    await openFromHome(staff, caseNo);
+    await home(staff);
+    await staff.page.click(`[data-case-no="${caseNo}"]`);
     await staff.page.waitForSelector('[data-testid=passkey-missing]');
-    const code = await requestPasskeyInUi(staff);
-    assert.match(code, /^\d{6}$/);
+    const { code } = await requestPasskeyInUi(staff);
+    assert.match(code, /^\d{4} \d{4} \d{4}$/);
     const layout = await layoutProblems(staff.page, '待核准的通行金鑰');
-    // 主管的首頁出現「待核准的通行金鑰登記」，短碼和本人畫面上的一樣
+    // 主管的首頁出現「待核准的通行金鑰登記」；從首頁開始數步數
     await home(owner);
     await ensurePasskey(owner);
+    const steps = [];
     await owner.page.click('[data-testid=open-passkeys]');
+    steps.push('點「待核准的通行金鑰登記」');
     await owner.page.waitForSelector('[data-testid=enrollment-item]');
     const item = owner.page.locator('[data-testid=enrollment-item]', { hasText: '鄭雅文' });
-    assert.equal((await item.locator('[data-testid=endorse-short-code]').textContent()).trim(), code);
     layout.push(...(await layoutProblems(owner.page, '背書通行金鑰')));
+    // 念錯一碼：頁面算出來的不一樣，不簽
+    await item.locator('[data-testid=endorse-code]').fill(code.replace(/\d$/, (d) => String((Number(d) + 1) % 10)));
     await item.locator('[data-testid=endorse]').click();
+    await item.locator('[data-testid=endorse-check].bad').waitFor();
+    assert.equal(await owner.page.locator('[data-testid=confirm-passkey]').count(), 0);
+    await item.locator('[data-testid=endorse-code]').fill(code);
+    steps.push('輸入本人念的核對碼');
+    await item.locator('[data-testid=endorse]').click();
+    steps.push('按「核對」（頁面從指紋算核對碼，約一秒）');
+    await owner.page.waitForSelector('[data-testid=confirm-passkey]');
     assert.match(await owner.page.textContent('[data-testid=consequence]'), new RegExp(code));
     const done = await flashAfter(owner.page, () => owner.page.click('[data-testid=confirm-passkey]'));
+    steps.push('按「用通行金鑰確認」');
+    steps.push('裝置上的使用者驗證');
     assert.equal(done.ok, true, done.text);
     // 本人：金鑰已核准，冷卻期內畫面說明什麼時候生效，還不能做決定
     await staff.page.reload();
     await waitPage(staff.page);
     await staff.page.waitForSelector('[data-testid=passkey-cooling]');
     assert.equal(await staff.page.locator('[data-action=recall]').count(), 1, '按鈕依資料庫的 actions 顯示');
-    results.tests.passkey_enroll = { short_code_matches: true, layout_problems: layout };
+    results.tests.passkey_enroll = { code_matches: true, endorse_steps_from_home: steps.length, steps, layout_problems: layout };
     assert.deepEqual(layout, []);
+});
+
+test('K-DISPLAY-SIGNED 紅隊第三輪 高-1：後端改寫目錄與單上的其他欄位，決定畫面不跟著變；改寫顯示摘要的任何一個字，簽章被拒', async () => {
+    const { caseNo } = await apply('p04', l3({ principal: '季度業績看板', description: '顯示摘要端對端' }));
+    const manager = await loggedIn('p03');
+    await ensurePasskey(manager);
+    const context = manager.page.context();
+    let tamperDisplay = false;
+    // 被入侵的後端（改寫回應；頁面程式沒動）：目錄的名稱、case_get 的級別、例外、名字；第二階段連顯示摘要也改
+    await context.route(`${API}/api/data_access_catalog`, async (route) => {
+        const response = await route.fetch();
+        const cat = await response.json();
+        for (const pkg of cat.result.packages) pkg.name = `改名的${pkg.name}`;
+        await route.fulfill({ response, json: cat });
+    });
+    await context.route(`${API}/api/case_get`, async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        if (body.result?.case_no === caseNo) {
+            Object.assign(body.result, { tier: 'L2', exceptions: [], applicant_name: '王志明' });
+            if (tamperDisplay) body.result.display.content.scope[0].package_name = '銷售訂單（假）';
+        }
+        await route.fulfill({ response, json: body });
+    });
+    try {
+        await openFromHome(manager, caseNo);
+        const facts = await manager.page.textContent('[data-testid=decision-facts]');
+        assert.match(facts, /客戶主檔/);
+        assert.match(facts, /林怡君/);
+        assert.ok(!facts.includes('改名的') && !facts.includes('王志明'), '畫面只從顯示摘要畫');
+        assert.equal(await manager.page.textContent('[data-testid=tier]'), 'L3');
+        // 連顯示摘要也改：畫面照改過的畫，簽下去資料庫用自己的資料重算，對不上
+        tamperDisplay = true;
+        await manager.page.reload();
+        await waitPage(manager.page);
+        assert.match(await manager.page.textContent('[data-testid=decision-facts]'), /銷售訂單（假）/);
+        await manager.page.click('[data-action=approve]');
+        await manager.page.click('[data-testid=confirm-passkey]');
+        await manager.page.waitForSelector('[data-testid=decision-error]:not([hidden])');
+        assert.match(await manager.page.textContent('[data-testid=decision-error]'), /簽的內容和資料庫的紀錄不符/);
+        assert.equal((await caseByNo(manager, caseNo, '/api/inbox_list')).state, 'in_approval');
+    } finally {
+        await context.unroute(`${API}/api/data_access_catalog`);
+        await context.unroute(`${API}/api/case_get`);
+    }
+    // 誠實的畫面：核准成立
+    await openFromHome(manager, caseNo);
+    await decideHere(manager, 'approve');
+    results.tests.display_signed = { case_no: caseNo, tampered_display_rejected: true };
 });
 
 test('D68 頁面與後端分開來源：頁面帶 CSP、後端只回 JSON；網址上的 ?error= 只收錯誤代碼（D71）', async () => {

@@ -1,4 +1,4 @@
-// 讀 KEY=VALUE 設定檔（db/sgn.env、sim 的 service.env），支援 "${OTHER}" 展開。
+// 讀 KEY=VALUE 設定檔（db/sgn.env、sim 的 service.env：ldap、idp、mail），支援 "${OTHER}" 展開。
 // 所有連線設定都從這裡取得，不在程式裡寫死。
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -30,8 +30,9 @@ export function loadConfig() {
     const db = readEnvFile(join(DB_DIR, 'sgn.env'));
     const ldap = readEnvFile(join(REPO_DIR, 'sim/ldap/test-credentials.env'), readEnvFile(join(REPO_DIR, 'sim/ldap/service.env')));
     const idp = readEnvFile(join(REPO_DIR, 'sim/idp/test-credentials.env'), readEnvFile(join(REPO_DIR, 'sim/idp/service.env')));
+    const mail = readEnvFile(join(REPO_DIR, 'sim/mail/service.env'));
     const database = process.env.SGN_DATABASE || db.SGN_DB_TEST;
-    return { db, ldap, idp, database };
+    return { db, ldap, idp, mail, database };
 }
 
 /** 外部錨點檔（資料庫以外）。每個資料庫一個。 */

@@ -2,9 +2,9 @@
 // 走畫面填申請、走畫面做決定、版面自動檢查（ux-acceptance 第 3 節：390px 沒有水平捲動、觸控目標 44px）。
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
-import { call, closePools, endorse, pool, registrar, settlePasskey } from '../../../db/tests/kernel/lib/harness.mjs';
+import { approveEnrollment, call, closePools, pool, rememberKey, settlePasskey } from '../../../db/tests/kernel/lib/harness.mjs';
 import { loadConfig } from '../../../db/tools/lib/env.mjs';
-import { shortCode } from '../../../web/lib/signing.js';
+import { groupedCode, shortCode } from '../../../web/lib/signing.js';
 
 const config = loadConfig();
 /** 頁面的來源（瀏覽器開的網址）；後端在另一個來源，只回 JSON（裁決 D68）。 */
@@ -125,28 +125,49 @@ export async function layoutProblems(page, label) {
     return problems.map((p) => `${label}: ${p}`);
 }
 
-/** 在畫面上登記通行金鑰：瀏覽器建立金鑰 → Dex 再驗證一次 → 資料庫建立待核准的登記；回傳畫面上顯示的短碼。 */
+/**
+ * 在畫面上登記通行金鑰：瀏覽器建立金鑰 → Dex 再驗證一次 → 資料庫建立待核准的登記。
+ * 回傳新裝置畫面上顯示的 12 位數核對碼（分組的樣子）與完整指紋（QR 碼的內容；裁決 D76）。
+ */
 export async function requestPasskeyInUi(p) {
     await p.page.locator('[data-testid=passkey-missing] button').first().click();
     await dexLogin(p.page, p.uid);
     await p.page.waitForSelector('#flash.ok');
     await waitPage(p.page);
-    return (await p.page.textContent('[data-testid=passkey-pending] [data-testid=short-code]')).trim();
+    const code = p.page.locator('[data-testid=passkey-pending] [data-testid=short-code]');
+    await code.filter({ hasText: /^\d{4} \d{4} \d{4}$/ }).waitFor();
+    const fingerprint = (await p.page.textContent('[data-testid=passkey-pending] [data-testid=device-fingerprint]'))
+        .replace(/^[^：]*：/, '')
+        .replace(/\s/g, '');
+    return { code: (await code.textContent()).trim(), fingerprint };
+}
+
+/** 瀏覽器虛擬驗證器裡的這把金鑰（私鑰），記成這個人的舊金鑰（之後的測試或攻擊腳本扮演本人用它核准新金鑰；D76）。 */
+async function rememberBrowserKey(p, personId, credentialIdB64url) {
+    const { credentials } = await p.cdp.send('WebAuthn.getCredentials', { authenticatorId: p.authenticatorId });
+    const cred = credentials.find((c) => Buffer.from(c.credentialId, 'base64').toString('base64url') === credentialIdB64url);
+    if (cred) rememberKey(personId, null, { privateKeyPkcs8: cred.privateKey, credentialId: credentialIdB64url });
 }
 
 /**
- * 第一次要做決定的人：畫面上登記（待核准）→ 登記人背書（D65；兩邊的短碼一致）→ 模擬冷卻期已過 → 重新整理。
- * 畫面有提示才做。
+ * 第一次要做決定的人：畫面上登記（待核准）→ 核准（D76：第一把由登記人背書，看新裝置畫面上的完整指紋；
+ * 本人已有舊金鑰就用舊金鑰）→ 模擬冷卻期已過 → 重新整理。畫面有提示才做。
  */
 export async function ensurePasskey(p) {
     const notice = p.page.locator('[data-testid=passkey-missing] button');
     if ((await notice.count()) === 0) return false;
-    const code = await requestPasskeyInUi(p);
-    const me = await call(app, 'me', (await sessionOf(p)).session);
+    const shown = await requestPasskeyInUi(p);
+    const user = { ...(await sessionOf(p)) };
+    const me = await call(app, 'me', user.session);
     const [pending] = me.passkey_pending;
-    assert.equal(shortCode(pending.public_key_sha256), code, '登記人畫面上的短碼和本人的一樣');
-    await endorse(app, await registrar(app), pending.enrollment_id);
+    assert.equal(
+        groupedCode(await shortCode(pending.display.public_key_sha256, pending.code_cost)),
+        shown.code,
+        '清單上的指紋算出的核對碼和本人畫面上的一樣',
+    );
+    await approveEnrollment(app, { ...user, personId: me.person_id }, pending.enrollment_id, { fingerprint: shown.fingerprint });
     await settlePasskey(app, { credentialId: Buffer.from(pending.credential_id, 'base64url') });
+    await rememberBrowserKey(p, me.person_id, pending.credential_id);
     await p.page.reload();
     await waitPage(p.page);
     return true;

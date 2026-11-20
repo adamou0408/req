@@ -158,13 +158,7 @@ begin
         from sgn.passkey_enrollment as e
         where e.person_id = v_person_id and e.status = 'pending' and e.requested_at > sgn_internal.now() - interval '24 hours'
     ) >= v_daily_max then
-        perform sgn_internal.audit_append('passkey.enrollment_refused', null, v_person_id, jsonb_build_object(
-            'credential_id', p_credential_id,
-            'public_key_sha256', encode(sha256(v_point), 'hex'),
-            'settings', jsonb_build_object('passkey.enrollment_daily_max', v_daily_max),
-            'rules', jsonb_build_array('K-PASSKEY-ENROLL')
-        ));
-        perform sgn_internal.raise_error('PASSKEY_ENROLLMENT_LIMIT');
+        perform sgn_internal.raise_error('PASSKEY_ENROLLMENT_LIMIT', format('%s pending in 24 hours', v_daily_max));
     end if;
     insert into sgn.passkey_enrollment (
         person_id, credential_id, public_key, registration_token_sha256, requested_at, requested_seq, status

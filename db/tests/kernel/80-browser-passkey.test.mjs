@@ -5,19 +5,18 @@ import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
-import { lowS } from '../../../web/lib/signing.js';
+import { keyFingerprint, lowS } from '../../../web/lib/signing.js';
 import {
+    approveEnrollment,
     call,
     closePools,
     config,
     createSubmittedCase,
     decidePasskey,
-    endorse,
     idToken,
     issueChallenge,
     login,
     pool,
-    registrar,
     registrationNonce,
     settlePasskey,
 } from './lib/harness.mjs';
@@ -81,8 +80,9 @@ test('K-DECISION-PROOF (a) 真的瀏覽器：Chromium 登記通行金鑰、簽�
         created.id,
         created.spki,
     ]);
-    // 待核准 → 登記人背書（D65）→ 模擬冷卻期已過
-    await endorse(app, await registrar(app), rows[0].r.enrollment_id);
+    // 待核准 → 核准（D76：本人已有舊金鑰就用舊金鑰，第一把由登記人背書；都看新裝置的完整指紋）→ 模擬冷卻期已過
+    const fingerprint = await keyFingerprint(Buffer.from(created.spki, 'base64url'));
+    await approveEnrollment(app, manager, rows[0].r.enrollment_id, { fingerprint });
     await settlePasskey(app, { credentialId: Buffer.from(created.id, 'base64url') });
 
     const caseId = await createSubmittedCase(app, applicant, { dataset: 'browser', rows: 1 });

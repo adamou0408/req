@@ -1,5 +1,7 @@
-// 資料授權流程包的畫面元件：資料範圍編輯器、內容摘要、與前一版的差異、要交給外部系統的規則。
-// 只做呈現與收集輸入；級別、哪些欄位要申請、縮小或擴大、重疊，一律以資料庫回傳的為準。
+// 資料授權流程包的畫面元件：決定畫面的資料範圍、使用情境、與前一版的差異、要交給外部系統的規則。
+// 決定畫面一律只從資料庫產生的顯示摘要（display，名稱與分級都在裡面；裁決 D75）畫出，不讀資料目錄——
+// 後端改寫目錄或 case_get 的欄位，畫面上的判斷內容不會跟著變；改寫摘要本身，簽章就對不上。
+// 資料目錄只用在新申請與縮小的編輯器（收集輸入），以及首頁卡片的一行摘要。級別、縮小或擴大、重疊一律以資料庫為準。
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { el, facts } from '../ui.js';
@@ -13,102 +15,95 @@ export async function catalog() {
     return cached;
 }
 
-const pkgOf = (cat, code) => cat.packages.find((p) => p.code === code);
-const fieldName = (pkg, code) => pkg?.fields.find((f) => f.code === code)?.name ?? code;
-const fieldCode = (f) => (typeof f === 'string' ? f : f.code);
-
-function filterText(pkg, cond) {
-    const filter = pkg?.filters.find((f) => f.code === cond.filter);
-    const label = (v) => filter?.values.find((x) => x.value === v)?.label ?? String(v);
-    const values = cond.op === 'between' ? tx.between(cond.values[0], cond.values[1]) : cond.values.map(label).join('、');
-    return `${filter?.name ?? cond.filter}：${values}`;
-}
+/** 給清單卡片與新申請畫面用的一行：哪些主題包（不是決定畫面）。 */
+export const packagesLine = (cat, content) =>
+    (content.scope ?? []).map((s) => cat.packages.find((p) => p.code === s.package)?.name ?? s.package).join('、');
 
 const periodText = (p) => (p ? tx.between(p.from ?? '—', p.to ?? '—') : tx.noPeriod);
 
-/** 一個主題包的一行摘要：欄位、列條件。 */
-function scopeLine(cat, item) {
-    const pkg = pkgOf(cat, item.package);
-    const filters = (item.row_filters ?? []).map((c) => filterText(pkg, c));
+const valuesText = (f) =>
+    f.op === 'between' ? tx.between(f.values[0]?.label, f.values[1]?.label) : f.values.map((v) => v.label).join('、');
+
+const filterText = (f) => `${f.filter_name}：${valuesText(f)}`;
+
+const fieldsText = (pkg) => pkg.fields.map((f) => `${f.name}（${f.classification}）`).join('、') || tx.noFields;
+
+/** 一個主題包的一行：名稱、欄位與分級、列條件（顯示摘要的一項）。 */
+function packageLine(pkg) {
+    const filters = pkg.row_filters.map(filterText);
     return el(
         'li',
-        { 'data-package': item.package },
-        el('strong', {}, pkg?.name ?? item.package),
-        `：${item.fields.map((f) => fieldName(pkg, fieldCode(f))).join('、') || tx.noFields}`,
-        filters.length ? el('div', { class: 'muted' }, filters.join('；')) : el('div', { class: 'muted' }, tx.allRows),
+        { 'data-package': pkg.package },
+        el('strong', {}, pkg.package_name),
+        `：${fieldsText(pkg)}`,
+        el('div', { class: 'muted' }, filters.length ? filters.join('；') : tx.allRows),
     );
 }
 
-/** 給清單卡片用的一行：哪些主題包。 */
-export const packagesLine = (cat, content) => (content.scope ?? []).map((s) => pkgOf(cat, s.package)?.name ?? s.package).join('、');
+/** 重疊項目的主題包（顯示摘要的 overlap.items[].packages）。 */
+export const overlapPackages = (packages) => packages.map((p) => `${p.package_name}：${p.fields.map((f) => f.name).join('、')}`).join('；');
 
-/** 「哪些資料」：主題包、欄位、列條件、資料期間。 */
-export const scopeView = (cat, content) =>
+/** 「哪些資料」：主題包、欄位、列條件、資料期間（display.content）。 */
+export const scopeView = (shown) =>
     el(
         'div',
         { 'data-testid': 'scope-view' },
         el(
             'ul',
             { class: 'scope' },
-            (content.scope ?? []).map((s) => scopeLine(cat, s)),
+            shown.scope.map((s) => packageLine(s)),
         ),
-        el('div', {}, `${tx.dataPeriod}：${periodText(content.data_period)}`),
+        el('div', {}, `${tx.dataPeriod}：${periodText(shown.data_period)}`),
     );
 
-/** 完整內容的其餘部分：使用情境、可否匯出。 */
-export function purposeView(cat, content) {
-    const category = cat.purpose_categories.find((c) => c.code === content.purpose_category);
-    return facts([
-        [
-            tx.purpose,
-            `${category?.name ?? content.purpose_category ?? '—'}${content.purpose_description ? `：${content.purpose_description}` : ''}`,
-        ],
-        [tx.export, content.export_allowed ? tx.exportYes : tx.exportNo],
+/** 使用情境與可否匯出（display.content）。 */
+export const purposeView = (shown) =>
+    facts([
+        [tx.purpose, `${shown.purpose.category_name ?? '—'}${shown.purpose.description ? `：${shown.purpose.description}` : ''}`],
+        [tx.export, shown.export_allowed ? tx.exportYes : tx.exportNo],
     ]);
-}
 
-function fieldsByPackage(content) {
-    return new Map((content.scope ?? []).map((s) => [s.package, s]));
-}
-
-function scopeDiff(cat, before, after) {
+function scopeDiff(before, after) {
     const out = [];
-    const old = fieldsByPackage(before);
-    const now = fieldsByPackage(after);
+    const old = new Map(before.scope.map((s) => [s.package, s]));
+    const now = new Map(after.scope.map((s) => [s.package, s]));
     for (const [code, item] of now) {
-        const pkg = pkgOf(cat, code);
         const prev = old.get(code);
         if (!prev) {
-            out.push(tx.diffAddedPackage(pkg?.name ?? code));
+            out.push(tx.diffAddedPackage(item.package_name));
             continue;
         }
-        const a = new Set(prev.fields.map(fieldCode));
-        const b = new Set(item.fields.map(fieldCode));
-        const added = [...b].filter((f) => !a.has(f)).map((f) => fieldName(pkg, f));
-        const removed = [...a].filter((f) => !b.has(f)).map((f) => fieldName(pkg, f));
-        if (added.length) out.push(tx.diffAddedFields(pkg?.name ?? code, added.join('、')));
-        if (removed.length) out.push(tx.diffRemovedFields(pkg?.name ?? code, removed.join('、')));
-        const fa = (prev.row_filters ?? []).map((c) => filterText(pkg, c)).join('；');
-        const fb = (item.row_filters ?? []).map((c) => filterText(pkg, c)).join('；');
-        if (fa !== fb) out.push(tx.diffFilters(pkg?.name ?? code, fa || tx.allRows, fb || tx.allRows));
+        const a = new Set(prev.fields.map((f) => f.code));
+        const b = new Set(item.fields.map((f) => f.code));
+        const added = item.fields.filter((f) => !a.has(f.code)).map((f) => f.name);
+        const removed = prev.fields.filter((f) => !b.has(f.code)).map((f) => f.name);
+        if (added.length) out.push(tx.diffAddedFields(item.package_name, added.join('、')));
+        if (removed.length) out.push(tx.diffRemovedFields(item.package_name, removed.join('、')));
+        const fa = prev.row_filters.map(filterText).join('；');
+        const fb = item.row_filters.map(filterText).join('；');
+        if (fa !== fb) out.push(tx.diffFilters(item.package_name, fa || tx.allRows, fb || tx.allRows));
     }
-    for (const code of old.keys()) if (!now.has(code)) out.push(tx.diffRemovedPackage(pkgOf(cat, code)?.name ?? code));
+    for (const [code, item] of old) if (!now.has(code)) out.push(tx.diffRemovedPackage(item.package_name));
     return out;
 }
 
-/** 兩份內容的差異，逐項以文字列出（只是呈現；縮小或擴大由資料庫判定）。 */
-export function contentDiff(cat, before, after) {
-    const out = scopeDiff(cat, before, after);
+/** 兩份顯示內容的差異，逐項以文字列出（只是呈現；縮小或擴大由資料庫判定）。 */
+export function contentDiff(before, after) {
+    const out = scopeDiff(before, after);
     if (periodText(before.data_period) !== periodText(after.data_period))
         out.push(tx.diffPeriod(periodText(before.data_period), periodText(after.data_period)));
-    if (before.purpose_category !== after.purpose_category || before.purpose_description !== after.purpose_description)
+    if (before.purpose.category !== after.purpose.category || before.purpose.description !== after.purpose.description)
         out.push(tx.diffPurpose);
     if (before.export_allowed !== after.export_allowed) out.push(after.export_allowed ? tx.diffExportOn : tx.diffExportOff);
     return out;
 }
 
-/** 要交給外部系統的規則（核准完成後由資料庫產生）。 */
-export function fulfilmentView(cat, payload) {
+/**
+ * 要交給外部系統的規則（核准完成後由資料庫產生；執行內容的雜湊簽進去）。
+ * 主題包與欄位的名稱取顯示摘要裡同一個代碼的名稱（shown＝display.content），不讀資料目錄。
+ */
+export function fulfilmentView(shown, payload) {
+    const pkgOf = (code) => shown.scope.find((s) => s.package === code);
     return el(
         'div',
         { 'data-testid': 'fulfilment-rules' },
@@ -120,15 +115,18 @@ export function fulfilmentView(cat, payload) {
         el(
             'ol',
             { class: 'rules' },
-            payload.rules.map((r) =>
-                el(
+            payload.rules.map((r) => {
+                const pkg = pkgOf(r.package);
+                const fields = r.fields.map((f) => pkg?.fields.find((x) => x.code === f)?.name ?? f).join('、');
+                return el(
                     'li',
                     { 'data-rule-id': r.rule_id },
                     el('strong', {}, `${tx.ruleNo} ${r.rule_id}・${tx.system} ${r.system}`),
-                    scopeLine(cat, { package: r.package, fields: r.fields, row_filters: r.row_filter }),
+                    el('div', {}, `${pkg?.package_name ?? r.package}：${fields}`),
+                    el('div', { class: 'muted' }, pkg?.row_filters.length ? pkg.row_filters.map(filterText).join('；') : tx.allRows),
                     r.data_period ? el('div', { class: 'muted' }, `${tx.dataPeriod}：${periodText(r.data_period)}`) : null,
-                ),
-            ),
+                );
+            }),
         ),
         el(
             'details',

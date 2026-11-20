@@ -182,7 +182,7 @@ test('K-ROLE-SOURCE 控制類角色只能在平台內指派：一人提出、另
     assert.equal(await hasRole(users.p05.personId, 'security_responder'), false);
     const approved = await approve('p19', request.request_id);
     assert.equal(approved.status, 'approved');
-    assert.equal(approved.approved_by_name, '賴政達');
+    assert.equal(approved.display.approved_by.name, '賴政達');
     assert.equal(await hasRole(users.p05.personId, 'security_responder'), true);
     await rejectsWith(challengeFor('p23', request.request_id), 'ROLE_CHANGE_STATE');
     // 鏈上：提出與核准各一筆，核准附通行金鑰的證明
@@ -312,8 +312,10 @@ test('K-ROLE-CHANGE-GOVERNANCE 治理類角色核准後進冷卻期，通知全�
             notified.rows.some((r) => r.person_id === users[uid].personId),
             uid,
         );
-    // 不是治理角色的人不能擋；治理角色的持有人（董事長）看得到「擋下」並擋下
-    await rejectsWith(challengeFor('p19', request.request_id, 'block'), 'ROLE_CHANGE_NOT_GOVERNOR');
+    // 核准人自己不能擋（D77：擋下的人不得是當事人、提出人、核准人）；不是治理角色的人不能擋；
+    // 治理角色的持有人（董事長）看得到「擋下」並擋下
+    await rejectsWith(challengeFor('p19', request.request_id, 'block'), 'ROLE_CHANGE_SELF');
+    await rejectsWith(challengeFor('p23', request.request_id, 'block'), 'ROLE_CHANGE_NOT_GOVERNOR');
     const listed = (await call(app, 'role_change_list', users.p27.session)).find((q) => q.request_id === request.request_id);
     assert.deepEqual(listed.actions, ['block']);
     const blocked = await decideRole(app, users.p27, request.request_id, 'block');

@@ -26,6 +26,38 @@ const principal: Shape = {
 
 const pathStage: Shape = { object: { seq: 'int', code: 'text', name: 'text', phase: 'text', mode: 'text' } };
 
+/** 畫面上的一個人：內部 id 與名字（同名的人已加上區分）。 */
+const personRef: Shape = { object: { id: 'uuid', name: 'text' } };
+
+/** 一個版本在畫面上的樣子（裁決 D75）：被授權者、授權起迄、內容的顯示文字（流程包的 display_content hook）。 */
+const versionDisplay = {
+    principal: { nullable: { object: { id: 'uuid', name: 'text', kind: 'text', owner: { nullable: personRef } } } },
+    validity: { object: { from: { nullable: 'text' }, to: { nullable: 'text' } } },
+    content: 'json',
+} as const satisfies Record<string, Shape>;
+
+/**
+ * 決定畫面的顯示摘要（裁決 D75）：頁面只從它畫出決定畫面，並把它的雜湊簽進去；資料庫驗章時用自己的資料重算。
+ * 只有字串、布林、null、陣列與物件。
+ */
+const caseDisplay: Shape = {
+    object: {
+        ...versionDisplay,
+        case_no: 'text',
+        process: { object: { code: 'text', name: 'text' } },
+        version: 'text',
+        version_sha256: 'hex',
+        tier: { nullable: { object: { code: 'text', name: 'text' } } },
+        applicant: personRef,
+        exceptions: { array: { object: { id: 'text', rule_code: 'text' } } },
+        overlap: { nullable: { object: { level: 'text', reason: { nullable: 'text' }, items: 'json' } } },
+        /** 與看的人比較的基準版本（他上次決定的那一版，或最近有人決定的那一版）；新申請為 null */
+        baseline: { nullable: { object: { ...versionDisplay, version: 'text' } } },
+        reduced_by: { nullable: { object: { name: 'text', version: 'text' } } },
+        stage: { object: { current: { nullable: 'text' }, next: { nullable: 'text' } } },
+    },
+};
+
 const caseFields = {
     case_id: 'uuid',
     case_no: 'int',
@@ -108,6 +140,9 @@ export const caseDetail: Shape = {
                 object: { grant_id: 'uuid', valid_from: { nullable: 'date' }, valid_to: { nullable: 'date' }, status: 'text' },
             },
         },
+        display: caseDisplay,
+        /** 內容完全相同的其他進行中申請（裁決 D79 (6)：送出時提示並連到既有的那張） */
+        duplicates: { array: { object: { case_id: 'uuid', case_no: 'int' } } },
     },
 };
 
@@ -116,17 +151,28 @@ export const caseDetail: Shape = {
  * input：決定的輸入整理後的樣子（縮小後核准要給簽核人看縮小後的內容）。
  */
 const nonce: Shape = { object: { challenge_id: 'uuid', nonce: 'b64url', expires_at: 'timestamp' } };
-const challenge: Shape = { object: { challenge_id: 'uuid', nonce: 'b64url', input: 'json', expires_at: 'timestamp' } };
+const challenge: Shape = {
+    object: {
+        challenge_id: 'uuid',
+        nonce: 'b64url',
+        input: 'json',
+        /** 縮小後核准：縮小後那一版的顯示（畫面只從它畫出要簽的縮小內容，也簽進去）；其他決定為 null */
+        display: { nullable: { object: versionDisplay } },
+        expires_at: 'timestamp',
+    },
+};
 
-/** 待核准的通行金鑰登記（短碼由畫面從指紋自己算）。 */
+/**
+ * 待核准的通行金鑰登記（裁決 D76）。display 是背書畫面唯一的資料來源（本人、金鑰編號、完整指紋）；
+ * 12 位數核對碼由畫面從指紋與 code_cost 自己算（web/lib/signing.js 的 shortCode）。
+ */
 const enrollmentFields = {
     enrollment_id: 'uuid',
-    person_id: 'uuid',
-    person_name: 'text',
     credential_id: 'b64url',
-    public_key_sha256: 'hex',
     status: 'text',
     requested_at: 'timestamp',
+    code_cost: 'int',
+    display: { object: { person: personRef, credential_id: 'b64url', public_key_sha256: 'hex' } },
     actions: { array: 'text' },
 } as const satisfies Record<string, Shape>;
 const enrollment: Shape = { object: enrollmentFields };
@@ -168,25 +214,30 @@ const chainEvent: Shape = {
     },
 };
 
-const roleChange: Shape = {
+/** 角色指派變更的顯示摘要（裁決 D75）：畫面只從它畫、簽的就是它。 */
+const roleChangeDisplay: Shape = {
     object: {
-        request_id: 'uuid',
-        holder_id: 'uuid',
-        holder_name: 'text',
-        role_code: 'text',
-        role_name: 'text',
-        scope_ref: { nullable: 'text' },
+        holder: personRef,
+        role: { object: { code: 'text', name: 'text' } },
+        scope: { nullable: { object: { ref: 'text', label: 'text' } } },
         /** grant（授予）或 revoke（撤除） */
         change: 'text',
         reason: 'text',
+        proposed_by: { nullable: personRef },
+        approved_by: { nullable: personRef },
+    },
+};
+
+const roleChange: Shape = {
+    object: {
+        request_id: 'uuid',
         /** pending、approved、cooling（治理類角色核准後的冷卻期）、blocked（冷卻期內被擋下） */
         status: 'text',
-        proposed_by_name: 'text',
         proposed_at: 'timestamp',
-        approved_by_name: { nullable: 'text' },
         approved_at: { nullable: 'timestamp' },
         effective_at: { nullable: 'timestamp' },
         blocked_by_name: { nullable: 'text' },
+        display: roleChangeDisplay,
         actions: { array: 'text' },
     },
 };
@@ -246,7 +297,8 @@ export const routes = [
     { fn: 'passkey_register_begin', params: ['session'], returns: { object: { challenge_id: 'uuid', challenge: 'b64url' } } },
     // 通行金鑰登記的核准（裁決 D65）：本人用舊金鑰，或主管、登記人背書
     { fn: 'passkey_enrollment_list', params: ['session'], returns: { array: enrollment } },
-    { fn: 'passkey_endorse_challenge', params: ['session', 'enrollment_id'], returns: nonce },
+    /** method：qr（掃新裝置的 QR 碼取得完整指紋）或 code（12 位數核對碼） */
+    { fn: 'passkey_endorse_challenge', params: ['session', 'enrollment_id', 'method'], returns: nonce },
     {
         fn: 'passkey_endorse_passkey',
         params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
@@ -278,7 +330,7 @@ export const routes = [
     {
         fn: 'role_change_propose_challenge',
         params: ['session', 'holder_id', 'role_code', 'scope_ref', 'change', 'reason'],
-        returns: nonce,
+        returns: { object: { challenge_id: 'uuid', nonce: 'b64url', expires_at: 'timestamp', display: roleChangeDisplay } },
     },
     {
         fn: 'role_change_propose_passkey',
@@ -331,7 +383,8 @@ export const packRoutes = {
 
 /** 後端自己的流程（登入、登記通行金鑰的再驗證、登出、啟動）呼叫的 function；不直接開成 /api 路由。 */
 export const backendCalls = {
-    sessionBegin: { fn: 'session_begin', params: [], returns: { object: { challenge_id: 'uuid', nonce: 'b64url' } } },
+    /** source：後端依 frontdoor_policy 認定的登入來源（裁決 D78：每個來源各自的上限在資料庫） */
+    sessionBegin: { fn: 'session_begin', params: ['source'], returns: { object: { challenge_id: 'uuid', nonce: 'b64url' } } },
     sessionOpen: {
         fn: 'session_open',
         params: ['challenge_id', 'id_token'],
@@ -344,8 +397,12 @@ export const backendCalls = {
         params: ['challenge_id', 'id_token', 'credential_id', 'public_key_spki'],
         returns: { object: { credential_id: 'b64url', enrollment_id: 'uuid', status: 'text', public_key_sha256: 'hex' } },
     },
-    /** 入口的參數（每個來源每分鐘的登入次數），後端啟動時讀一次 */
-    frontdoorPolicy: { fn: 'frontdoor_policy', params: [], returns: { object: { login_attempts_per_minute: 'int' } } },
+    /** 入口的參數（登入來源的認定方式、受信任的反向代理），後端啟動時讀一次 */
+    frontdoorPolicy: {
+        fn: 'frontdoor_policy',
+        params: [],
+        returns: { object: { client_source: 'text', trusted_proxies: { array: 'text' } } },
+    },
     errorCatalog: {
         fn: 'error_catalog',
         params: [],
@@ -364,7 +421,7 @@ export const syncCalls = {
     directoryApply: { fn: 'directory_apply', params: ['source', 'kind', 'total', 'entries'] },
 } as const satisfies Record<string, Grant>;
 
-/** 錨定與排程（db/tools/chain-lib.mjs，帳號 sgn_job）能執行的 api_job function。 */
+/** 錨定、排程與通知寄送（db/tools/chain-lib.mjs、db/tools/jobs.mjs、api/src/mailer.ts，帳號 sgn_job）能執行的 api_job function。 */
 export const jobCalls = {
     chainHead: { fn: 'chain_head', params: [] },
     eventsAfter: { fn: 'events_after', params: ['after_seq', 'limit'] },
@@ -372,4 +429,9 @@ export const jobCalls = {
     directorySettle: { fn: 'directory_settle', params: [] },
     authChallengePurge: { fn: 'auth_challenge_purge', params: [] },
     anchorPolicy: { fn: 'anchor_policy', params: [] },
+    /** 治理類角色的持有人沒有可用的通行金鑰時開例外（裁決 D77） */
+    governanceCheck: { fn: 'governance_check', params: [] },
+    /** 通知的寄送（裁決 D76）：寄送程式 api/src/mailer.ts 領走一批、寄出後回報 */
+    notificationClaim: { fn: 'notification_claim', params: ['limit'] },
+    notificationMark: { fn: 'notification_mark', params: ['id', 'sent', 'error'] },
 } as const satisfies Record<string, Grant>;

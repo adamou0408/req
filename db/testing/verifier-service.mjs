@@ -28,6 +28,8 @@ async function verifyAssertion(db, settings, body) {
         rows: [challenge],
     } = await db.query('select * from api_verified.challenge_get($1)', [body.challenge_id]);
     if (!challenge?.challenge) throw new Rejected('CHALLENGE_UNKNOWN');
+    if (challenge.used) throw new Rejected('CHALLENGE_USED');
+    if (challenge.content_changed) throw new Rejected('CONTENT_CHANGED');
     const {
         rows: [cred],
     } = await db.query('select * from api_verified.passkey_get($1)', [body.credential_id]);

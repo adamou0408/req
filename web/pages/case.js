@@ -1,5 +1,7 @@
 // 申請單詳情（申請人、簽核人、系統管理人共用）。最上面是做決定需要的事實，完整內容在下方；
 // 按鈕只依資料庫回傳的 actions：核准、退回、認領、標記已套用固定在底部，縮小後核准、駁回、撤回、修改在內文。
+// 決定畫面的判斷內容（級別、例外、誰申請、給誰、哪些資料、多久、差異、重疊、使用情境、下一關）一律只從資料庫產生的
+// 顯示摘要 c.display 畫出（裁決 D75），簽的也是它；不拿資料目錄或 case_get 的其他欄位來畫。
 import { api } from '../api.js';
 import { confirmDecision, confirmReduced, passkeyNotice } from '../decide.js';
 import { t } from '../i18n.js';
@@ -19,7 +21,7 @@ function waitingText(c) {
     return `${stage.name}・${(claim ? t.waitingClaim : t.waitingOn)(c.waiting_on)}`;
 }
 
-function overlapFact(pack, cat, overlap) {
+function overlapFact(pack, overlap) {
     if (!overlap) return null;
     const cls = { none: 'ok-text', partial: 'warn-text', covered: 'bad-text' }[overlap.level] ?? 'warn-text';
     return el(
@@ -30,36 +32,30 @@ function overlapFact(pack, cat, overlap) {
         el(
             'ul',
             {},
-            (overlap.items ?? []).map((i) =>
-                el('li', {}, t.overlapItem(i, i.packages.map((p) => pack.packagesLine(cat, { scope: [p] })).join('、'))),
-            ),
+            (overlap.items ?? []).map((i) => el('li', {}, t.overlapItem(i, pack.overlapPackages(i.packages)))),
         ),
     );
 }
 
-/** 做決定需要的事實：誰申請、給誰、哪些資料、多久、與前一版的差異、重疊。 */
-function decisionFacts(ctx, c, pack, cat) {
-    const p = c.terms.principal;
+/** 做決定需要的事實：誰申請、給誰、哪些資料、多久、與前一版的差異、重疊（全部來自顯示摘要 d）。 */
+function decisionFacts(d, pack) {
     return el(
         'div',
         { class: 'card facts', 'data-testid': 'decision-facts' },
         facts([
-            [t.applicant, c.applicant_name],
-            [t.grantee, p ? t.principalOption(p) : '—'],
-            [t.data, pack.scopeView(cat, c.content)],
-            [t.validity, el('span', { 'data-testid': 'validity' }, t.validRange(c.terms.valid_from, c.terms.valid_to))],
-            [t.diff, versionDiff(c, pack, cat, ctx.me.name)],
-            [t.overlap, overlapFact(pack, cat, c.overlap)],
-            [t.progress, waitingText(c)],
+            [t.applicant, d.applicant.name],
+            [t.grantee, d.principal ? t.principalShown(d.principal) : '—'],
+            [t.data, pack.scopeView(d.content)],
+            [t.validity, el('span', { 'data-testid': 'validity' }, t.validRange(d.validity.from, d.validity.to))],
+            [t.diff, versionDiff(d, pack)],
+            [t.overlap, overlapFact(pack, d.overlap)],
         ]),
     );
 }
 
-function nextStageName(c) {
-    const stages = c.stages;
-    const index = stages.findIndex((s) => s.status === 'open');
-    return stages[index + 1]?.name ?? t.nextAfterLast;
-}
+/** 後果說明用到的名字與下一關，取自顯示摘要。 */
+const consequenceOf = (c, decision) =>
+    t.consequence[decision]({ applicant_name: c.display.applicant.name }, c.display.stage.next ?? t.nextAfterLast);
 
 async function afterDecision(c, decision, result) {
     go('#', { text: `${t.caseNo} ${c.case_no}：${t.decided[decision]}`, ok: true });
@@ -67,7 +63,7 @@ async function afterDecision(c, decision, result) {
 }
 
 function decide(ctx, c, decision, input = {}) {
-    const consequence = t.consequence[decision](c, nextStageName(c));
+    const consequence = consequenceOf(c, decision);
     confirmDecision(c, decision, {
         input,
         needsReason: REASON_ACTIONS.has(decision),
@@ -120,14 +116,14 @@ function reduceSheet(ctx, c, pack, cat) {
                             c,
                             { content: editor.value(), terms },
                             {
-                                consequence: t.consequence.approve_reduced(c, nextStageName(c)),
-                                view: (prepared) =>
+                                consequence: consequenceOf(c, 'approve_reduced'),
+                                view: (shown) =>
                                     el(
                                         'div',
                                         { class: 'card', 'data-testid': 'reduced-shown' },
                                         el('h3', {}, t.reducedShown),
-                                        pack.scopeView(cat, prepared.content),
-                                        el('p', {}, `${t.validity}：${t.validRange(prepared.terms.valid_from, prepared.terms.valid_to)}`),
+                                        pack.scopeView(shown.content),
+                                        el('p', {}, `${t.validity}：${t.validRange(shown.validity.from, shown.validity.to)}`),
                                     ),
                                 done: (r) => afterDecision(c, 'approve_reduced', r),
                             },
@@ -201,12 +197,15 @@ function versionsView(c) {
     );
 }
 
-function fullContent(c, pack, cat) {
+function fullContent(c, pack) {
+    const d = c.display;
     return section(
         'full',
         t.fullContent,
-        el('div', { class: 'card' }, pack.purposeView(cat, c.content)),
-        c.fulfilment ? section('rules', t.rulesTitle, el('div', { class: 'card' }, pack.fulfilmentView(cat, c.fulfilment.payload))) : null,
+        el('div', { class: 'card' }, pack.purposeView(d.content)),
+        c.fulfilment
+            ? section('rules', t.rulesTitle, el('div', { class: 'card' }, pack.fulfilmentView(d.content, c.fulfilment.payload)))
+            : null,
         c.grant
             ? el(
                   'p',
@@ -219,23 +218,41 @@ function fullContent(c, pack, cat) {
     );
 }
 
+/** 內容完全相同的其他進行中申請（D79 (6)）：提示並連到既有的那張。 */
+function duplicatesNotice(c) {
+    if (!c.duplicates.length) return null;
+    return el(
+        'div',
+        { class: 'result warn', 'data-testid': 'duplicates' },
+        el('p', {}, t.duplicates),
+        el(
+            'ul',
+            {},
+            c.duplicates.map((x) => el('li', {}, el('a', { href: `#case/${x.case_id}` }, `${t.caseNo} ${x.case_no}`))),
+        ),
+    );
+}
+
 export async function renderCase(ctx, caseId) {
     const c = await api.call('case_get', { case_id: caseId });
-    const pack = packOf(c.process_type);
+    const d = c.display;
+    const pack = packOf(d.process.code);
     const cat = await pack.catalog();
     const needsProof = c.actions.some((a) => !['claim', 'revise', 'submit'].includes(a));
     return [
         el('a', { href: '#', class: 'back' }, `← ${t.home}`),
-        el('h2', { 'data-testid': 'case-title' }, `${t.caseNo} ${c.case_no} `, tierBadge(c.tier), ' ', stateBadge(c.state)),
-        c.exceptions.length
+        el('h2', { 'data-testid': 'case-title' }, `${t.caseNo} ${d.case_no} `, tierBadge(d.tier?.name), ' ', stateBadge(c.state)),
+        d.exceptions.length
             ? el(
                   'div',
                   { class: 'result warn', 'data-testid': 'case-exceptions' },
-                  c.exceptions.map((x) => el('p', {}, t.exception[x.rule_code] ?? t.exceptionUnknown)),
+                  d.exceptions.map((x) => el('p', {}, t.exception[x.rule_code] ?? t.exceptionUnknown)),
               )
             : null,
+        duplicatesNotice(c),
         needsProof ? passkeyNotice(ctx.me) : null,
-        decisionFacts(ctx, c, pack, cat),
+        decisionFacts(d, pack),
+        waitingText(c) ? el('p', { class: 'muted', 'data-testid': 'progress' }, `${t.progress}：`, waitingText(c)) : null,
         c.actions.some((a) => BODY_ACTIONS.includes(a))
             ? el(
                   'div',
@@ -248,7 +265,7 @@ export async function renderCase(ctx, caseId) {
                   ),
               )
             : null,
-        fullContent(c, pack, cat),
+        fullContent(c, pack),
         actionBar(BAR_ACTIONS.filter((a) => c.actions.includes(a)).map((a) => actionButton(ctx, c, pack, cat, a))),
     ];
 }

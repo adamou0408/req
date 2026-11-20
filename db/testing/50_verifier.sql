@@ -7,19 +7,31 @@ create schema api_verified;
 
 -- (c) 獨立驗證服務。資料庫相信「這個憑證簽了這個挑戰值」，但人仍由資料庫從憑證對出，
 -- 挑戰值的綁定、是否已用、簽核人資格仍由資料庫檢查。
-create function api_verified.challenge_get(p_challenge_id uuid, out challenge text, out binding jsonb)
+create function api_verified.challenge_get(
+    p_challenge_id uuid,
+    out challenge text,
+    out binding jsonb,
+    out used boolean,
+    out content_changed boolean
+)
 language sql
 stable
 security definer
 set search_path = pg_catalog, pg_temp
 as $$
-    select sgn_internal.b64url_encode(sgn_internal.decision_signed_challenge(c)), c.binding
+    select
+        sgn_internal.b64url_encode(sgn_internal.decision_signed_challenge(c)),
+        c.binding,
+        c.consumed_at is not null,
+        r.current_version is distinct from (c.binding ->> 'version')::int
     from sgn.auth_challenge c
+    left join sgn.request_case r on r.id = (c.binding ->> 'case_id')::uuid
     where c.id = p_challenge_id and c.purpose = 'case.decision'
 $$;
 
 comment on function api_verified.challenge_get(uuid) is
-    '驗證服務取金鑰應該簽的挑戰值（由紀錄重算，與 (a) 同一個公式），用來比對 clientDataJSON。呼叫者：sgn_test_verifier。';
+    '驗證服務取金鑰應該簽的挑戰值（由紀錄重算，與 (a) 同一個公式），用來比對 clientDataJSON；used：已經用掉；'
+    'content_changed：單已經換了版本（顯示摘要會跟著單變，重放與舊版本要先以這兩項擋下）。呼叫者：sgn_test_verifier。';
 
 create function api_verified.passkey_get(p_credential_id text, out public_key text, out sign_count bigint)
 language sql

@@ -1,8 +1,8 @@
-// 後端設定。值的唯一來源是 db/sgn.env 與 sim/idp 的 service.env、test-credentials.env；這裡只讀，不另寫一份。
+// 後端與通知寄送程式的設定。值的唯一來源是 db/sgn.env 與 sim/idp、sim/mail 的 service.env、test-credentials.env；這裡只讀，不另寫一份。
 // 連哪個資料庫由環境變數 SGN_DATABASE 決定（tools/run-all.sh 給端對端用的那一個）。
 import { anchorFile, loadConfig, roleUrl } from '../../db/tools/lib/env.mjs';
 
-type EnvFiles = { db: Record<string, string>; idp: Record<string, string>; database: string };
+type EnvFiles = { db: Record<string, string>; idp: Record<string, string>; mail: Record<string, string>; database: string };
 
 const env = loadConfig() as EnvFiles;
 const origin = new URL(env.db.SGN_RP_ORIGIN);
@@ -28,4 +28,11 @@ export const config = {
         redirectUri,
     },
     anchorFile: anchorFile(env) as string,
+};
+
+/** 通知寄送程式（api/src/mailer.ts）：以排程帳號連線，經 SMTP 寄出（開發環境是 sim/mail 的 Mailpit）。 */
+export const mailerConfig = {
+    dbUrl: roleUrl(env, 'JOB') as string,
+    smtp: { host: env.mail.SIM_MAIL_SMTP_HOST, port: Number(env.mail.SIM_MAIL_SMTP_PORT) },
+    from: env.db.SGN_MAIL_FROM,
 };

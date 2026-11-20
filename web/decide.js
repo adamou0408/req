@@ -3,25 +3,25 @@
 // 認領不是決定，不需要通行金鑰。
 import { api } from './api.js';
 import { t } from './i18n.js';
-import { decisionContent, keyFingerprint, signingChallenge, versionSha256 } from './lib/signing.js';
+import { decisionContent, groupedCode, keyFingerprint, shortCode, signingChallenge } from './lib/signing.js';
 import { el, explain, flash, go, sheet } from './ui.js';
 import { createPasskey, signChallenge, unb64url } from './webauthn.js';
 
 const PENDING_KEY = 'sgn.passkey-pending';
 
 /**
- * 通行金鑰的狀態提示：沒有金鑰就提示登記；登記了在等核准就顯示短碼（這個瀏覽器自己從新金鑰算的）；
- * 核准了在冷卻期就顯示什麼時候生效。都依 me 的欄位，不自己推斷。
+ * 通行金鑰的狀態提示：沒有金鑰就提示登記；登記了在等核准就顯示 12 位數核對碼（這個瀏覽器從自己保存的新金鑰指紋算，
+ * 不用後端給的；裁決 D76）；核准了在冷卻期就顯示什麼時候生效。都依 me 的欄位，不自己推斷。
  */
 export function passkeyNotice(me) {
     if (me.passkeys > 0) return null;
     if (me.passkey_pending.length > 0) {
-        const code = savedShortCode(me.passkey_pending);
+        const saved = savedEnrollment(me.passkey_pending);
         return el(
             'div',
             { class: 'result warn', 'data-testid': 'passkey-pending' },
             el('p', {}, t.passkeyPending),
-            code ? el('p', { class: 'code', 'data-testid': 'short-code' }, code) : el('p', {}, t.passkeyPendingNoCode),
+            saved ? enrollmentCode(saved.fingerprint, saved.cost) : el('p', {}, t.passkeyPendingNoCode),
         );
     }
     if (me.passkey_cooling_until) {
@@ -39,11 +39,26 @@ export function passkeyNotice(me) {
     );
 }
 
-/** 這個瀏覽器登記的新金鑰的短碼（從自己保存的公鑰算，不用後端給的）；只有它還在待核准清單裡才顯示。 */
-function savedShortCode(pending) {
+/** 新裝置畫面上的核對碼與完整指紋。核對碼要一秒左右才算得出來，先顯示「計算中」。成本不在允許範圍就不顯示。 */
+function enrollmentCode(fingerprint, cost) {
+    const code = el('p', { class: 'code', 'data-testid': 'short-code' }, t.passkeyCodeComputing);
+    try {
+        shortCode(fingerprint, cost).then(
+            (value) => (code.textContent = groupedCode(value)),
+            () => (code.textContent = t.passkeyCodeUnavailable),
+        );
+    } catch {
+        code.textContent = t.passkeyCodeUnavailable;
+    }
+    return [code, el('p', { class: 'muted mono', 'data-testid': 'device-fingerprint' }, t.passkeyFingerprint(fingerprint))];
+}
+
+/** 這個瀏覽器登記的新金鑰（自己保存的指紋）；只有它還在待核准清單裡才回傳，成本取那一筆登記的。 */
+function savedEnrollment(pending) {
     try {
         const saved = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null');
-        return pending.some((e) => e.credential_id === saved?.credentialId) ? saved.shortCode : null;
+        const entry = pending.find((e) => e.credential_id === saved?.credentialId);
+        return entry ? { fingerprint: saved.fingerprint, cost: entry.code_cost } : null;
     } catch {
         return null;
     }
@@ -53,12 +68,12 @@ export async function registerPasskey(me) {
     try {
         const begin = await api.call('passkey_register_begin');
         const created = await createPasskey(me);
-        const { shortCode } = await keyFingerprint(unb64url(created.spki));
+        const fingerprint = await keyFingerprint(unb64url(created.spki));
         try {
-            localStorage.setItem(PENDING_KEY, JSON.stringify({ credentialId: created.credentialId, shortCode }));
+            localStorage.setItem(PENDING_KEY, JSON.stringify({ credentialId: created.credentialId, fingerprint }));
             sessionStorage.setItem('sgn.after-passkey', location.hash);
         } catch {
-            // 存不了就只是回來時看不到短碼，登記本身不受影響
+            // 存不了就只是回來時看不到核對碼，登記本身不受影響
         }
         const { redirect } = await api.passkeyReauth({
             challenge_id: begin.challenge_id,
@@ -72,17 +87,18 @@ export async function registerPasskey(me) {
     }
 }
 
-/** 決定要簽的輸入（畫面上看得到的）：原因是使用者打的，縮小後的內容是資料庫整理過、在面板上顯示的那一份。 */
+/** 決定要簽的輸入（畫面上看得到的）：原因是使用者打的，縮小後的內容與顯示是資料庫整理過、在面板上顯示的那一份。 */
 function signedInput(c, decision, typed, issued) {
-    if (decision === 'approve_reduced') return issued.input;
+    if (decision === 'approve_reduced') return { ...issued.input, display: issued.display };
     if (decision === 'fulfil') return { payload: c.fulfilment?.payload };
     return { reason: typed.reason?.replace(/^ +| +$/g, '') };
 }
 
 async function sign(c, decision, typed, issued) {
     const challenge = issued ?? (await api.call('challenge_issue', { case_id: c.case_id, decision, input: typed }));
-    const content = await decisionContent(await versionSha256(c.content, c.terms), decision, signedInput(c, decision, typed, challenge));
-    const toSign = await signingChallenge({ purpose: 'case.decision', ref: c.case_no, content, decision, nonce: challenge.nonce });
+    // 簽的是畫面畫出決定畫面用的那一份顯示摘要（D75）
+    const content = await decisionContent(c.display, decision, signedInput(c, decision, typed, challenge));
+    const toSign = await signingChallenge({ purpose: 'case.decision', ref: c.display.case_no, content, decision, nonce: challenge.nonce });
     const assertion = await signChallenge(toSign);
     return api.call('case_decide_passkey', {
         challenge_id: challenge.challenge_id,
@@ -112,7 +128,7 @@ export function confirmDecision(c, decision, { input = {}, needsReason = false, 
         el('p', { 'data-testid': 'consequence' }, consequence),
         shown,
         needsReason ? reasonBox() : null,
-        el('p', { class: 'muted mono' }, t.binding(c.case_no, c.version, c.content_sha256.slice(0, 12))),
+        el('p', { class: 'muted mono' }, t.binding(c.display.case_no, c.display.version, c.display.version_sha256.slice(0, 12))),
         error,
         el(
             'div',
@@ -139,7 +155,7 @@ export function confirmDecision(c, decision, { input = {}, needsReason = false, 
 export async function confirmReduced(c, input, { consequence, view, done }) {
     try {
         const issued = await api.call('challenge_issue', { case_id: c.case_id, decision: 'approve_reduced', input });
-        confirmDecision(c, 'approve_reduced', { input, consequence, issued, shown: view(issued.input), done });
+        confirmDecision(c, 'approve_reduced', { input, consequence, issued, shown: view(issued.display), done });
     } catch (err) {
         go(`#case/${c.case_id}`, { text: explain(err), ok: false });
     }

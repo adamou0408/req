@@ -44,7 +44,7 @@ test('DA-NO-MEDIUM 內容只留資料範圍、資料期間、使用情境、可�
     assert.deepEqual(Object.keys(r.content).sort(), ['data_period', 'export_allowed', 'purpose_category', 'purpose_description', 'scope']);
 });
 
-test('DA-SCOPE-STRUCTURED 列條件改成唯一的寫法（eq → in／between），去重排序；同一主題包合併；目錄上沒有的主題包與欄位移除', async () => {
+test('DA-SCOPE-STRUCTURED 列條件改成唯一的寫法（eq → in／between），去重排序；同一主題包合併；目錄上沒有的主題包與欄位移除，而且整張不能送（D79 (3)）', async () => {
     const r = await normalize({
         scope: [
             { package: 'vendor_master', fields: ['vendor_id'] },
@@ -76,7 +76,14 @@ test('DA-SCOPE-STRUCTURED 列條件改成唯一的寫法（eq → in／between�
         },
     ]);
     assert.deepEqual(codes(r.notices), ['DA-N-FIELD-UNAVAILABLE', 'DA-N-PACKAGE-UNAVAILABLE']);
-    assert.deepEqual(r.errors, []);
+    // 紅隊第三輪 資訊 3：目錄從來沒有的代碼不再默默丟掉，列為送審前必須修正的錯誤
+    assert.deepEqual(
+        r.errors.map((e) => [e.code, e.message.includes('vendor_master') || e.message.includes('sales_order.discount')]),
+        [
+            ['DA-E-CODE-UNKNOWN', true],
+            ['DA-E-CODE-UNKNOWN', true],
+        ],
+    );
 });
 
 test('DA-SCOPE-STRUCTURED 列條件只能用目錄上的欄位與值：不認得的欄位、值域外的值、錯的條件寫法、重複的欄位都是錯誤', async () => {

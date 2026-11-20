@@ -13,7 +13,9 @@ import {
     endorsementChallenge,
     idToken,
     login,
+    LOGIN_SOURCE,
     newAuthenticator,
+    oldKey,
     pool,
     proposalChallenge,
     PROBE,
@@ -22,6 +24,7 @@ import {
     registrationNonce,
     roleDecisionChallenge,
     settlePasskey,
+    shownOn,
 } from './lib/harness.mjs';
 
 const admin = pool('ADMIN');
@@ -85,10 +88,14 @@ test('契約：人員同步與排程的允許清單（syncCalls、jobCalls）引
     }
 });
 
+// 還沒有工作階段的入口：開始登入時只有後端認定的來源（裁決 D78：每個來源各自的上限在資料庫），不是任何人的身分。
+const BEFORE_SESSION = { session_begin: ['p_source'] };
+
 test('架構：api function 不接受任何「人」當參數；行為人只來自工作階段或驗過的證明（第一個參數是 p_session 或 p_challenge_id）', async () => {
     for (const fn of await apiFunctions()) {
         assert.ok(!fn.args.some((a) => /person|actor|user/.test(a)), `api.${fn.fn} 有人員參數：${fn.args}`);
-        if (fn.args.length > 0)
+        if (BEFORE_SESSION[fn.fn]) assert.deepEqual(fn.args, BEFORE_SESSION[fn.fn], `api.${fn.fn} 只收來源`);
+        else if (fn.args.length > 0)
             assert.ok(['p_session', 'p_challenge_id'].includes(fn.args[0]), `api.${fn.fn} 的第一個參數是 ${fn.args[0]}`);
     }
 });
@@ -125,6 +132,8 @@ const AUTHORIZATION_CODES = [
     'ROLE_CHANGE_SCOPE_NOT_COVERED',
     'ROLE_CHANGE_NOT_GOVERNOR',
     'PASSKEY_ENDORSER_NOT_ALLOWED',
+    'PASSKEY_SELF_ONLY',
+    'ROLE_CHANGE_CEREMONY',
 ];
 // 授權入口：denial_reason 是唯一的判斷；決定者資格（職責分離）拆成 decider_denial，由 denial_reason 與解析器共用，
 // 所以「能不能被指派」和「能不能做決定」是同一個判斷（K-DECISION-ELIGIBLE）。
@@ -205,7 +214,7 @@ before(async () => {
 
 test('契約：每個路由與後端呼叫的回傳結構都符合路由表（真的呼叫一次，結構不多不少）', async () => {
     // 登入流程
-    const begin = await check('session_begin');
+    const begin = await check('session_begin', LOGIN_SOURCE);
     const opened = await check('session_open', begin.challenge_id, await idToken('p04', begin.nonce));
     await check('error_catalog');
     // 登記通行金鑰：再驗證之後是待核准；登記人以通行金鑰背書；（模擬）冷卻期過了才能簽
@@ -218,10 +227,14 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
         key.credentialIdB64,
         key.spkiB64,
     );
-    const endorser = await registrar(app);
+    // D76：已有金鑰就由本人用舊金鑰核准，第一把才由登記人背書；都比對新裝置的完整指紋
+    const own = await oldKey(app, manager);
+    const endorser = own ? { ...manager, key: own } : await registrar(app);
     await check('passkey_enrollment_list', endorser.session);
-    const nonce = await check('passkey_endorse_challenge', endorser.session, pending.enrollment_id);
-    const signed = endorser.key.assert(await endorsementChallenge(app, endorser, pending.enrollment_id, nonce));
+    const nonce = await check('passkey_endorse_challenge', endorser.session, pending.enrollment_id, 'qr');
+    const signed = endorser.key.assert(
+        await endorsementChallenge(app, endorser, pending.enrollment_id, nonce, { method: 'qr', onDevice: await shownOn(key) }),
+    );
     await check(
         'passkey_endorse_passkey',
         nonce.challenge_id,

@@ -1,10 +1,10 @@
 // 測試共用：各角色的連線、錯誤代碼斷言、登入、登記通行金鑰、建立送審中的申請單。
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pg from 'pg';
-import { decisionContent, shortCode, signingChallenge, toB64url, versionSha256 } from '../../../../web/lib/signing.js';
+import { decisionContent, keyFingerprint, shortCode, signingChallenge, toB64url } from '../../../../web/lib/signing.js';
 import { RUN_DIR, adminUrl, loadConfig, roleUrl } from '../../../tools/lib/env.mjs';
 import { SoftAuthenticator } from './authenticator.mjs';
 import { dexIdToken } from './oidc.mjs';
@@ -72,17 +72,29 @@ export async function idToken(login, nonce) {
     return dexIdToken(config, login, nonce);
 }
 
+/** 測試行程的登入來源（D78：每個來源各自的上限）。 */
+export const LOGIN_SOURCE = 'db-test';
+
 /** 走完一次登入：資料庫發 nonce → Dex 登入 → 資料庫驗 token → 回傳工作階段代碼。 */
 export async function login(db, uid) {
-    const begin = await call(db, 'session_begin');
+    const begin = await call(db, 'session_begin', LOGIN_SOURCE);
     const token = await idToken(uid, begin.nonce);
     const opened = await call(db, 'session_open', begin.challenge_id, token);
     return { session: opened.session_token, personId: opened.person_id, uid };
 }
 
+/** 這個行程建立過的軟體驗證器（依指紋），核准之後記成那個人的舊金鑰（見 rememberKey）。 */
+const created = new Map();
+const fingerprintOf = (spki) =>
+    createHash('sha256')
+        .update(spki.subarray(spki.length - 65))
+        .digest('hex');
+
 export function newAuthenticator(options = {}) {
     // WebAuthn 的 origin 是頁面的 origin（頁面與後端分開來源，裁決 D68）
-    return new SoftAuthenticator({ rpId: config.db.SGN_RP_ID, origin: config.db.SGN_WEB_ORIGIN, ...options });
+    const authenticator = new SoftAuthenticator({ rpId: config.db.SGN_RP_ID, origin: config.db.SGN_WEB_ORIGIN, ...options });
+    created.set(fingerprintOf(authenticator.spki), authenticator);
+    return authenticator;
 }
 
 export function registrationNonce(challengeB64, spki) {
@@ -110,30 +122,51 @@ export async function requestPasskey(db, user, authenticator = newAuthenticator(
     return rows[0].result;
 }
 
-/** 扮演背書人的瀏覽器：從待核准清單（畫面）上的姓名、指紋、自己算的短碼簽 passkey.enrollment 的挑戰值。 */
-export async function endorse(db, endorser, enrollmentId) {
-    const ch = await call(db, 'passkey_endorse_challenge', endorser.session, enrollmentId);
-    const challenge = await endorsementChallenge(db, endorser, enrollmentId, ch);
-    return call(db, 'passkey_endorse_passkey', ch.challenge_id, ...assertionArgs(endorser.key.assert(challenge)));
+/**
+ * 扮演背書人的瀏覽器（D76）：看著新裝置的畫面核對。onDevice 是新裝置畫面上的東西：{ fingerprint }（完整指紋，
+ * QR 碼的內容）。軟體驗證器用 shownOn(authenticator) 取得；端對端測試從新裝置的頁面讀。
+ * method qr：背書人的裝置掃 QR 碼拿到完整指紋，簽進內容。
+ * method code：兩邊各自從自己拿到的指紋算 12 位數核對碼，對得上才簽；簽的是清單（畫面）上的指紋與成本。
+ */
+export async function endorse(db, endorser, enrollmentId, onDevice, method = 'qr') {
+    if (!onDevice?.fingerprint) throw new Error('背書要看著新裝置的畫面核對（onDevice.fingerprint）');
+    const ch = await call(db, 'passkey_endorse_challenge', endorser.session, enrollmentId, method);
+    const challenge = await endorsementChallenge(db, endorser, enrollmentId, ch, { method, onDevice });
+    const done = await call(db, 'passkey_endorse_passkey', ch.challenge_id, ...assertionArgs(endorser.key.assert(challenge)));
+    // 核准的是這個行程建立的軟體金鑰：記成那個人的舊金鑰（之後的測試要用它核准他的新金鑰）
+    const device = created.get(done.display.public_key_sha256);
+    if (device) rememberKey(done.display.person.id, device, device.toJSON());
+    return done;
 }
 
-/** 背書的挑戰值：待核准清單（畫面）上的姓名、指紋，加上自己從指紋算的短碼。ch 是 passkey_endorse_challenge 的結果。 */
-export async function endorsementChallenge(db, endorser, enrollmentId, ch) {
+/** 軟體驗證器在新裝置畫面上會顯示的東西（完整指紋）。 */
+export const shownOn = async (authenticator) => ({ fingerprint: await keyFingerprint(authenticator.spki) });
+
+/**
+ * 背書的挑戰值：待核准清單（畫面）上的顯示摘要，加上核對方式與成本。ch 是 passkey_endorse_challenge 的結果。
+ * qr 時指紋換成掃到的那一個；code 時兩邊的核對碼對不上就不簽（誠實的背書人）。
+ */
+export async function endorsementChallenge(db, endorser, enrollmentId, ch, { method = 'qr', onDevice }) {
     const shown = (await call(db, 'passkey_enrollment_list', endorser.session)).find((e) => e.enrollment_id === enrollmentId);
+    let fingerprint = shown.display.public_key_sha256;
+    if (method === 'qr') fingerprint = onDevice.fingerprint;
+    else if ((await shortCode(fingerprint, shown.code_cost)) !== (await shortCode(onDevice.fingerprint, shown.code_cost)))
+        throw new Error('核對碼不同：誠實的背書人不會背書');
     const content = {
-        person_id: shown.person_id,
-        person_name: shown.person_name,
-        credential_id: shown.credential_id,
-        public_key_sha256: shown.public_key_sha256,
-        short_code: shortCode(shown.public_key_sha256),
+        ...shown.display,
+        public_key_sha256: fingerprint,
+        method,
+        code_cost: method === 'code' ? shown.code_cost : null,
     };
     return challengeFor({ purpose: 'passkey.enrollment', ref: enrollmentId, content, decision: 'endorse', nonce: ch.nonce });
 }
 
+/** 不同行程依序使用同一把軟體金鑰：計數器取時間（每 0.1 秒遞增），任何一份複本簽的計數器都比之前的大。 */
+const timeCounter = () => Math.floor((Date.now() - 1.7e12) / 100);
+
 const registrars = new Map();
 /**
  * 系統的第一位登記人（db/tools/bootstrap-registrar.mjs 在建置時由資料庫擁有者建立，金鑰存在 .run/）。
- * 不同行程依序使用同一把金鑰，計數器取時間（每 0.1 秒遞增）。
  */
 export function registrar(db) {
     if (!registrars.has(db)) {
@@ -142,11 +175,57 @@ export function registrar(db) {
             db,
             login(db, saved.uid).then((user) => ({
                 ...user,
-                key: newAuthenticator({ ...saved.key, counterFrom: () => Math.floor((Date.now() - 1.7e12) / 100) }),
+                key: liveKeys.get(saved.uid) ?? newAuthenticator({ ...saved.key, counterFrom: timeCounter }),
             })),
         );
     }
     return registrars.get(db);
+}
+
+/**
+ * 測試裡每個人的「舊金鑰」（D76：已有金鑰的人，新金鑰只能由本人用舊金鑰核准）。每個資料庫一個檔
+ * （.run/passkeys-<資料庫>.json，db/build.sh 重建資料庫時刪除），以內部 id 記下這個人在這個資料庫第一把被核准的軟體金鑰，
+ * 之後的測試（不同行程）要再登記新金鑰時，扮演本人用它核准。同一個行程裡用同一個物件（計數器接續）；
+ * 從檔案讀回的複本計數器取時間，比之前任何一次都大。登記人的舊金鑰就是安裝時建立的那一把。
+ */
+const keyFile = () => join(RUN_DIR, `passkeys-${config.database}.json`);
+const liveKeys = new Map();
+
+function savedKeys() {
+    try {
+        return JSON.parse(readFileSync(keyFile(), 'utf8'));
+    } catch {
+        return {};
+    }
+}
+
+/** 這個人（user：{uid, personId}）的舊金鑰（軟體驗證器）；沒有就是 null。 */
+export async function oldKey(db, user) {
+    const id = user.personId;
+    if (liveKeys.has(id)) return liveKeys.get(id);
+    const saved = savedKeys()[id];
+    if (saved)
+        liveKeys.set(
+            id,
+            new SoftAuthenticator({ rpId: config.db.SGN_RP_ID, origin: config.db.SGN_WEB_ORIGIN, ...saved, counterFrom: timeCounter }),
+        );
+    else {
+        const reg = await registrar(db);
+        if (reg.personId === id) liveKeys.set(id, reg.key);
+    }
+    return liveKeys.get(id) ?? null;
+}
+
+/**
+ * 記下這個人（內部 id）的舊金鑰（只記第一把）。authenticator 是這個行程裡的物件（沒有就傳 null）；keyJson 寫進檔案給之後的行程。
+ * 端對端測試從瀏覽器的虛擬驗證器取出私鑰後也記在這裡。
+ */
+export function rememberKey(personId, authenticator, keyJson) {
+    if (authenticator && !liveKeys.has(personId)) liveKeys.set(personId, authenticator);
+    const all = savedKeys();
+    if (all[personId]) return;
+    all[personId] = keyJson;
+    writeFileSync(keyFile(), `${JSON.stringify(all)}\n`, { mode: 0o600 });
 }
 
 /** 模擬「新金鑰的冷卻期已經過了」（passkey.cooling_workdays）。db 是登記時用的連線池（決定在哪個資料庫）。 */
@@ -157,12 +236,24 @@ export async function settlePasskey(db, authenticator) {
 }
 
 /**
- * 登記一把可以用的通行金鑰（合法流程）：再驗證 → 待核准 → 登記人以通行金鑰背書（登記人自己就用自己已生效的金鑰）
- * →（預設）模擬冷卻期已過。endorser 可指定（例如本人的主管）。
+ * 核准一筆登記（合法流程）：指定的 endorser；否則本人已有舊金鑰就由本人用舊金鑰核准（D76），沒有才由登記人背書。
+ * onDevice 是新裝置畫面上的完整指紋（{ fingerprint }）。
+ */
+export async function approveEnrollment(db, user, enrollmentId, onDevice, endorser = null) {
+    const own = endorser ? null : await oldKey(db, user);
+    // 舊金鑰可能是剛登記、還在冷卻期的那一把：模擬冷卻期已過（時間推移，測試準備）
+    if (own) await settlePasskey(db, own);
+    return endorse(db, endorser ?? (own ? { ...user, key: own } : await registrar(db)), enrollmentId, onDevice);
+}
+
+/**
+ * 登記一把可以用的通行金鑰（合法流程）：再驗證 → 待核准 → 核准 →（預設）模擬冷卻期已過。
+ * 核准的人：指定的 endorser；否則本人已有舊金鑰就由本人用舊金鑰核准（D76），沒有才由登記人背書。
+ * 背書人與本人都看著新裝置的畫面（完整指紋）核對。
  */
 export async function registerPasskey(db, user, authenticator = newAuthenticator(), { endorser = null, settle = true } = {}) {
     const enrollment = await requestPasskey(db, user, authenticator);
-    await endorse(db, endorser ?? (await registrar(db)), enrollment.enrollment_id);
+    await approveEnrollment(db, user, enrollment.enrollment_id, await shownOn(authenticator), endorser);
     if (settle) await settlePasskey(db, authenticator);
     return authenticator;
 }
@@ -176,30 +267,19 @@ export async function issueChallenge(db, person, caseId, decision = 'approve', i
     return { ...ch, challenge: await decisionChallenge(db, person, caseId, decision, input, ch) };
 }
 
-/** 決定的挑戰值。ch 是 challenge_issue 的結果（只用它的 nonce 與縮小後的內容）。 */
+/** 決定的挑戰值。ch 是 challenge_issue 的結果（只用它的 nonce 與縮小後的內容與顯示）。內容只取畫面上的顯示摘要（D75）。 */
 export async function decisionChallenge(db, person, caseId, decision, input, ch) {
     const shown = await call(db, 'case_get', person.session, caseId);
     const typed = { reason: String(input.reason ?? '').replace(/^ +| +$/g, ''), payload: shown.fulfilment?.payload };
     const content = await decisionContent(
-        await versionSha256(shown.content, shown.terms),
+        shown.display,
         decision,
-        decision === 'approve_reduced' ? ch.input : typed,
+        decision === 'approve_reduced' ? { ...ch.input, display: ch.display } : typed,
     );
-    return challengeFor({ purpose: 'case.decision', ref: shown.case_no, content, decision, nonce: ch.nonce });
+    return challengeFor({ purpose: 'case.decision', ref: shown.display.case_no, content, decision, nonce: ch.nonce });
 }
 
-/** 角色指派變更畫面上的一張變更（要簽的部分）。 */
-const roleChangeShown = (item) => ({
-    holder_id: item.holder_id,
-    holder_name: item.holder_name,
-    role_code: item.role_code,
-    role_name: item.role_name,
-    scope_ref: item.scope_ref,
-    change: item.change,
-    reason: item.reason,
-});
-
-/** 扮演提出人的瀏覽器：選項畫面上的人名與角色名，加上自己填的範圍、授予或撤除、原因。 */
+/** 扮演提出人的瀏覽器：確認畫面只從資料庫回傳的顯示摘要畫出，簽的就是它（D75）。 */
 export async function proposeRole(db, proposer, spec) {
     const { holderId, role, scope = null, change = 'grant', reason = '測試' } = spec;
     const ch = await call(db, 'role_change_propose_challenge', proposer.session, holderId, role, scope, change, reason);
@@ -207,22 +287,12 @@ export async function proposeRole(db, proposer, spec) {
     return call(db, 'role_change_propose_passkey', ch.challenge_id, ...assertionArgs(proposer.key.assert(challenge)));
 }
 
-/** 提出的挑戰值。ch 是 role_change_propose_challenge 的結果。 */
-export async function proposalChallenge(db, proposer, { holderId, role, scope, change, reason }, ch) {
-    const options = await call(db, 'role_change_options', proposer.session);
-    const content = roleChangeShown({
-        holder_id: holderId,
-        holder_name: options.people.find((p) => p.person_id === holderId)?.name,
-        role_code: role,
-        role_name: options.roles.find((r) => r.code === role)?.name,
-        scope_ref: scope,
-        change,
-        reason,
-    });
-    return challengeFor({ purpose: 'role_change.propose', ref: 'new', content, decision: 'propose', nonce: ch.nonce });
+/** 提出的挑戰值。ch 是 role_change_propose_challenge 的結果（它的 display 就是確認畫面上的內容）。 */
+export async function proposalChallenge(db, proposer, spec, ch) {
+    return challengeFor({ purpose: 'role_change.propose', ref: 'new', content: ch.display, decision: 'propose', nonce: ch.nonce });
 }
 
-/** 扮演核准人（或冷卻期內擋下的人）的瀏覽器：從變更清單（畫面）上的內容算挑戰值。 */
+/** 扮演核准人（或冷卻期內擋下的人）的瀏覽器：從變更清單（畫面）上的顯示摘要算挑戰值。 */
 export async function decideRole(db, person, requestId, decision = 'approve', key = person.key) {
     const ch = await call(db, 'role_change_challenge', person.session, requestId, decision);
     const challenge = await roleDecisionChallenge(db, person, requestId, decision, ch);
@@ -232,7 +302,7 @@ export async function decideRole(db, person, requestId, decision = 'approve', ke
 /** 核准或擋下的挑戰值。ch 是 role_change_challenge 的結果。 */
 export async function roleDecisionChallenge(db, person, requestId, decision, ch) {
     const shown = (await call(db, 'role_change_list', person.session)).find((q) => q.request_id === requestId);
-    return challengeFor({ purpose: 'role_change.decision', ref: requestId, content: roleChangeShown(shown), decision, nonce: ch.nonce });
+    return challengeFor({ purpose: 'role_change.decision', ref: requestId, content: shown.display, decision, nonce: ch.nonce });
 }
 
 /** 核心測試用的流程類型（db/testing/60_probe_process.sql）：一關、申請人的主管簽，沒有 hook。 */

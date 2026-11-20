@@ -160,7 +160,9 @@ test('K-HR-SYNC 紅隊第二輪 中-1 回歸：把姓名改成別人的名字不
     const p04 = await login(app, 'p04');
     const caseId = await createSubmittedCase(app, p04);
     const view = await call(app, 'case_get', p04.session, caseId);
-    assert.deepEqual(view.waiting_on, [`${p03name}（${entryOf('p03').email}）`]);
+    // D79 (1)：同名時再加內部短代碼（email 可能也被冒用；在職者的 email 已唯一，短代碼是第二道區分）
+    const p03id = ids.p03.replaceAll('-', '').slice(0, 6);
+    assert.deepEqual(view.waiting_on, [`${p03name}（${entryOf('p03').email}・#${p03id}）`]);
     await sync('incremental', [entryOf('p05')]);
     await settleNow('p05');
     assert.equal((await person('p05')).display_name, entryOf('p05').display_name);
@@ -264,7 +266,7 @@ test('K-HR-SYNC 紅隊第二輪 低-2 回歸：同步新增的人寫進鏈（姓
         {
             external_id: 'rt-ghost-79',
             display_name: '賴政達',
-            email: 'p19@sim.example',
+            email: 'rt-ghost-79@sim.example',
             active: true,
             manager_external_id: null,
             roles: [],
@@ -274,7 +276,7 @@ test('K-HR-SYNC 紅隊第二輪 低-2 回歸：同步新增的人寫進鏈（姓
     const added = await lastEvent('directory.person_added');
     assert.deepEqual(
         [added.external_id, added.display_name, added.email, added.active, added.baseline],
-        ['rt-ghost-79', '賴政達', 'p19@sim.example', true, false],
+        ['rt-ghost-79', '賴政達', 'rt-ghost-79@sim.example', true, false],
     );
     // 收尾：停用這個人（單人、時間窗設成 0，立即）
     await windowHours(0);
@@ -283,7 +285,7 @@ test('K-HR-SYNC 紅隊第二輪 低-2 回歸：同步新增的人寫進鏈（姓
             {
                 external_id: 'rt-ghost-79',
                 display_name: '賴政達',
-                email: 'p19@sim.example',
+                email: 'rt-ghost-79@sim.example',
                 active: false,
                 manager_external_id: null,
                 roles: [],
@@ -301,4 +303,124 @@ test('K-HR-SYNC 紅隊第二輪 低-2 回歸：同步新增的人寫進鏈（姓
         ).active,
         false,
     );
+});
+
+test('K-HR-SYNC 紅隊第三輪 低-1 回歸：姓名含不可見字元、與在職者 email 相同的資料不採用並開例外；既有的人保留原本的姓名與 email', async () => {
+    const tag = Date.now();
+    const p19 = entryOf('p19');
+    const result = await sync('incremental', [
+        // 與資安長同名同 email 的新人：email 重複，不建立
+        {
+            external_id: `rt3-a-${tag}`,
+            display_name: p19.display_name,
+            email: p19.email.toUpperCase(),
+            active: true,
+            manager_external_id: null,
+            roles: [],
+        },
+        // 同名夾零寬字元：不建立
+        {
+            external_id: `rt3-b-${tag}`,
+            display_name: `${p19.display_name}\u200b`,
+            email: `rt3-b-${tag}@sim.example`,
+            active: true,
+            manager_external_id: null,
+            roles: [],
+        },
+        // 既有的人改成別人的 email：保留原本的 email，其餘照常
+        entryOf('p06', { email: p19.email }),
+    ]);
+    assert.deepEqual(
+        result.screened.map((r) => [r.field, r.reason]).sort(),
+        [
+            ['display_name', 'invisible_characters'],
+            ['email', 'email_taken'],
+            ['email', 'email_taken'],
+        ].sort(),
+    );
+    const created = await one(admin, `select count(*)::int as n from sgn.person_identity where external_id like $1`, [`rt3-%-${tag}`]);
+    assert.equal(created.n, 0);
+    assert.equal((await person('p06')).email, entryOf('p06').email);
+    const ex = await exceptionOf(result.exceptions.at(-1));
+    assert.deepEqual([ex.rule_code, ex.detail.kind], ['K-HR-SYNC', 'entries_screened']);
+    // 姓名做 NFC 正規化：分解形式的字與組合形式相同
+    const nfd = 'Amélie';
+    const r2 = await sync('incremental', [
+        {
+            external_id: `rt3-c-${tag}`,
+            display_name: nfd,
+            email: `rt3-c-${tag}@sim.example`,
+            active: true,
+            manager_external_id: null,
+            roles: [],
+        },
+    ]);
+    assert.deepEqual(r2.screened, []);
+    const stored = await one(
+        admin,
+        `select p.display_name from sgn.person p join sgn.person_identity i on i.person_id = p.id where i.external_id = $1`,
+        [`rt3-c-${tag}`],
+    );
+    assert.equal(stored.display_name, nfd.normalize('NFC'));
+    await windowHours(0);
+    try {
+        await sync('incremental', [
+            {
+                external_id: `rt3-c-${tag}`,
+                display_name: nfd,
+                email: `rt3-c-${tag}@sim.example`,
+                active: false,
+                manager_external_id: null,
+                roles: [],
+            },
+        ]);
+    } finally {
+        await windowHours(24);
+    }
+});
+
+test('K-HR-SYNC 紅隊第三輪 資訊 1、2 回歸：同步改主管當下就開例外；新到職的人也只用已生效的主管關係', async () => {
+    const tag = Date.now();
+    // 改主管：同步當下就有例外（不等有人送單）
+    const before = (await one(admin, 'select count(*)::int as n from sgn.exception_record')).n;
+    const changed = await sync('incremental', [entryOf('p08', { manager_external_id: 'p05' })]);
+    assert.equal(changed.manager_changes, 1);
+    const ex = await exceptionOf(changed.exceptions.at(-1));
+    assert.deepEqual([ex.rule_code, ex.detail.kind, ex.detail.changes[0].to], ['K-HR-SYNC', 'manager_changed', ids.p05]);
+    assert.equal((await one(admin, 'select count(*)::int as n from sgn.exception_record')).n, before + 1);
+    // 新人指定同謀當主管：找主管的入口不用還沒生效的關係（D70 的字面；不再為新到職的人例外）
+    await sync('incremental', [
+        {
+            external_id: `rt3-hire-${tag}`,
+            display_name: '新進員工',
+            email: `rt3-hire-${tag}@sim.example`,
+            active: true,
+            manager_external_id: 'p05',
+            roles: [],
+        },
+    ]);
+    const hire = await one(
+        admin,
+        `select (sgn_internal.resolve_manager(i.person_id)).manager_person_id as m from sgn.person_identity i where i.external_id = $1`,
+        [`rt3-hire-${tag}`],
+    );
+    assert.equal(hire.m, null);
+    // 收尾：主管改回、新人離職（模擬冷卻期已過）
+    await sync('incremental', [entryOf('p08')]);
+    await settleManagerChange(admin, ids.p08);
+    await windowHours(0);
+    try {
+        await sync('incremental', [
+            {
+                external_id: `rt3-hire-${tag}`,
+                display_name: '新進員工',
+                email: `rt3-hire-${tag}@sim.example`,
+                active: false,
+                manager_external_id: null,
+                roles: [],
+            },
+        ]);
+    } finally {
+        await windowHours(24);
+    }
 });

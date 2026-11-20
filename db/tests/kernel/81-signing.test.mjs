@@ -69,7 +69,9 @@ test('K-DECISION-PROOF 紅隊第二輪 高-2 情境 1 回歸：使用者按「�
     const caseId = await createSubmittedCase(app, users.p04);
     // 被入侵的後端：使用者按了駁回，後端改發核准的 nonce；challenge_issue 的回傳沒有可以直接簽的值
     const swapped = await call(app, 'challenge_issue', users.p03.session, caseId, 'approve', {});
-    assert.deepEqual(Object.keys(swapped).sort(), ['challenge_id', 'expires_at', 'input', 'nonce']);
+    // display 是縮小後核准要給簽核人看的縮小內容（D75），其他決定為 null；都不是可以直接簽的值
+    assert.deepEqual(Object.keys(swapped).sort(), ['challenge_id', 'display', 'expires_at', 'input', 'nonce']);
+    assert.equal(swapped.display, null);
     // 使用者的瀏覽器依畫面與按下的決定（駁回、原因）自己算挑戰值
     const userSees = await decisionChallenge(app, users.p03, caseId, 'reject', { reason: '不同意' }, swapped);
     const signed = users.p03.key.assert(userSees);
@@ -152,8 +154,9 @@ test('K-DECISION-PROOF 紅隊第二輪 高-2 情境 2 回歸：提出角色變�
     const p19Touch = users.p19.key.assert(await decisionChallenge(app, users.p03, caseId, 'approve', {}, decision));
     const raw = (a) => [a.credentialId, a.authenticatorData, a.clientDataJSON, a.signature];
     await rejectsWith(call(app, 'role_change_propose_passkey', proposal.challenge_id, ...raw(p19Touch)), 'SIGNED_CONTENT_MISMATCH');
-    // 被指派的人被換掉（畫面上選的是 p04，後端送 p19）
-    const swapped = users.p16.key.assert(await proposalChallenge(app, users.p16, { ...spec, holderId: users.p19.personId }, proposal));
+    // 被指派的人被換掉：後端改寫確認畫面的顯示摘要（D75），頁面照它畫、照它簽；資料庫依挑戰值記下的變更重算
+    const forgedDisplay = { ...proposal, display: { ...proposal.display, holder: { id: users.p19.personId, name: '賴政達' } } };
+    const swapped = users.p16.key.assert(await proposalChallenge(app, users.p16, spec, forgedDisplay));
     await rejectsWith(call(app, 'role_change_propose_passkey', proposal.challenge_id, ...raw(swapped)), 'SIGNED_CONTENT_MISMATCH');
     // 提出人自己按、內容是他看到的：成立
     const honest = users.p16.key.assert(await proposalChallenge(app, users.p16, spec, proposal));

@@ -17,7 +17,6 @@ const SESSION_COOKIE = 'sid';
 const FLOW_COOKIE = 'flow';
 const FLOW_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 256 * 1024;
-const LOGIN_WINDOW_MS = 60 * 1000;
 /** 後端自己的流程帶回頁面的提示代碼（不是錯誤，不在錯誤目錄裡）。 */
 const NOTICES = new Set(['PASSKEY_REGISTERED']);
 
@@ -29,9 +28,9 @@ type Flow =
 const db = new Db(config.dbUrl);
 const oidc = new OidcClient(config.oidc);
 const flows = new Map<string, Flow>();
-/** 每個來源最近一分鐘開始登入的時間（D71：登入入口的速率限制；上限來自 sgn.setting，啟動時讀一次）。 */
-const loginAttempts = new Map<string, number[]>();
-let loginLimit = 0;
+/** 登入來源的認定方式（D78：上限在資料庫、每個來源各自計算；方式是設定，啟動時讀一次）。 */
+type FrontdoorPolicy = { client_source: string; trusted_proxies: string[] };
+let frontdoor: FrontdoorPolicy = { client_source: 'socket', trusted_proxies: [] };
 // 核心路由與各流程包的路由一律依路由表註冊；後端不知道任何流程包的內容
 const apiRoutes: ReadonlyMap<string, Call> = new Map(
     [...routes, ...Object.values(packRoutes).flat()].map((r): [string, Call] => [`/api/${r.fn}`, r]),
@@ -115,22 +114,22 @@ async function startFlow(res: ServerResponse, nonce: string, make: (verifier: st
     return url;
 }
 
-/** 同一個來源一分鐘內開始登入的次數超過上限就拒絕（在進資料庫之前）。 */
-function loginAllowed(req: IncomingMessage): boolean {
-    const client = req.socket.remoteAddress ?? '';
-    const now = Date.now();
-    const recent = (loginAttempts.get(client) ?? []).filter((t) => t > now - LOGIN_WINDOW_MS);
-    if (recent.length >= loginLimit) {
-        loginAttempts.set(client, recent);
-        return false;
-    }
-    loginAttempts.set(client, [...recent, now]);
-    return true;
+/**
+ * 這個請求的來源：直接連線的位址；設定為 forwarded 而且連線來自受信任的代理時，取 X-Forwarded-For 最後一個位址
+ * （代理附加的那一個；前面的由用戶端自己填，不能信）。
+ */
+function clientSource(req: IncomingMessage): string {
+    const peer = req.socket.remoteAddress ?? '';
+    if (frontdoor.client_source !== 'forwarded' || !frontdoor.trusted_proxies.includes(peer)) return peer;
+    const forwarded = String(req.headers['x-forwarded-for'] ?? '')
+        .split(',')
+        .map((part) => part.trim())
+        .filter(Boolean);
+    return forwarded.at(-1) ?? peer;
 }
 
 async function handleLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    if (!loginAllowed(req)) return sendError(res, db.error('AUTH_RATE_LIMITED'));
-    const begin = (await db.callApi(backendCalls.sessionBegin, [])) as { challenge_id: string; nonce: string };
+    const begin = (await db.callApi(backendCalls.sessionBegin, [clientSource(req)])) as { challenge_id: string; nonce: string };
     const url = await startFlow(res, begin.nonce, (verifier) => ({
         kind: 'login',
         challengeId: begin.challenge_id,
@@ -260,11 +259,10 @@ const server = createServer((req, res) => {
 setInterval(() => {
     const now = Date.now();
     for (const [state, flow] of flows) if (flow.expires < now) flows.delete(state);
-    for (const [client, times] of loginAttempts) if (times.every((t) => t <= now - LOGIN_WINDOW_MS)) loginAttempts.delete(client);
 }, 60_000).unref();
 
 await db.loadErrorCatalog();
-loginLimit = ((await db.callApi(backendCalls.frontdoorPolicy, [])) as { login_attempts_per_minute: number }).login_attempts_per_minute;
+frontdoor = (await db.callApi(backendCalls.frontdoorPolicy, [])) as FrontdoorPolicy;
 server.listen(config.listenPort, config.listenHost, () => {
     console.log(`sgn api listening on ${config.origin.origin}`);
 });

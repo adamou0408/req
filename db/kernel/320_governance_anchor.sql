@@ -260,7 +260,6 @@ begin
                 select distinct h
                 from sgn.role as g, unnest(sgn_internal.role_holders(g.code)) as h
                 where g.category = 'governance'
-                  and h not in (p_request.holder_person_id, p_request.proposed_by, p_signer)
             ),
             null,
             jsonb_build_object(

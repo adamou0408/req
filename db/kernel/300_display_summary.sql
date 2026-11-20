@@ -459,7 +459,24 @@ comment on function api.case_decide_passkey(uuid, text, text, text, text, text) 
     '顯示摘要依挑戰值發給的人、以資料庫當下的資料重算；誰做的決定從憑證得出，不接受後端傳入的身分。回傳單張摘要。'
     '呼叫者：sgn_app。規則：K-DECISION-PROOF、K-DISPLAY-SIGNED、K-DECISION-ELIGIBLE、K-SOD-APPLICANT、K-VERSION-BOUND';
 
--- 申請單詳情（同 180_views.sql 的簽章）：多了 display（決定畫面的顯示摘要，依看的人）；重疊改用 case_overlap_current。
+-- 內容完全相同（流程類型與版本雜湊相同：內容、被授權者、起迄都一樣）的其他進行中申請（裁決 D79 (6)）。
+-- 不擋送出：送出時與畫面上提示，連到既有的那張（K-DUPLICATE-NOTICE）。
+create function sgn_internal.case_duplicates(p_case_id uuid)
+returns jsonb
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select coalesce(jsonb_agg(jsonb_build_object('case_id', o.id, 'case_no', o.case_no) order by o.case_no), '[]'::jsonb)
+    from sgn.request_case as c
+    join sgn.case_version as v on v.case_id = c.id and v.version = c.current_version
+    join sgn.request_case as o on o.process_type = c.process_type and o.id <> c.id and o.state in ('in_approval', 'pending_fulfilment')
+    join sgn.case_version as ov on ov.case_id = o.id and ov.version = o.current_version and ov.version_sha256 = v.version_sha256
+    where c.id = p_case_id
+$$;
+
+-- 申請單詳情（同 180_views.sql 的簽章）：多了 display（決定畫面的顯示摘要，依看的人）與 duplicates；
+-- 重疊改用 case_overlap_current。
 create or replace function sgn_internal.case_detail(p_case_id uuid, p_person_id uuid)
 returns jsonb
 language plpgsql
@@ -482,7 +499,8 @@ begin
             from sgn.grant_record as g
             where g.case_id = p_case_id
         ),
-        'display', sgn_internal.case_display(p_case_id, p_person_id)
+        'display', sgn_internal.case_display(p_case_id, p_person_id),
+        'duplicates', sgn_internal.case_duplicates(p_case_id)
     );
 end;
 $$;
@@ -492,6 +510,14 @@ select sgn_internal.register_rule(
     '簽的是顯示摘要，不是代碼（D75）：資料庫為每個決定產生標準化的顯示摘要（名稱、級別、例外、重疊、版本差異、'
     '申請人與被授權者及負責人的名字），頁面只從摘要畫出決定畫面並把它的雜湊簽進去，資料庫驗章時用自己的資料重算；'
     '縮小後核准的縮小內容、角色變更、通行金鑰背書的畫面同理',
+    null,
+    'full',
+    null
+);
+
+select sgn_internal.register_rule(
+    'K-DUPLICATE-NOTICE',
+    '內容完全相同（流程類型、內容、被授權者、起迄都相同）的其他進行中申請，送出時與畫面上提示並連到既有的那張；不擋送出（D79 (6)）',
     null,
     'full',
     null
