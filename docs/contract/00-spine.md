@@ -252,7 +252,7 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 - `active` ⇄ `suspended` → `revoked`；`active` → `expired`。
 - 有效性在讀取時以時間計算（`K-VALIDITY-READTIME`）：起日未到、迄日已過、生效窗口外、延後生效未滿，都視為無效，不依賴排程把狀態改掉。
 - `external_state`：`synced`、`pending_reclaim`、`reclaimed`。撤銷與暫停在平台立即生效，外部設定的收回另外追蹤（`K-RECLAIM`）。
-- 建立時點：存續型授權在執行完成且驗證通過時建立（沒有選用驗證的流程在執行完成時；沒有選用執行的流程在核准完成時）；確認在授權生效後進行。一次性許可在核准完成時建立，到執行完成或 `grant.one_time_max_hours` 為止。
+- 建立時點：存續型授權在執行完成且驗證通過時建立（沒有選用驗證的流程在執行完成時；沒有選用執行的流程在核准完成時）；流程選用確認時（`requires_confirmation`），授權在確認通過時才建立（依流程包的規則，例如資料授權「兩者都通過才結案生效」；D83）；等確認期間外部系統上已套用的權限記為「已套用、等確認」。一次性許可在核准完成時建立，到執行完成或 `grant.one_time_max_hours` 為止。
 
 ### 4.4 其他狀態機
 
