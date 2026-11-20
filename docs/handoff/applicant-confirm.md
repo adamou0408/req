@@ -147,4 +147,37 @@ SGN_DATABASE=sgn_test node --test db/tests/packs/data_access/55-confirmation.tes
 
 ## 8. 實測紀錄
 
-（見下方，由最後一次完整執行填入。）
+**乾淨狀態的 `tools/check.sh`（2026-11-20；停掉背景程式、`rm -rf .run` 之後，以 root）**：11 段全部通過（exit 0，約 5 分鐘）。
+
+| 段落 | 結果 |
+|---|---|
+| 安裝、格式、lint、型別、shellcheck、plpgsql_check、禁止字串、追蹤的檔案、npm audit、sim/dc | 通過 |
+| 規則代碼覆蓋 | 88 個，每個都有測試（新增 K-CONFIRM、K-CONFIRM-DISPUTE、K-CONFIRM-TIMEOUT）|
+| 資料庫測試 | **251／251**（上一輪 244；新增 7：`55`）|
+| 通行金鑰對照組 | 16／16 |
+| 端對端 | **27／27**（上一輪 24；新增 3：K-CONFIRM-TIMEOUT、K-CONFIRM-DISPUTE、K-GRANT-REDUCE；改 3，見 §6）|
+
+**紅隊腳本（`tools/run-all.sh --keep` 重建之後，01–32 依序各跑一次；沒有改腳本）**：
+
+| 腳本 | 修前 | 這次 | 說明 |
+|---|---|---|---|
+| 01–19 | 0 | 0 | 不變 |
+| 20 | 2 | 2 | 不變（redteam-fixes-4 §5：入口改變）|
+| 21 交付程式謊報 | 0 | **2** | 流程多了確認一步：腳本的 b 段用 `approvedCase` → `drain` 後以為生效，接著 `case_reduce`（第 61 行）；單停在「驗證中・等申請人確認」，`case_reduce` 只對生效中的單 → STATE_TRANSITION，腳本判為無法判定。a 段也只走到 pending_fulfilment 就判 n/a |
+| 22 撤銷後送較新版 | 0 | **2** | 同上：第 35 行 `case_reduce`（log 顯示「生效：verifying」）→ STATE_TRANSITION |
+| 23–27 | 0 | 0 | 不變 |
+| 28 撤銷與縮小的濫用 | 0 | 0 | 結束碼不變，但**意義變了**：drain 之後單在等確認，所有「縮小時擴大」的嘗試都在 STATE_TRANSITION 就被擋，沒有走到資料庫的縮小判斷；無關員工的撤銷仍是 NOT_REVOKER。這一支要在 drain 後加申請人確認才測得到原本要測的東西 |
+| 29 租約與順序的競賽 | 0 | **2** | 同 21：第 51 行 `case_reduce` → STATE_TRANSITION |
+| 30–32 | 0 | 0 | 不變 |
+
+21、22、29 回 2、28 意義改變，都是同一個原因：腳本假設「交付程式送完＝生效」，現在要先由申請人確認（`api.case_confirm_verification`）。
+腳本是紅隊的範圍，沒有改；下一輪紅隊改寫時在 `00-delivery-lib.mjs` 的 drain 之後加申請人確認即可。這次新增的入口（`case_confirm_verification`、
+`case_dispute_verification`、`api_job.confirmation_expire_due`、領取時的逾期處理、畫面的縮小）需要紅隊對著執行中的系統打一輪。
+
+## 9. 留給下一位
+
+- 威脅表未解：#2（後端替申請人按確認，評估為可接受）、#4（部分）、#7（排程與交付程式同時停擺）、#10（等確認期間外部系統上已有權限）、#11、#12。
+- 待裁決 §5 的五項；骨幹 §4.3 要依裁決修正。
+- 逾期前提醒（骨幹 K-CONFIRM）、`confirmation_timeout_action = remind`、`confirmation_parties` 的其他選項沒做。
+- 紅隊腳本 21、22、28、29 要配合確認一步改寫（§8）。
+- `grant_manual_followup` 的通知把事件代碼（revoked）直接放進「授權已{{event}}」的文案（420 既有，沒改）。
