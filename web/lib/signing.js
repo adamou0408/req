@@ -36,13 +36,21 @@ export function storedTerms(terms) {
 /** 一個版本的雜湊：內容與 terms 一起（資料庫的 case_version.version_sha256）。 */
 export const versionSha256 = (content, terms) => jsonSha256({ content, terms: storedTerms(terms) });
 
-/** 決定要簽的輸入：原因、縮小後那一版的雜湊、執行內容的雜湊（資料庫的 sgn_internal.decision_signed_content）。 */
-export async function decisionContent(versionHash, decision, input) {
-    if (['return', 'reject', 'recall'].includes(decision)) return { version_sha256: versionHash, input: { reason: input.reason } };
+/**
+ * 決定要簽的內容（資料庫的 sgn_internal.decision_signed_payload；裁決 D75）：版本雜湊、顯示摘要的雜湊與輸入。
+ * display 是畫面畫出決定畫面用的那一份顯示摘要（頁面只從它畫，簽的就是它）。輸入：原因、縮小後那一版的雜湊與顯示、
+ * 執行內容的雜湊。
+ */
+export async function decisionContent(display, decision, input) {
+    const base = { version_sha256: display.version_sha256, display_sha256: await jsonSha256(display) };
+    if (['return', 'reject', 'recall'].includes(decision)) return { ...base, input: { reason: input.reason } };
     if (decision === 'approve_reduced')
-        return { version_sha256: versionHash, input: { version_sha256: await versionSha256(input.content, input.terms) } };
-    if (decision === 'fulfil') return { version_sha256: versionHash, input: { payload_sha256: await jsonSha256(input.payload) } };
-    return { version_sha256: versionHash, input: {} };
+        return {
+            ...base,
+            input: { version_sha256: await versionSha256(input.content, input.terms), display_sha256: await jsonSha256(input.display) },
+        };
+    if (decision === 'fulfil') return { ...base, input: { payload_sha256: await jsonSha256(input.payload) } };
+    return { ...base, input: {} };
 }
 
 /** 挑戰值（32 bytes）。nonce 是資料庫給的 base64url 字串，其他都來自畫面。 */
@@ -75,11 +83,41 @@ export function lowS(der) {
     return new Uint8Array([0x30, body.length, ...body]);
 }
 
-/** P-256 公鑰的指紋（未壓縮點的 SHA-256，hex）與兩邊對照用的六位數短碼（D65）。SPKI 的最後 65 bytes 就是未壓縮點。 */
+/** P-256 公鑰的指紋（未壓縮點的 SHA-256，hex）。SPKI 的最後 65 bytes 就是未壓縮點。 */
 export async function keyFingerprint(spki) {
-    const point = spki.slice(spki.length - 65);
-    const fingerprint = hex(await sha256(point));
-    return { fingerprint, shortCode: shortCode(fingerprint) };
+    return hex(await sha256(spki.slice(spki.length - 65)));
 }
 
-export const shortCode = (fingerprint) => String(parseInt(fingerprint.slice(0, 8), 16) % 1000000).padStart(6, '0');
+/**
+ * 金鑰登記核對碼的成本（log2 的迭代次數）可以接受的範圍（裁決 D76）。成本由資料庫的參數 passkey.enrollment_code_cost 決定、
+ * 經後端送到兩邊的頁面；新裝置的頁面若接受任意成本，被入侵的後端就能在受害者畫面上換很多種成本，一次比對很多個目標
+ * （多目標碰撞）。所以頁面只接受這個窄範圍（最多 5 種），而且成本也是鹽的一部分，每個目標都要付完整的慢速雜湊。
+ * db/tests/kernel/84-enrollment-code.test.mjs 檢查參數的預設值在這個範圍內。
+ */
+export const ENROLLMENT_CODE_COST = Object.freeze({ min: 20, max: 24 });
+
+async function slowCode(fingerprint, cost) {
+    const text = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', text.encode(fingerprint), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits(
+        { name: 'PBKDF2', hash: 'SHA-256', salt: text.encode(`sgn/passkey-enrollment/${cost}`), iterations: 2 ** cost },
+        key,
+        64,
+    );
+    return (BigInt(`0x${hex(new Uint8Array(bits))}`) % 10n ** 12n).toString().padStart(12, '0');
+}
+
+/**
+ * 金鑰登記的 12 位數核對碼（D76）：從完整指紋以 PBKDF2-HMAC-SHA256（2^cost 次，單次約一秒）算出，讓離線碰撞不可行
+ * （約 10^12 次慢速雜湊）。新裝置的畫面與背書人的畫面各自從自己拿到的指紋算，兩人當面或電話核對。
+ * 成本不在 ENROLLMENT_CODE_COST 範圍內時立即丟錯（不回傳 promise）。
+ */
+export function shortCode(fingerprint, cost) {
+    if (!Number.isInteger(cost) || cost < ENROLLMENT_CODE_COST.min || cost > ENROLLMENT_CODE_COST.max)
+        throw new RangeError(`核對碼的成本 ${cost} 不在 ${ENROLLMENT_CODE_COST.min}–${ENROLLMENT_CODE_COST.max}`);
+    if (!/^[0-9a-f]{64}$/.test(fingerprint)) throw new RangeError('指紋格式不正確');
+    return slowCode(fingerprint, cost);
+}
+
+/** 12 位數分成三組顯示（1234 5678 9012）。 */
+export const groupedCode = (code) => code.replace(/(\d{4})(?=\d)/g, '$1 ');

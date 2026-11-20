@@ -5,7 +5,9 @@ with bootstrapped as (
     insert into sgn.role_assignment (person_id, role_code, valid_from, source)
     select c.person_id, c.role_code, sgn_internal.now(), 'manual'
     from sgn.directory_role_claim as c
-    where c.seen_to is null
+    join sgn.role as r on r.code = c.role_code
+    -- 最高治理角色（錨點）不在這裡：只能由資料庫擁有者的儀式指派（裁決 D77），見下面
+    where c.seen_to is null and r.assignment_source_policy = 'manual'
     returning person_id, role_code
 )
 select sgn_internal.audit_append(
@@ -17,3 +19,9 @@ select sgn_internal.audit_append(
         'assignments', (select jsonb_agg(jsonb_build_object('person', b.person_id, 'role', b.role_code)) from bootstrapped as b)
     )
 );
+
+-- 最高治理角色（錨點，裁決 D77）：示範資料以資料庫擁有者的儀式指派目錄對它的說法（正式環境在安裝時由擁有者執行一次）。
+select sgn_internal.governance_anchor_install(c.role_code, c.person_id, 'db/seed/kernel/005_bootstrap_roles.sql：開發與驗收環境的安裝儀式')
+from sgn.directory_role_claim as c
+join sgn.role as r on r.code = c.role_code
+where c.seen_to is null and r.anchor;
