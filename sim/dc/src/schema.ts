@@ -2,7 +2,7 @@
 // 列層級安全用的判斷函式（schema simdc）、服務自己的紀錄（schema simdc_meta）。
 // 被授權者角色只會拿到 data、export 的欄位權限與 simdc 的 usage；simdc_meta 對它們不可見。
 
-import { escapeIdentifier as ident, escapeLiteral as lit } from 'pg';
+import { ident, lit } from './db.ts';
 import { PACKAGES, ROW_ID, type ColumnType } from './catalog.ts';
 
 // 結構改變時加一：啟動時發現版本不同，就整個重建（只是模擬資料，重建即可）。
