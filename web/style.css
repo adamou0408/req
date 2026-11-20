@@ -150,14 +150,32 @@ select:focus-visible {
     font-size: 14px;
     border: 1px solid currentColor;
 }
-.state-submitted {
+.state-in_approval,
+.state-pending_fulfilment,
+.state-returned {
     color: var(--warn);
 }
-.state-approved {
+.state-active,
+.state-completed {
     color: var(--ok);
+}
+.state-rejected {
+    color: var(--bad);
 }
 .state-draft {
     color: var(--muted);
+}
+.badge.tier {
+    color: var(--primary);
+}
+.ok-text {
+    color: var(--ok);
+}
+.warn-text {
+    color: var(--warn);
+}
+.bad-text {
+    color: var(--bad);
 }
 .result {
     border-radius: 8px;
@@ -220,4 +238,132 @@ ol.events li {
 }
 .sheet-buttons {
     margin-top: 16px;
+}
+a {
+    color: var(--primary);
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
+    min-width: 44px;
+}
+a.card {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+}
+a.card .line {
+    display: block;
+    overflow-wrap: anywhere;
+}
+a:focus-visible,
+summary:focus-visible,
+.choice:focus-within {
+    outline: 3px solid #f0b400;
+    outline-offset: 2px;
+}
+button.wide {
+    width: 100%;
+}
+button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+}
+fieldset {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin: 8px 0;
+    padding: 8px 12px;
+    min-width: 0;
+}
+fieldset.filter,
+fieldset.period {
+    border-style: dashed;
+}
+legend {
+    font-weight: 600;
+    padding: 0 4px;
+}
+.choices {
+    display: grid;
+    gap: 6px;
+}
+.choice {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+    margin: 4px 0;
+    padding: 6px 8px 6px 40px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+    font-weight: 400;
+    cursor: pointer;
+}
+.choice input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+}
+.choice span::before {
+    content: '';
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    width: 20px;
+    height: 20px;
+    margin-top: -10px;
+    border: 2px solid var(--muted);
+    border-radius: 4px;
+    background: #fff;
+}
+.choice input:checked + span::before {
+    background: var(--primary);
+    border-color: var(--primary);
+    box-shadow: inset 0 0 0 3px #fff;
+}
+.pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.pair input {
+    min-width: 0;
+}
+h3 {
+    font-size: 16px;
+    margin: 8px 0;
+}
+h4 {
+    font-size: 15px;
+    margin: 8px 0 4px;
+}
+ol.path,
+ol.stages,
+ol.rules {
+    padding-left: 20px;
+}
+ul.scope {
+    margin: 0;
+    padding-left: 18px;
+}
+.facts dl {
+    grid-template-columns: 5em 1fr;
+}
+pre {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+.result p {
+    margin: 4px 0;
 }

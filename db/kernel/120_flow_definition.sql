@@ -377,7 +377,7 @@ declare
     v_scopes text[];
 begin
     if v_fn is null then
-        return '{}';
+        return '{}'::text[];
     end if;
     execute format('select coalesce(array_agg(s order by s), ''{}'') from (select distinct s from %s($1, $2) as s) as d', v_fn::regprocedure::regproc)
         into v_scopes using p_stage_code, p_content;

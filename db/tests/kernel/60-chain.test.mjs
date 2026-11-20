@@ -19,6 +19,7 @@ import {
     newAuthenticator,
     one,
     pool,
+    PROBE,
     registerPasskey,
 } from './lib/harness.mjs';
 
@@ -91,7 +92,7 @@ after(async () => {
     for (const db of copies) await adminQuery('postgres', `drop database if exists "${db}" with (force)`);
 });
 
-test('PRB-CHAIN 20 個連線同時寫入：序號連續、沒有分叉、整條鏈驗得過', async () => {
+test('K-AUDIT-APPEND 20 個連線同時寫入：序號連續、沒有分叉、整條鏈驗得過', async () => {
     const app = pool('APP');
     const user = await login(app, 'p04');
     const before = await one(pool('ADMIN'), 'select seq from sgn.audit_chain_head');
@@ -100,7 +101,7 @@ test('PRB-CHAIN 20 個連線同時寫入：序號連續、沒有分叉、整條�
     await Promise.all(
         clients.map(async (client, w) => {
             for (let i = 0; i < PER_WRITER; i += 1) {
-                await client.query('select * from api.case_create($1, $2)', [user.session, { writer: w, i }]);
+                await client.query('select * from api.case_create($1, $2, $3, $4)', [user.session, PROBE, { writer: w, i }, {}]);
             }
         }),
     );
@@ -126,7 +127,7 @@ test('PRB-CHAIN 20 個連線同時寫入：序號連續、沒有分叉、整條�
     assert.equal(anchored.ok, true);
     anchoredSeq = anchored.anchor.seq;
     for (let i = 0; i < TAIL; i += 1) {
-        await app.query('select * from api.case_create($1, $2)', [user.session, { tail: i }]);
+        await app.query('select * from api.case_create($1, $2, $3, $4)', [user.session, PROBE, { tail: i }, {}]);
     }
     lastSeq = Number((await one(admin, 'select seq from sgn.audit_chain_head')).seq);
     assert.equal(lastSeq, anchoredSeq + TAIL);
@@ -221,7 +222,7 @@ test('竄改 7：最高權限者把驗章 function 換成不驗的版本 → 偽
         const caseId = await createSubmittedCase(copyApp, applicant);
         const ch = await issueChallenge(copyApp, manager, caseId);
         const forged = { ...newAuthenticator().assert(ch.challenge), credentialId: managerKey.credentialIdB64 };
-        assert.equal(await decidePasskey(copyApp, ch.challenge_id, 'approve', forged), 'approved');
+        assert.equal(await decidePasskey(copyApp, ch.challenge_id, 'approve', forged), 'completed');
     } finally {
         await copyApp.end();
     }

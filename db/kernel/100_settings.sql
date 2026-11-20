@@ -240,6 +240,9 @@ declare
     v_day date := v_local::date;
     v_left int := p_days;
 begin
+    if p_from is null or p_days is null then
+        return null;
+    end if;
     while v_left > 0 loop
         v_day := v_day + 1;
         if sgn_internal.is_workday(v_day) then

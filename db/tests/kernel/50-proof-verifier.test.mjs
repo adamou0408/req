@@ -48,10 +48,10 @@ async function decideViaService(challengeId, decision, assertion) {
     return response.json();
 }
 
-test('PRB-PROOF (c) 經驗證服務核准成功', async () => {
+test('K-DECISION-PROOF (c) 經驗證服務核准成功', async () => {
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
-    assert.deepEqual(await decideViaService(ch.challenge_id, 'approve', managerKey.assert(ch.challenge)), { state: 'approved' });
+    assert.deepEqual(await decideViaService(ch.challenge_id, 'approve', managerKey.assert(ch.challenge)), { state: 'completed' });
 });
 
 test('攻擊 (c)：一般後端帳號呼叫 api_verified 被拒', async () => {
@@ -71,16 +71,16 @@ test('攻擊 (c)：偽造簽章、重放、A 單證明用在 B 單、內容改�
     assert.deepEqual(await decideViaService(chA.challenge_id, 'approve', forged), { error: 'PASSKEY_INVALID' });
     const proofA = managerKey.assert(chA.challenge);
     assert.deepEqual(await decideViaService(chB.challenge_id, 'approve', proofA), { error: 'PASSKEY_INVALID' });
-    assert.deepEqual(await decideViaService(chA.challenge_id, 'approve', proofA), { state: 'approved' });
+    assert.deepEqual(await decideViaService(chA.challenge_id, 'approve', proofA), { state: 'completed' });
     assert.deepEqual(await decideViaService(chA.challenge_id, 'approve', proofA), { error: 'CHALLENGE_USED' });
 
     const caseC = await createSubmittedCase(app, applicant, { v: 1 });
     const oldCh = await issueChallenge(app, manager, caseC);
     const oldProof = managerKey.assert(oldCh.challenge);
-    const back = await issueChallenge(app, manager, caseC, 'return');
-    assert.deepEqual(await decideViaService(back.challenge_id, 'return', managerKey.assert(back.challenge)), { state: 'draft' });
-    await app.query('select api.case_revise($1, $2, $3)', [applicant.session, caseC, { v: 2 }]);
-    await app.query('select api.case_submit($1, $2)', [applicant.session, caseC]);
+    const back = await issueChallenge(app, manager, caseC, 'return', { reason: '請補充用途' });
+    assert.deepEqual(await decideViaService(back.challenge_id, 'return', managerKey.assert(back.challenge)), { state: 'returned' });
+    await app.query('select api.case_revise($1, $2, $3, $4)', [applicant.session, caseC, { v: 2 }, {}]);
+    await app.query('select api.case_submit($1, $2, $3)', [applicant.session, caseC, null]);
     assert.deepEqual(await decideViaService(oldCh.challenge_id, 'approve', oldProof), { error: 'CONTENT_CHANGED' });
 });
 
@@ -91,5 +91,5 @@ test('(c) 殘餘風險（預期會成功）：拿到驗證服務的資料庫帳�
         ch.challenge_id,
         managerKey.credentialIdB64,
     ]);
-    assert.equal(row.state.state, 'approved');
+    assert.equal(row.state.state, 'completed');
 });

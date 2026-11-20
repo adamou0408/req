@@ -1,0 +1,67 @@
+// 資料授權流程包的測試共用：今天的日期、被授權者、決定、內容範本。
+import { call, decidePasskey, issueChallenge } from '../../kernel/lib/harness.mjs';
+
+export const DA = 'data_access';
+
+/** 營業日期（參數 calendar.timezone 的預設 Asia/Taipei），YYYY-MM-DD。 */
+export function today(offsetDays = 0) {
+    const d = new Date(Date.now() + offsetDays * 86400000);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(d);
+}
+
+/** YYYY-MM-DD 加幾個月再加幾天（UTC 計算，日期字串不受時區影響）。 */
+export function addMonths(date, months, days = 0) {
+    const d = new Date(`${date}T00:00:00Z`);
+    d.setUTCMonth(d.getUTCMonth() + months);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
+}
+
+export async function principals(app, session) {
+    const list = await call(app, 'principal_list', session);
+    return Object.fromEntries(list.map((p) => [p.name, p.principal_id]));
+}
+
+export function terms(principalId, months = 5, from = today()) {
+    return { principal_id: principalId, valid_from: from, valid_to: addMonths(from, months) };
+}
+
+export async function decide(app, user, caseId, decision = 'approve', input = {}) {
+    const ch = await issueChallenge(app, user, caseId, decision, input);
+    return decidePasskey(app, ch.challenge_id, decision, user.key.assert(ch.challenge));
+}
+
+/** L3：客戶主檔兩個欄位（北、中區）＋銷售訂單三個欄位（北區、2025 年）。 */
+export function l3Content(overrides = {}) {
+    return {
+        scope: [
+            {
+                package: 'customer_master',
+                fields: ['customer_id', 'customer_name'],
+                row_filters: [{ filter: 'region', op: 'in', values: ['north', 'central'] }],
+            },
+            {
+                package: 'sales_order',
+                fields: ['order_no', 'amount', 'order_date'],
+                row_filters: [{ filter: 'region', op: 'in', values: ['north'] }],
+            },
+        ],
+        data_period: { from: '2025-01-01', to: '2025-12-31' },
+        purpose_category: 'reporting',
+        purpose_description: '通路業務組每月檢視客戶與訂單',
+        export_allowed: false,
+        ...overrides,
+    };
+}
+
+/** L4：員工薪資（實發金額是 L4）。 */
+export function l4Content(overrides = {}) {
+    return {
+        scope: [{ package: 'payroll', fields: ['employee_id', 'net_pay', 'pay_date'], row_filters: [] }],
+        data_period: { from: '2026-01-01', to: '2026-12-31' },
+        purpose_category: 'operations',
+        purpose_description: '應付帳款對帳',
+        export_allowed: false,
+        ...overrides,
+    };
+}

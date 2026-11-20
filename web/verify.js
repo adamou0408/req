@@ -2,7 +2,8 @@
 //   1. 整條雜湊鏈從創世重算（hash_n = sha256(hash_{n-1} || body_n)），比對外部錨點與程式指紋
 //   2. 這張單的每筆事件都在重算過的鏈上
 //   3. 內容指紋 = sha256(RFC 8785 標準化的內容)，瀏覽器自己標準化，和送審、核准時記下的一致
-//   4. 核准的通行金鑰簽章用 WebCrypto 重驗，公鑰對得到鏈上的登記事件，簽章的人就是送審時指定的簽核人
+//   4. 每個決定（核准、縮小後核准、退回、駁回、撤回、標記已套用）的通行金鑰簽章用 WebCrypto 重驗，
+//      簽的是鏈上記下的那一版內容，公鑰對得到鏈上的登記事件，決定者是那一關開始時指派或認領的人（撤回是申請人）
 // 限制：這支程式本身由後端送來；正式環境的稽核工具要從獨立管道取得（見 docs/handoff/probe-path-findings.md）。
 import { canonicalize } from './lib/jcs.js';
 import { unb64url } from './webauthn.js';
@@ -82,7 +83,7 @@ function derToRaw(der) {
     return concat(r.int, s.int);
 }
 
-async function verifyPasskeyProof(proof, event, events, submitted) {
+async function verifyPasskeyProof(proof, event, events) {
     const problems = [];
     const data = event.parsed.data;
     const raw = proof.raw;
@@ -103,8 +104,51 @@ async function verifyPasskeyProof(proof, event, events, submitted) {
         if (hex(await sha256(unb64url(proof.public_key))) !== registered.parsed.data.public_key_sha256) problems.push('公鑰和登記紀錄不符');
         if (registered.parsed.actor !== event.parsed.actor) problems.push('簽章的金鑰不屬於做決定的人');
     }
-    if (submitted && event.parsed.actor !== submitted.parsed.data.approver) problems.push('做決定的人不是送審時指定的簽核人');
     return problems;
+}
+
+// 決定的種類（事件類型 case.<決定>）；撤回只能由申請人，其餘必須是鏈上指派或認領了這張單工作的人。
+const DECISIONS = ['approve', 'approve_reduced', 'return', 'reject', 'recall', 'fulfil'].map((d) => `case.${d}`);
+
+/** 鏈上記下的每一版內容指紋（建立、修改、縮小都會記）。 */
+function versionHashes(ownEvents) {
+    const map = new Map();
+    for (const e of ownEvents) {
+        const d = e.parsed.data ?? {};
+        if (['case.created', 'case.revised', 'case.reduced'].includes(e.parsed.type)) map.set(d.version, d.content_sha256);
+    }
+    return map;
+}
+
+/** 鏈上記下的決定者：每一關開始時指派的人，加上認領的人；申請人是建立申請的人。 */
+function deciders(ownEvents) {
+    const assigned = new Set();
+    for (const e of ownEvents) {
+        if (e.parsed.type === 'case.stage_opened')
+            for (const task of e.parsed.data.tasks ?? []) if (task.assignee) assigned.add(task.assignee);
+        if (e.parsed.type === 'case.claimed') assigned.add(e.parsed.actor);
+    }
+    const applicant = ownEvents.find((e) => e.parsed.type === 'case.created')?.parsed.actor;
+    return { assigned, applicant };
+}
+
+async function verifyDecisions(audit, events, ownEvents) {
+    const problems = [];
+    const hashes = versionHashes(ownEvents);
+    const who = deciders(ownEvents);
+    let checked = 0;
+    for (const e of ownEvents.filter((x) => DECISIONS.includes(x.parsed.type))) {
+        const d = e.parsed.data;
+        if (hashes.get(d.version) !== d.content_sha256) problems.push(`第 ${e.seq} 筆決定簽的內容和鏈上第 ${d.version} 版的指紋不符`);
+        const proof = audit.proofs.find((p) => p.challenge === d.challenge);
+        if (!proof || proof.kind !== 'passkey') problems.push(`第 ${e.seq} 筆決定沒有可重驗的通行金鑰證明`);
+        else problems.push(...(await verifyPasskeyProof(proof, e, events)));
+        const eligible = e.parsed.type === 'case.recall' ? e.parsed.actor === who.applicant : who.assigned.has(e.parsed.actor);
+        if (!eligible) problems.push(`第 ${e.seq} 筆決定的人不是鏈上指派或認領這張單的人`);
+        if (e.parsed.type !== 'case.recall' && e.parsed.actor === who.applicant) problems.push(`第 ${e.seq} 筆決定由申請人自己做出`);
+        checked += 1;
+    }
+    return { problems, checked, hashes };
 }
 
 /** 驗證一張單。回傳 { status: 'ok' | 'warn' | 'bad', checks, problems, unanchored, events }；events 含這張單的事件與所用通行金鑰的登記事件。 */
@@ -120,15 +164,10 @@ export async function verifyCase(api, audit) {
     const ownEvents = events.filter((e) => e.parsed.case_id === audit.case.case_id);
     const contentHash = hex(await sha256(new TextEncoder().encode(canonicalize(audit.case.content))));
     if (contentHash !== audit.case.content_sha256) problems.push('申請內容和內容指紋不符');
-    const submitted = ownEvents.findLast((e) => e.parsed.type === 'case.submitted');
-    let proofsChecked = 0;
-    for (const e of ownEvents.filter((x) => ['case.approve', 'case.return'].includes(x.parsed.type))) {
-        if (e.parsed.data.content_sha256 !== contentHash) problems.push(`第 ${e.seq} 筆決定簽的不是現在這份內容`);
-        const proof = audit.proofs.find((p) => p.challenge === e.parsed.data.challenge);
-        if (!proof || proof.kind !== 'passkey') problems.push(`第 ${e.seq} 筆決定沒有可重驗的通行金鑰證明`);
-        else problems.push(...(await verifyPasskeyProof(proof, e, events, submitted)));
-        proofsChecked += 1;
-    }
+    const decisions = await verifyDecisions(audit, events, ownEvents);
+    problems.push(...decisions.problems);
+    if (decisions.hashes.get(audit.case.version) !== contentHash) problems.push('目前的內容不是鏈上記下的最新一版');
+    const proofsChecked = decisions.checked;
     // 錨點之後的紀錄只靠資料庫保護：逐筆標示，有任何一筆就不算驗證通過（status 是 warn，不是 ok）
     for (const e of events) e.anchored = e.seq <= anchors.lastAnchorSeq;
     const unanchored = ownEvents.filter((e) => !e.anchored).length;
@@ -136,8 +175,8 @@ export async function verifyCase(api, audit) {
         `整條雜湊鏈 ${chain.lastSeq} 筆從頭重算`,
         `比對外部錨點 ${anchors.anchorCount} 個（最後一個到第 ${anchors.lastAnchorSeq} 筆）與程式指紋`,
         `這張單的 ${ownEvents.length} 筆紀錄都在鏈上`,
-        '申請內容和內容指紋一致',
-        `重驗 ${proofsChecked} 個決定的通行金鑰簽章、金鑰登記與簽核人`,
+        '申請內容和內容指紋一致，且是鏈上記下的最新一版',
+        `重驗 ${proofsChecked} 個決定：各自簽的版本、通行金鑰簽章、金鑰登記，決定者是鏈上指派或認領的人`,
     ];
     const status = problems.length ? 'bad' : unanchored > 0 || anchors.anchorCount === 0 ? 'warn' : 'ok';
     return { status, checks, problems, unanchored, events };

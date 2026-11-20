@@ -17,6 +17,7 @@ import {
     registrationNonce,
     rejectsPermission,
     rejectsWith,
+    setSetting,
 } from './lib/harness.mjs';
 
 const app = pool('APP');
@@ -36,10 +37,10 @@ before(async () => {
 });
 after(closePools);
 
-test('PRB-PROOF (a) 主管以自己的通行金鑰核准：資料庫驗章後從憑證得出是誰，事件記下證明雜湊', async () => {
+test('K-DECISION-PROOF (a) 主管以自己的通行金鑰核准：資料庫驗章後從憑證得出是誰，事件記下證明雜湊', async () => {
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
-    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge)), 'approved');
+    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge)), 'completed');
     const event = await one(
         admin,
         `select actor_person_id, convert_from(body, 'UTF8')::jsonb -> 'data' as data from sgn.audit_event where case_id = $1 and event_type = 'case.approve'`,
@@ -103,7 +104,7 @@ test('攻擊 (a)：重放同一份證明 → CHALLENGE_USED；舊證明配新挑
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
     const assertion = managerKey.assert(ch.challenge);
-    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', assertion), 'approved');
+    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', assertion), 'completed');
     await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', assertion), 'CHALLENGE_USED');
     const caseB = await createSubmittedCase(app, applicant);
     const chB = await issueChallenge(app, manager, caseB);
@@ -115,7 +116,7 @@ test('攻擊 (a)：計數器恆為 0 的同步型通行金鑰，重放仍由一�
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
     const assertion = syncedKey.assert(ch.challenge);
-    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', assertion), 'approved');
+    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', assertion), 'completed');
     await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', assertion), 'CHALLENGE_USED');
 });
 
@@ -128,7 +129,7 @@ test('攻擊 (a)：A 單的證明用在 B 單 → PASSKEY_INVALID，A、B 都沒
     const states = await admin.query('select state from sgn.request_case where id = any($1)', [[caseA, caseB]]);
     assert.deepEqual(
         states.rows.map((r) => r.state),
-        ['submitted', 'submitted'],
+        ['in_approval', 'in_approval'],
     );
 });
 
@@ -136,16 +137,16 @@ test('攻擊 (a)：內容改了之後用舊證明 → CONTENT_CHANGED', async ()
     const caseId = await createSubmittedCase(app, applicant, { dataset: 'payroll', rows: 10 });
     const oldCh = await issueChallenge(app, manager, caseId, 'approve');
     const oldProof = managerKey.assert(oldCh.challenge);
-    const back = await issueChallenge(app, manager, caseId, 'return');
-    assert.equal(await decidePasskey(app, back.challenge_id, 'return', managerKey.assert(back.challenge)), 'draft');
-    await app.query('select api.case_revise($1, $2, $3)', [applicant.session, caseId, { dataset: 'payroll', rows: 100000 }]);
-    await app.query('select api.case_submit($1, $2)', [applicant.session, caseId]);
+    const back = await issueChallenge(app, manager, caseId, 'return', { reason: '請補充用途' });
+    assert.equal(await decidePasskey(app, back.challenge_id, 'return', managerKey.assert(back.challenge)), 'returned');
+    await app.query('select api.case_revise($1, $2, $3, $4)', [applicant.session, caseId, { dataset: 'payroll', rows: 100000 }, {}]);
+    await app.query('select api.case_submit($1, $2, $3)', [applicant.session, caseId, null]);
     await rejectsWith(decidePasskey(app, oldCh.challenge_id, 'approve', oldProof), 'CONTENT_CHANGED');
 });
 
 test('攻擊 (a)：使用者簽的是「退回」，後端改送「核准」 → DECISION_MISMATCH', async () => {
     const caseId = await createSubmittedCase(app, applicant);
-    const ch = await issueChallenge(app, manager, caseId, 'return');
+    const ch = await issueChallenge(app, manager, caseId, 'return', { reason: '請補充用途' });
     await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge)), 'DECISION_MISMATCH');
 });
 
@@ -175,13 +176,13 @@ test('攻擊 (a)：複製出來的驗證器（計數器倒退） → PASSKEY_COU
 });
 
 test('攻擊 (a)：過期的挑戰值 → CHALLENGE_EXPIRED（把有效期參數調成 1 秒）', async () => {
-    await admin.query(`update sgn.setting set value = '1' where key = 'challenge.ttl_seconds'`);
+    await setSetting(admin, 'challenge.ttl_seconds', 1);
     try {
         const caseId = await createSubmittedCase(app, applicant);
         const ch = await issueChallenge(app, manager, caseId);
         await new Promise((r) => setTimeout(r, 1500));
         await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', managerKey.assert(ch.challenge)), 'CHALLENGE_EXPIRED');
     } finally {
-        await admin.query(`update sgn.setting set value = '300' where key = 'challenge.ttl_seconds'`);
+        await setSetting(admin, 'challenge.ttl_seconds', 300);
     }
 });

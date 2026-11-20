@@ -5,12 +5,14 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { after, before, test } from 'node:test';
-import { backendCalls, notExposed, routes, shapeProblems } from '../../../packages/contract/src/routes.ts';
-import { call, closePools, idToken, login, newAuthenticator, pool, registrationNonce } from './lib/harness.mjs';
+import { backendCalls, notExposed, packRoutes, routes, shapeProblems } from '../../../packages/contract/src/routes.ts';
+import { call, closePools, idToken, login, newAuthenticator, pool, PROBE, registrationNonce } from './lib/harness.mjs';
 
 const admin = pool('ADMIN');
 const app = pool('APP');
-const allCalls = [...routes, ...Object.values(backendCalls)];
+// 核心的路由與後端呼叫由這個檔案實際呼叫檢查；流程包的路由由各流程包的測試檢查（db/tests/packs/<流程包>/）。
+const kernelCalls = [...routes, ...Object.values(backendCalls)];
+const allCalls = [...kernelCalls, ...Object.values(packRoutes).flat()];
 
 after(closePools);
 
@@ -58,12 +60,25 @@ async function functionSources() {
         `select n.nspname || '.' || p.proname as fn, p.prosrc as src
          from pg_proc p join pg_namespace n on n.oid = p.pronamespace
          join pg_language l on l.oid = p.prolang
-         where n.nspname in ('sgn_internal', 'api', 'api_sync', 'api_job', 'api_verified') and l.lanname in ('sql', 'plpgsql')`,
+         where (n.nspname in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_verified') or n.nspname like 'pack\\_%')
+           and l.lanname in ('sql', 'plpgsql')`,
     );
     return rows;
 }
 
-const AUTHORIZATION_CODES = ['NOT_APPLICANT', 'NOT_APPROVER', 'SELF_APPROVAL', 'AUDITOR_REQUIRED'];
+const AUTHORIZATION_CODES = [
+    'NOT_APPLICANT',
+    'NOT_APPROVER',
+    'SELF_APPROVAL',
+    'AUDITOR_REQUIRED',
+    'NOT_CLAIMABLE',
+    'NOT_FULFILLER',
+    'SOD_DISTINCT',
+    'DECIDER_ROLE_EXCLUDED',
+];
+// 授權入口：denial_reason 是唯一的判斷；決定者資格（職責分離）拆成 decider_denial，由 denial_reason 與解析器共用，
+// 所以「能不能被指派」和「能不能做決定」是同一個判斷（K-DECISION-ELIGIBLE）。
+const AUTHORIZATION_OWNERS = ['sgn_internal.denial_reason', 'sgn_internal.decider_denial'];
 // 依「我自己的」挑資料的清單查詢（不是授權判斷）：清單裡每張單能做什麼仍由 denial_reason 算出。
 const SELF_SCOPED_FILTERS = {
     'api.case_list_mine': '我的申請：applicant_person_id = 我',
@@ -71,11 +86,14 @@ const SELF_SCOPED_FILTERS = {
     'sgn_internal.person_capabilities': '畫面提示「有沒有待簽」：approver_person_id = 我',
 };
 
-test('架構：授權檢查只有一個入口——授權的錯誤代碼、角色判斷、申請人／簽核人的比對只出現在 sgn_internal.denial_reason', async () => {
+test('架構：授權檢查只有一個入口——授權的錯誤代碼、角色判斷、申請人／簽核人的比對只出現在授權入口', async () => {
     const sources = await functionSources();
-    const owner = 'sgn_internal.denial_reason';
-    assert.ok(sources.some((s) => s.fn === owner));
-    for (const { fn, src } of sources.filter((s) => s.fn !== owner)) {
+    for (const owner of AUTHORIZATION_OWNERS)
+        assert.ok(
+            sources.some((s) => s.fn === owner),
+            owner,
+        );
+    for (const { fn, src } of sources.filter((s) => !AUTHORIZATION_OWNERS.includes(s.fn))) {
         for (const code of AUTHORIZATION_CODES)
             assert.ok(!src.includes(`'${code}'`), `${fn} 自己丟授權錯誤 ${code}：要改成呼叫 sgn_internal.authorize`);
         assert.ok(!/sgn_internal\.has_role\s*\(/.test(src), `${fn} 自己判斷角色：要改成呼叫 sgn_internal.authorize`);
@@ -86,10 +104,18 @@ test('架構：授權檢查只有一個入口——授權的錯誤代碼、角�
     }
 });
 
+// 會改狀態、卻不自己呼叫授權入口的內部 function，與理由（呼叫它們的人已經授權過）。
+const TRANSITION_WITHOUT_AUTHORIZE = {
+    'sgn_internal.case_advance': '關卡推進：只由已授權的送審、決定、執行完成之後呼叫，執行的是 system 動作',
+    'sgn_internal.decision_apply': '套用決定：只由 decision_commit 呼叫，decision_commit 先以證明得出的人授權',
+};
+
 test('架構：會改狀態或讀稽核資料的 function 都經過授權入口', async () => {
     const sources = await functionSources();
     const mustAuthorize = sources.filter(
-        (s) => /sgn_internal\.case_transition\s*\(/.test(s.src) || /^api\.(audit_|case_get|challenge_issue)/.test(s.fn),
+        (s) =>
+            (/sgn_internal\.case_transition\s*\(/.test(s.src) && !TRANSITION_WITHOUT_AUTHORIZE[s.fn]) ||
+            /^api\.(audit_|case_get|challenge_issue|task_claim)/.test(s.fn),
     );
     assert.ok(mustAuthorize.length >= 8, mustAuthorize.map((s) => s.fn).join(', '));
     for (const { fn, src } of mustAuthorize) assert.match(src, /sgn_internal\.authorize\s*\(/, `${fn} 沒有呼叫 sgn_internal.authorize`);
@@ -104,7 +130,7 @@ test('架構：會改狀態或讀稽核資料的 function 都經過授權入口'
 const checked = new Map();
 async function check(fn, ...args) {
     const value = await call(app, fn, ...args);
-    const c = allCalls.find((x) => x.fn === fn);
+    const c = kernelCalls.find((x) => x.fn === fn);
     assert.deepEqual(shapeProblems(value, c.returns), [], `api.${fn} 的回傳結構`);
     checked.set(fn, (checked.get(fn) ?? 0) + 1);
     return value;
@@ -113,10 +139,12 @@ async function check(fn, ...args) {
 let applicant;
 let manager;
 let auditor;
+let groupMember;
 before(async () => {
     applicant = await login(app, 'p04');
     manager = await login(app, 'p03');
     auditor = await login(app, 'p22');
+    groupMember = await login(app, 'p16');
 });
 
 test('契約：每個路由與後端呼叫的回傳結構都符合路由表（真的呼叫一次，結構不多不少）', async () => {
@@ -136,31 +164,28 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     );
     // 申請人
     await check('me', applicant.session);
-    const draft = await check('case_create', applicant.session, { dataset: 'd', purpose: 'p' });
-    await check('case_revise', applicant.session, draft.case_id, { dataset: 'd', purpose: 'p2' });
-    await check('case_submit', applicant.session, draft.case_id);
-    const submitted = await check('case_submit_new', applicant.session, { dataset: 'e', purpose: 'q' });
+    await check('process_type_list', applicant.session);
+    await check('principal_list', applicant.session);
+    const draft = await check('case_create', applicant.session, PROBE, { dataset: 'd', purpose: 'p' }, {});
+    await check('case_revise', applicant.session, draft.case_id, { dataset: 'd', purpose: 'p2' }, {});
+    await check('case_submit', applicant.session, draft.case_id, null);
+    const submitted = await check('case_submit_new', applicant.session, PROBE, { dataset: 'e', purpose: 'q' }, {}, null);
     await check('case_get', applicant.session, submitted.case_id);
     await check('case_list_mine', applicant.session);
     // 簽核人：核准一張、退回一張
     await check('inbox_list', manager.session);
-    for (const [caseId, decision] of [
-        [submitted.case_id, 'approve'],
-        [draft.case_id, 'return'],
-    ]) {
-        const ch = await check('challenge_issue', manager.session, caseId, decision);
+    const decide = async (person, caseId, decision, input) => {
+        const ch = await check('challenge_issue', person.session, caseId, decision, input);
         const a = key.assert(ch.challenge);
-        const decided = await check(
-            'case_decide_passkey',
-            ch.challenge_id,
-            decision,
-            a.credentialId,
-            a.authenticatorData,
-            a.clientDataJSON,
-            a.signature,
-        );
-        assert.equal(decided.state, decision === 'approve' ? 'approved' : 'draft');
-    }
+        return check('case_decide_passkey', ch.challenge_id, decision, a.credentialId, a.authenticatorData, a.clientDataJSON, a.signature);
+    };
+    assert.equal((await decide(manager, submitted.case_id, 'approve', {})).state, 'completed');
+    assert.equal((await decide(manager, draft.case_id, 'return', { reason: '請補充用途' })).state, 'returned');
+    // 群組認領：多關的測試流程，主管核准後由群組（mis）的一人認領
+    const chain = await call(app, 'case_submit_new', applicant.session, 'probe_chain', { dataset: 'f' }, {}, null);
+    await decide(manager, chain.case_id, 'approve', {});
+    const claimed = await check('task_claim', groupMember.session, chain.case_id);
+    assert.deepEqual(claimed.waiting_on, [claimed.waiting_on[0]]);
     // 稽核
     await check('audit_case', auditor.session, submitted.case_no);
     await check('audit_chain', auditor.session, 0, 50);
@@ -169,16 +194,17 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     // 登出
     await check('session_close', opened.session_token);
 
-    const missing = allCalls.map((c) => c.fn).filter((fn) => !checked.has(fn));
+    const missing = kernelCalls.map((c) => c.fn).filter((fn) => !checked.has(fn));
     assert.deepEqual(missing, [], '每個路由與後端呼叫都要實際檢查過結構');
 });
 
 test('契約：畫面（web/）呼叫的每個 function 都在路由表裡', async () => {
     const webDir = new URL('../../../web/', import.meta.url);
-    const used = readdirSync(webDir)
+    // 畫面拆成多個模組（web/pages/ 等子目錄），所以遞迴掃描；流程包的路由（packRoutes）也是畫面可呼叫的路由
+    const used = readdirSync(webDir, { recursive: true })
         .filter((f) => f.endsWith('.js'))
         .flatMap((f) => [...readFileSync(new URL(f, webDir), 'utf8').matchAll(/api\.call\(\s*'(\w+)'/g)].map((m) => m[1]));
     assert.ok(used.length >= 10, `只找到 ${used.length} 個呼叫`);
-    const routed = new Set(routes.map((r) => r.fn));
+    const routed = new Set([...routes, ...Object.values(packRoutes).flat()].map((r) => r.fn));
     assert.deepEqual([...new Set(used.filter((fn) => !routed.has(fn)))], []);
 });

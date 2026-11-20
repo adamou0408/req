@@ -7,6 +7,7 @@ export type Scalar =
     | 'int'
     | 'bool'
     | 'timestamp'
+    | 'date' // YYYY-MM-DD
     | 'hex' // 小寫十六進位
     | 'b64url' // base64url，無 padding
     | 'base64' // 標準 base64
@@ -23,6 +24,7 @@ const scalarChecks: Record<Scalar, (v: unknown) => boolean> = {
     text: (v) => typeof v === 'string',
     int: (v) => Number.isSafeInteger(v),
     bool: (v) => typeof v === 'boolean',
+    date: (v) => typeof v === 'string' && /^\d{4}-\d\d-\d\d$/.test(v),
     timestamp: (v) => typeof v === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?(Z|[+-]\d\d:\d\d)$/.test(v),
     hex: (v) => typeof v === 'string' && /^([0-9a-f]{2})+$/.test(v),
     b64url: (v) => typeof v === 'string' && /^[A-Za-z0-9_-]+$/.test(v),

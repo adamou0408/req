@@ -84,13 +84,25 @@ export async function registerPasskey(db, user, authenticator = newAuthenticator
     return authenticator;
 }
 
+/** 核心測試用的流程類型（db/testing/60_probe_process.sql）：一關、申請人的主管簽，沒有 hook。 */
+export const PROBE = 'probe';
+
 export async function createSubmittedCase(db, applicant, content = { dataset: 'sales_monthly', purpose: 'test', n: Math.random() }) {
-    const submitted = await call(db, 'case_submit_new', applicant.session, content);
+    const submitted = await call(db, 'case_submit_new', applicant.session, PROBE, content, {}, null);
     return submitted.case_id;
 }
 
-export async function issueChallenge(db, approver, caseId, decision = 'approve') {
-    return call(db, 'challenge_issue', approver.session, caseId, decision);
+export async function issueChallenge(db, person, caseId, decision = 'approve', input = {}) {
+    return call(db, 'challenge_issue', person.session, caseId, decision, input);
+}
+
+/** 新增一筆全域（或指定範圍）的參數值，立即生效。參數值只增不改，所以「改回去」也是再新增一筆。 */
+export async function setSetting(admin, key, value, scopeRef = 'global') {
+    await admin.query(
+        `insert into sgn.setting_value (key, scope_ref, value, effective_from, recorded_at, reason)
+         values ($1, $2, $3, clock_timestamp(), clock_timestamp(), 'test')`,
+        [key, scopeRef, JSON.stringify(value)],
+    );
 }
 
 export async function decidePasskey(db, challengeId, decision, assertion) {
@@ -110,4 +122,16 @@ export async function decidePasskey(db, challengeId, decision, assertion) {
 export async function decideIdp(db, challengeId, decision, token) {
     const decided = await call(db, 'case_decide_idp', challengeId, decision, token);
     return decided.state;
+}
+
+/**
+ * 模擬「主管異動的冷卻期已經過了」：把這個人目前、由同步異動而來的主管關係的起點往前移 5 天。
+ * 只給測試用的管理者連線使用（真實環境的時間不能倒退）。
+ */
+export async function settleManagerChange(admin, personId) {
+    await admin.query(
+        `update sgn.reporting_line set valid_from = valid_from - interval '5 days'
+         where person_id = $1 and valid_to is null and origin = 'sync_change'`,
+        [personId],
+    );
 }

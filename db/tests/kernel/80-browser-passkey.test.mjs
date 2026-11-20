@@ -46,7 +46,7 @@ after(async () => {
     await closePools();
 });
 
-test('PRB-PROOF (a) 真的瀏覽器：Chromium 登記通行金鑰、簽挑戰值，資料庫驗章後核准', async () => {
+test('K-DECISION-PROOF (a) 真的瀏覽器：Chromium 登記通行金鑰、簽挑戰值，資料庫驗章後核准', async () => {
     const applicant = await login(app, 'p04');
     const manager = await login(app, 'p03');
     const created = await page.evaluate(async (rpId) => {
@@ -99,5 +99,5 @@ test('PRB-PROOF (a) 真的瀏覽器：Chromium 登記通行金鑰、簽挑戰值
         },
         { challenge: ch.challenge, id: created.id, rpId: config.db.SGN_RP_ID },
     );
-    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', assertion), 'approved');
+    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', assertion), 'completed');
 });

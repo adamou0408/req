@@ -1,11 +1,11 @@
-// 內容雜湊的標準化 JSON（PRB-CONTENT-HASH）：跨語言對照。同一份資料，資料庫（sgn_internal.jcs，PL/pgSQL）
+// 內容雜湊的標準化 JSON（K-AUDIT-CHAIN）：跨語言對照。同一份資料，資料庫（sgn_internal.jcs，PL/pgSQL）
 // 算一次、Node（web/lib/jcs.js，稽核人員的瀏覽器用的同一份）算一次，位元組必須完全相同。
 // 資料：RFC 8785 本文的範例、附錄 B 的 IEEE 754 數字、以及固定種子產生的大量亂數資料。
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import { canonicalize } from '../../../web/lib/jcs.js';
-import { call, closePools, login, pool, rejectsWith } from './lib/harness.mjs';
+import { call, closePools, login, pool, PROBE, rejectsWith } from './lib/harness.mjs';
 
 const admin = pool('ADMIN');
 const app = pool('APP');
@@ -110,7 +110,7 @@ function randomValue(rand, depth = 0) {
     return Object.fromEntries(Array.from({ length: Math.floor(rand() * 5) }, () => [randomString(rand), randomValue(rand, depth + 1)]));
 }
 
-test('PRB-CONTENT-HASH RFC 8785 本文的範例：資料庫的輸出與 RFC 列出的結果一字不差', async () => {
+test('K-AUDIT-CHAIN RFC 8785 本文的範例：資料庫的輸出與 RFC 列出的結果一字不差', async () => {
     const input =
         '{"numbers": [333333333.33333329, 1E30, 4.50, 2e-3, 0.000000000000000000000000001],' +
         ' "string": "\\u20ac$\\u000F\\u000aA\'\\u0042\\u0022\\u005c\\\\\\"\\/", "literals": [null, true, false]}';
@@ -121,7 +121,7 @@ test('PRB-CONTENT-HASH RFC 8785 本文的範例：資料庫的輸出與 RFC 列�
     assert.equal(canonicalize(JSON.parse(input)), expected);
 });
 
-test('PRB-CONTENT-HASH 鍵依 UTF-16 code unit 排序（RFC 8785 3.2.3 的例子：表情符號排在 U+FB33 之前）', async () => {
+test('K-AUDIT-CHAIN 鍵依 UTF-16 code unit 排序（RFC 8785 3.2.3 的例子：表情符號排在 U+FB33 之前）', async () => {
     const value = {
         '€': 'Euro Sign',
         '\r': 'Carriage Return',
@@ -138,7 +138,7 @@ test('PRB-CONTENT-HASH 鍵依 UTF-16 code unit 排序（RFC 8785 3.2.3 的例子
     assert.equal(fromDb, canonicalize(value));
 });
 
-test('PRB-CONTENT-HASH RFC 8785 附錄 B 的 IEEE 754 數字與 2000 個隨機 double：資料庫與 Node 的數字表示相同', async () => {
+test('K-AUDIT-CHAIN RFC 8785 附錄 B 的 IEEE 754 數字與 2000 個隨機 double：資料庫與 Node 的數字表示相同', async () => {
     const ieee = [
         '0000000000000000',
         '8000000000000000',
@@ -172,16 +172,16 @@ test('PRB-CONTENT-HASH RFC 8785 附錄 B 的 IEEE 754 數字與 2000 個隨機 d
     await assertSame([...ieee, ...boundaries, ...randomDoubles]);
 });
 
-test('PRB-CONTENT-HASH 3000 份隨機的巢狀 JSON（跳脫字元、補充平面字元、空物件與空陣列）：資料庫與 Node 逐位元組相同', async () => {
+test('K-AUDIT-CHAIN 3000 份隨機的巢狀 JSON（跳脫字元、補充平面字元、空物件與空陣列）：資料庫與 Node 逐位元組相同', async () => {
     const rand = random(20261119);
     const values = Array.from({ length: 3000 }, () => randomValue(rand));
     values.push({}, [], { '': '' }, { a: {}, b: [] }, [[[]]]);
     await assertSame(values);
 });
 
-test('PRB-CONTENT-HASH 申請單的內容雜湊＝sha256(標準化 JSON)：資料庫以外的程式從回傳的內容就算得出相同的值', async () => {
+test('K-AUDIT-CHAIN 申請單的內容雜湊＝sha256(標準化 JSON)：資料庫以外的程式從回傳的內容就算得出相同的值', async () => {
     const content = { 目的: '流失分析', z: [1, 2.5, 1e21], a: { '😀': true, é: null }, rows: 100000 };
-    const submitted = await call(app, 'case_submit_new', applicant.session, content);
+    const submitted = await call(app, 'case_submit_new', applicant.session, PROBE, content, {}, null);
     const expected = createHash('sha256').update(canonicalize(submitted.content), 'utf8').digest('hex');
     assert.equal(submitted.content_sha256, expected);
     // jsonb 的文字輸出（舊做法）不是標準化的結果：鍵依長度排序、有空白
@@ -189,9 +189,15 @@ test('PRB-CONTENT-HASH 申請單的內容雜湊＝sha256(標準化 JSON)：資�
     assert.notEqual(rows[0].t, canonicalize(content));
 });
 
-test('PRB-CONTENT-HASH 超出 IEEE 754 double 範圍的數字無法標準化 → CONTENT_NOT_CANONICAL，單不會建立', async () => {
+test('K-AUDIT-CHAIN 超出 IEEE 754 double 範圍的數字無法標準化 → CONTENT_NOT_CANONICAL，單不會建立', async () => {
     const before = (await call(app, 'case_list_mine', applicant.session)).length;
-    await rejectsWith(app.query(`select api.case_submit_new($1, '{"n": 1e400}'::jsonb)`, [applicant.session]), 'CONTENT_NOT_CANONICAL');
-    await rejectsWith(app.query(`select api.case_submit_new($1, '{"n": 1e-400}'::jsonb)`, [applicant.session]), 'CONTENT_NOT_CANONICAL');
+    await rejectsWith(
+        app.query(`select api.case_submit_new($1, $2, '{"n": 1e400}'::jsonb, '{}', null)`, [applicant.session, PROBE]),
+        'CONTENT_NOT_CANONICAL',
+    );
+    await rejectsWith(
+        app.query(`select api.case_submit_new($1, $2, '{"n": 1e-400}'::jsonb, '{}', null)`, [applicant.session, PROBE]),
+        'CONTENT_NOT_CANONICAL',
+    );
     assert.equal((await call(app, 'case_list_mine', applicant.session)).length, before);
 });

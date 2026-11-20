@@ -63,10 +63,10 @@ build_schema() {
         done
     fi
     args+=(-c "reset role" -v owner="$SGN_ROLE_OWNER" -v app="$SGN_ROLE_APP" -v sync="$SGN_ROLE_SYNC" -v job="$SGN_ROLE_JOB" -f "$here/kernel/90_grants.sql")
-    psql_admin "$db" "${args[@]}"
+    psql_admin "$db" "${args[@]}" >/dev/null
     psql_admin "$db" -c "set role \"$SGN_ROLE_OWNER\"" \
         -c "select sgn_internal.register_setting_value('webauthn.rp_id', 'global', to_jsonb('$SGN_RP_ID'::text), 'db/build.sh：開發環境')" \
-        -c "select sgn_internal.register_setting_value('webauthn.origin', 'global', to_jsonb('$SGN_RP_ORIGIN'::text), 'db/build.sh：開發環境')"
+        -c "select sgn_internal.register_setting_value('webauthn.origin', 'global', to_jsonb('$SGN_RP_ORIGIN'::text), 'db/build.sh：開發環境')" >/dev/null
 }
 
 # 核心（不含 01_core 與 90_grants）與各流程包的 migration，各自依檔名的版本序。
@@ -84,7 +84,7 @@ load_seed() {
     while IFS= read -r file; do
         args+=(-f "$file")
     done < <(find "$here/seed" -name '*.sql' | sort -V)
-    psql_admin "$db" "${args[@]}"
+    psql_admin "$db" "${args[@]}" >/dev/null
 }
 
 # 登記身分提供者的公開金鑰，並從 LDAP 做第一次（基準）同步。

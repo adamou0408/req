@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { extname, join, normalize } from 'node:path';
-import { backendCalls, routes, type Call } from '@sgn/contract';
+import { backendCalls, packRoutes, routes, type Call } from '@sgn/contract';
 import { config } from './config.ts';
 import { ApiError, Db } from './db.ts';
 import { OidcClient } from './oidc.ts';
@@ -30,7 +30,10 @@ type Flow =
 const db = new Db(config.dbUrl);
 const oidc = new OidcClient(config.oidc);
 const flows = new Map<string, Flow>();
-const apiRoutes: ReadonlyMap<string, Call> = new Map(routes.map((r) => [`/api/${r.fn}`, r]));
+// 核心路由與各流程包的路由一律依路由表註冊；後端不知道任何流程包的內容
+const apiRoutes: ReadonlyMap<string, Call> = new Map(
+    [...routes, ...Object.values(packRoutes).flat()].map((r): [string, Call] => [`/api/${r.fn}`, r]),
+);
 
 function cookies(req: IncomingMessage): Map<string, string> {
     const header = req.headers.cookie ?? '';

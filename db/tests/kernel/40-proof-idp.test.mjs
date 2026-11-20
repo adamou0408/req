@@ -13,6 +13,7 @@ import {
     one,
     pool,
     rejectsWith,
+    setSetting,
 } from './lib/harness.mjs';
 
 const app = pool('APP');
@@ -32,10 +33,10 @@ function parts(token) {
     return { header: JSON.parse(Buffer.from(h, 'base64url')), payload: JSON.parse(Buffer.from(p, 'base64url')), h, p, s };
 }
 
-test('PRB-PROOF (b) 主管以身分提供者再驗證核准：資料庫驗章、檢查 nonce＝挑戰值，從 token 得出是誰', async () => {
+test('K-DECISION-PROOF (b) 主管以身分提供者再驗證核准：資料庫驗章、檢查 nonce＝挑戰值，從 token 得出是誰', async () => {
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
-    assert.equal(await decideIdp(app, ch.challenge_id, 'approve', await idToken('p03', ch.challenge)), 'approved');
+    assert.equal(await decideIdp(app, ch.challenge_id, 'approve', await idToken('p03', ch.challenge)), 'completed');
     const event = await one(admin, `select actor_person_id from sgn.audit_event where case_id = $1 and event_type = 'case.approve'`, [
         caseId,
     ]);
@@ -80,7 +81,7 @@ test('攻擊 (b)：重放 → CHALLENGE_USED；A 單的 token 用在 B 單 → T
     const chB = await issueChallenge(app, manager, caseB);
     const tokenA = await idToken('p03', chA.challenge);
     await rejectsWith(decideIdp(app, chB.challenge_id, 'approve', tokenA), 'TOKEN_NONCE');
-    assert.equal(await decideIdp(app, chA.challenge_id, 'approve', tokenA), 'approved');
+    assert.equal(await decideIdp(app, chA.challenge_id, 'approve', tokenA), 'completed');
     await rejectsWith(decideIdp(app, chA.challenge_id, 'approve', tokenA), 'CHALLENGE_USED');
 });
 
@@ -88,12 +89,12 @@ test('攻擊 (b)：內容改了之後用舊 token → CONTENT_CHANGED；決定�
     const caseId = await createSubmittedCase(app, applicant, { dataset: 'hr', rows: 1 });
     const oldCh = await issueChallenge(app, manager, caseId, 'approve');
     const oldToken = await idToken('p03', oldCh.challenge);
-    const back = await issueChallenge(app, manager, caseId, 'return');
+    const back = await issueChallenge(app, manager, caseId, 'return', { reason: '請補充用途' });
     const backToken = await idToken('p03', back.challenge);
     await rejectsWith(decideIdp(app, back.challenge_id, 'approve', backToken), 'DECISION_MISMATCH');
-    assert.equal(await decideIdp(app, back.challenge_id, 'return', backToken), 'draft');
-    await app.query('select api.case_revise($1, $2, $3)', [applicant.session, caseId, { dataset: 'hr', rows: 999 }]);
-    await app.query('select api.case_submit($1, $2)', [applicant.session, caseId]);
+    assert.equal(await decideIdp(app, back.challenge_id, 'return', backToken), 'returned');
+    await app.query('select api.case_revise($1, $2, $3, $4)', [applicant.session, caseId, { dataset: 'hr', rows: 999 }, {}]);
+    await app.query('select api.case_submit($1, $2, $3)', [applicant.session, caseId, null]);
     await rejectsWith(decideIdp(app, oldCh.challenge_id, 'approve', oldToken), 'CONTENT_CHANGED');
 });
 
@@ -101,11 +102,11 @@ test('攻擊 (b)：太舊的 token → TOKEN_STALE（把新鮮度參數調成 0 
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
     const token = await idToken('p03', ch.challenge);
-    await admin.query(`update sgn.setting set value = '0' where key = 'idp.token_max_age_seconds'`);
+    await setSetting(admin, 'idp.token_max_age_seconds', 0);
     try {
         await new Promise((r) => setTimeout(r, 1100));
         await rejectsWith(decideIdp(app, ch.challenge_id, 'approve', token), 'TOKEN_STALE');
     } finally {
-        await admin.query(`update sgn.setting set value = '300' where key = 'idp.token_max_age_seconds'`);
+        await setSetting(admin, 'idp.token_max_age_seconds', 300);
     }
 });

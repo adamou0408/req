@@ -67,7 +67,7 @@ end;
 $$;
 
 comment on function api_verified.case_decide_passkey(uuid, text, text, bigint, jsonb) is
-    '驗證服務確認「這把通行金鑰簽了這個挑戰值」後呼叫。資料庫不驗章，只檢查挑戰值、綁定、簽核人資格。呼叫者：sgn_test_verifier。規則：PRB-PROOF、PRB-APPROVER、PRB-SELF';
+    '驗證服務確認「這把通行金鑰簽了這個挑戰值」後呼叫。資料庫不驗章，只檢查挑戰值、綁定、簽核人資格。呼叫者：sgn_test_verifier。規則：K-DECISION-PROOF、K-DECISION-ELIGIBLE、K-SOD-APPLICANT';
 
 revoke all on all functions in schema api_verified from public;
 grant usage on schema api_verified to :"verifier";

@@ -90,7 +90,7 @@ test('架構：對外 function 都是 SECURITY DEFINER、固定 search_path、�
     }
 });
 
-test('PRB-CHAIN 稽核紀錄表連 owner 也擋下 UPDATE、DELETE、TRUNCATE', async () => {
+test('K-AUDIT-APPEND 稽核紀錄表連 owner 也擋下 UPDATE、DELETE、TRUNCATE', async () => {
     const owner = await admin.connect();
     try {
         await owner.query(`set role ${config.db.SGN_ROLE_OWNER}`);

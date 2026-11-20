@@ -14,27 +14,116 @@ export type Call = {
 
 const exceptionRef: Shape = { object: { id: 'int', rule_code: 'text', opened_at: 'timestamp', event_seq: 'int' } };
 
+const message: Shape = { object: { code: 'text', message: 'text' } };
+const contentError: Shape = { object: { path: 'text', code: 'text', message: 'text' } };
+
+const principal: Shape = {
+    object: { principal_id: 'uuid', kind: 'text', name: 'text', owner_name: 'text', ends_on: { nullable: 'date' } },
+};
+
+const pathStage: Shape = { object: { seq: 'int', code: 'text', name: 'text', phase: 'text', mode: 'text' } };
+
 const caseFields = {
     case_id: 'uuid',
     case_no: 'int',
+    process_type: 'text',
     state: 'text',
+    tier: 'text',
     version: 'int',
     content: 'json',
     content_sha256: 'hex',
+    version_sha256: 'hex',
+    /** 核心保存與判定的欄位（不在流程包的內容裡）：被授權者、授權起迄（YYYY-MM-DD，申請人填的原值） */
+    terms: { object: { principal: { nullable: principal }, valid_from: { nullable: 'text' }, valid_to: { nullable: 'text' } } },
     updated_at: 'timestamp',
     applicant_name: 'text',
-    approver_name: { nullable: 'text' },
+    /** 目前開著（或停住＝halted）的那一關 */
+    current_stage: { nullable: { object: { seq: 'int', code: 'text', name: 'text', phase: 'text', status: 'text' } } },
+    /** 目前等誰處理（指派對象，或等認領的候選人） */
+    waiting_on: { array: 'text' },
+    /** 整理內容時的提示（例如 L1、L2 欄位已自動移除） */
+    notices: { array: message },
+    /** 送審前必須修正的地方（只有草稿與退回的單有） */
+    errors: { array: contentError },
     exceptions: { array: exceptionRef },
 } as const satisfies Record<string, Shape>;
 
-/** 申請單摘要：所有回傳申請單的 function 共用。actions 是這個人現在可以做的動作，畫面依它顯示按鈕。 */
+/** 申請單摘要：所有回傳申請單清單的 function 共用。actions 是這個人現在可以做的動作，畫面依它顯示按鈕。 */
 export const caseSummary: Shape = { object: { ...caseFields, actions: { array: 'text' } } };
+
+const task: Shape = {
+    object: {
+        task_id: 'int',
+        assignee_name: { nullable: 'text' },
+        status: 'text',
+        scope_refs: { array: 'text' },
+        decided_version: { nullable: 'int' },
+        reason: { nullable: 'text' },
+        closed_at: { nullable: 'timestamp' },
+    },
+};
+
+/** 申請單詳情：摘要＋每一關與每件工作、版本歷程、重疊檢查、執行內容、授權。 */
+export const caseDetail: Shape = {
+    object: {
+        ...caseFields,
+        actions: { array: 'text' },
+        stages: {
+            array: {
+                object: {
+                    seq: 'int',
+                    code: 'text',
+                    name: 'text',
+                    phase: 'text',
+                    status: 'text',
+                    opened_at: 'timestamp',
+                    closed_at: { nullable: 'timestamp' },
+                    tasks: { array: task },
+                },
+            },
+        },
+        versions: {
+            array: {
+                object: {
+                    version: 'int',
+                    change_kind: 'text',
+                    tier: 'text',
+                    created_by_name: { nullable: 'text' },
+                    created_at: 'timestamp',
+                    content_sha256: 'hex',
+                    version_sha256: 'hex',
+                    /** 這一版的內容與 terms：畫面顯示「與前一版的差異」用 */
+                    content: 'json',
+                    terms: caseFields.terms,
+                },
+            },
+        },
+        overlap: { nullable: { object: { level: 'text', items: 'json', reason: { nullable: 'text' }, version: 'int' } } },
+        fulfilment: { nullable: { object: { version: 'int', payload: 'json', payload_sha256: 'hex' } } },
+        grant: {
+            nullable: {
+                object: { grant_id: 'uuid', valid_from: { nullable: 'date' }, valid_to: { nullable: 'date' }, status: 'text' },
+            },
+        },
+    },
+};
 
 const challenge: Shape = {
     object: {
         challenge_id: 'uuid',
         challenge: 'b64url',
-        binding: { object: { case_id: 'uuid', case_no: 'int', version: 'int', content_sha256: 'hex', decision: 'text' } },
+        binding: {
+            object: {
+                case_id: 'uuid',
+                case_no: 'int',
+                version: 'int',
+                content_sha256: 'hex',
+                version_sha256: 'hex',
+                decision: 'text',
+                input: 'json',
+                input_sha256: 'hex',
+            },
+        },
     },
 };
 
@@ -75,21 +164,42 @@ const chainEvent: Shape = {
     },
 };
 
-/** 畫面呼叫的路由：POST /api/<fn>。每個使用者動作一個。 */
+/**
+ * 畫面呼叫的核心路由：POST /api/<fn>。每個使用者動作一個。
+ * 決定（核准、縮小後核准、退回、駁回、撤回、執行完成）都是 challenge_issue → case_decide_passkey 兩步；
+ * challenge_issue 的 input：退回、駁回、撤回 {reason}；縮小後核准 {content, terms}；其他 {}。
+ */
 export const routes = [
     {
         fn: 'me',
         params: ['session'],
         returns: { object: { person_id: 'uuid', name: 'text', passkeys: 'int', capabilities: { array: 'text' } } },
     },
-    { fn: 'case_create', params: ['session', 'content'], returns: caseSummary },
-    { fn: 'case_submit_new', params: ['session', 'content'], returns: caseSummary },
-    { fn: 'case_revise', params: ['session', 'case_id', 'content'], returns: caseSummary },
-    { fn: 'case_submit', params: ['session', 'case_id'], returns: caseSummary },
-    { fn: 'case_get', params: ['session', 'case_id'], returns: caseSummary },
+    {
+        fn: 'process_type_list',
+        params: ['session'],
+        returns: {
+            array: {
+                object: {
+                    code: 'text',
+                    name: 'text',
+                    options: 'json',
+                    /** 每個級別在目前路徑上會經過的關卡（新申請畫面即時顯示） */
+                    tiers: { array: { object: { code: 'text', name: 'text', stages: { array: pathStage } } } },
+                },
+            },
+        },
+    },
+    { fn: 'principal_list', params: ['session'], returns: { array: principal } },
+    { fn: 'case_create', params: ['session', 'process_type', 'content', 'terms'], returns: caseDetail },
+    { fn: 'case_submit_new', params: ['session', 'process_type', 'content', 'terms', 'overlap_reason'], returns: caseDetail },
+    { fn: 'case_revise', params: ['session', 'case_id', 'content', 'terms'], returns: caseDetail },
+    { fn: 'case_submit', params: ['session', 'case_id', 'overlap_reason'], returns: caseDetail },
+    { fn: 'case_get', params: ['session', 'case_id'], returns: caseDetail },
     { fn: 'case_list_mine', params: ['session'], returns: { array: caseSummary } },
     { fn: 'inbox_list', params: ['session'], returns: { array: caseSummary } },
-    { fn: 'challenge_issue', params: ['session', 'case_id', 'decision'], returns: challenge },
+    { fn: 'task_claim', params: ['session', 'case_id'], returns: caseSummary },
+    { fn: 'challenge_issue', params: ['session', 'case_id', 'decision', 'input'], returns: challenge },
     {
         fn: 'case_decide_passkey',
         params: ['challenge_id', 'decision', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
@@ -107,6 +217,41 @@ export const routes = [
         },
     },
 ] as const satisfies readonly Call[];
+
+/** 流程包專屬的路由（api.<流程包>_*）；結構由各流程包的資料庫測試檢查（db/tests/packs/<流程包>/）。 */
+export const packRoutes = {
+    data_access: [
+        {
+            fn: 'data_access_catalog',
+            params: ['session'],
+            returns: {
+                object: {
+                    packages: {
+                        array: {
+                            object: {
+                                code: 'text',
+                                name: 'text',
+                                period_field: { nullable: 'text' },
+                                fields: { array: { object: { code: 'text', name: 'text', classification: 'text' } } },
+                                filters: {
+                                    array: {
+                                        object: {
+                                            code: 'text',
+                                            name: 'text',
+                                            value_type: 'text',
+                                            values: { array: { object: { value: 'text', label: 'text' } } },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    purpose_categories: { array: { object: { code: 'text', name: 'text', requires_description: 'bool' } } },
+                },
+            },
+        },
+    ],
+} as const satisfies Record<string, readonly Call[]>;
 
 /** 後端自己的流程（登入、登記通行金鑰的再驗證、登出、啟動）呼叫的 function；不直接開成 /api 路由。 */
 export const backendCalls = {
