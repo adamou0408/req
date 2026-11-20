@@ -115,6 +115,12 @@ function constraintsOf(spec: PolicySpec): Record<string, unknown> {
     return out;
 }
 
+// 已到期但目錄上還有權限（還沒清除）要和有效的分開，排程清除之後這種項目就不會再出現。
+function lifecycleOf(spec: PolicySpec, today: string): 'effective' | 'expired_uncleared' | 'not_yet_valid' {
+    if (today < spec.valid.from) return 'not_yet_valid';
+    return today > spec.valid.to ? 'expired_uncleared' : 'effective';
+}
+
 interface ReconciliationReport {
     readonly format: 'dc_reconciliation_report/1';
     readonly observed_at: string;
@@ -175,6 +181,7 @@ export async function reconciliationReport(db: Db, today: string): Promise<Recon
                             case_version_no: spec.case_version_no,
                             valid: spec.valid,
                             effective_now: spec.valid.from <= today && today <= spec.valid.to,
+                            lifecycle: lifecycleOf(spec, today),
                             ...(spec.fields.includes(p.col) ? {} : { column_not_in_rule: true }),
                         },
                         policy: x.polname,

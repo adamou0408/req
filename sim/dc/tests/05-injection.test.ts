@@ -1,6 +1,7 @@
 // 注入：列條件的值（引號、分號、註解、聯集、反斜線、dollar quote）只會被當成一個字串值，
 // 不會變成 SQL；代碼類的輸入（主題包、欄位、列條件、principal_id、單號）不在目錄上就拒絕。
 import assert from 'node:assert/strict';
+import { ruleRoleFor } from '../src/roles.ts';
 import { after, before, test } from 'node:test';
 import pg from 'pg';
 import { call, example1, putRuleSet, reconciliation, signed, sql, startServer, stopServer, testQuery, type QueryInput } from './harness.ts';
@@ -52,7 +53,9 @@ test('列條件的值是注入字串：照樣套用成字面值，看不到任�
         assert.equal(q['reason'], 'row_filter');
     }
     // 對帳讀回來的值和送進去的一模一樣
-    const item = (await reconciliation()).find((i) => i.properties['db_role'] === ROLE && i.resource.id === 'customer_master.customer_id');
+    const item = (await reconciliation()).find(
+        (i) => String(i.properties['db_role']).startsWith(`${ROLE}_r`) && i.resource.id === 'customer_master.customer_id',
+    );
     assert.deepEqual(item?.constraints, { row_filter: [{ filter: 'region', op: 'in', values: PAYLOADS }] });
     // 服務角色仍然在、不是 superuser
     const svc = await sql<{ rolsuper: boolean }>(`select rolsuper from pg_roles where rolname = 'simdc_service'`);
@@ -173,7 +176,9 @@ test('被授權者不能自己指定查詢日期，把過期的授權變回有�
     // 以一個登入帳號（被授權者角色的成員）自己連進來，設定 simdc.as_of 也沒用
     await sql(`drop role if exists simdc_t_login`);
     await sql(`create role simdc_t_login login password 'simdc-t-login'`);
-    await sql(`grant ${role} to simdc_t_login`);
+    // 規則是各自的角色：成員要是那條規則的角色才讀得到它的欄位
+    const ruleRole = ruleRoleFor(role, 'DA-2025-0050-1');
+    await sql(`grant ${ruleRole} to simdc_t_login`);
     await sql(`grant connect on database ${process.env['SIM_DC_DB'] ?? ''} to simdc_t_login`);
     const client = new pg.Client({
         host: process.env['SIM_DC_PG_HOST'],
@@ -184,7 +189,7 @@ test('被授權者不能自己指定查詢日期，把過期的授權變回有�
     });
     await client.connect();
     try {
-        await client.query(`set role ${role}`);
+        await client.query(`set role ${ruleRole}`);
         await client.query(`set simdc.as_of = '2025-06-01'`);
         const seen = await client.query<{ n: string }>(`select count(customer_id)::text as n from data.customer_master`);
         assert.equal(seen.rows[0]?.n, '0');

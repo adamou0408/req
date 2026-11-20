@@ -1,6 +1,6 @@
 # sim/dc：模擬的外部資料系統（DC）
 
-一個獨立的小服務（Node 22 + TypeScript，唯一的執行期套件是 `pg`），加上它自己的 PostgreSQL 資料庫。收到平台核准的規則後，把它套用成**真正的資料庫權限**：每個被授權者一個資料庫角色、欄位層級的權限、列層級安全（RLS）、匯出另外授權。測試查詢與對帳都是對資料庫的真實操作。只供開發與測試；不含平台的業務判斷，收到什麼規則就執行什麼。
+一個獨立的小服務（Node 22 + TypeScript，唯一的執行期套件是 `pg`），加上它自己的 PostgreSQL 資料庫。收到平台核准的規則後，把它套用成**真正的資料庫權限**：每個被授權者一個身分角色、**每條規則一個角色**（欄位層級的權限、列層級安全 RLS 都掛在規則角色上，所以不同規則互不交叉）、匯出另外授權。測試查詢與對帳都是對資料庫的真實操作。只供開發與測試；不含平台的業務判斷，收到什麼規則就執行什麼。
 
 ## 怎麼跑
 
@@ -23,13 +23,14 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 |---|---|
 | 資料庫 | `sim_dc`（合成資料）、`sim_dc_test`（遮罩資料，結構相同） |
 | 服務的登入角色 | `simdc_service`（擁有資料表，`CREATEROLE`，不是 superuser）；密碼見 `test-credentials.env` |
-| 被授權者角色 | `simdc_p_<principal_id>`（遮罩資料庫是 `simdc_m_p_…`）；UUID 去掉連字號，或正整數。`NOLOGIN` |
+| 被授權者角色 | `simdc_p_<principal_id>`（遮罩資料庫是 `simdc_m_p_…`）；UUID 去掉連字號，或正整數。`NOLOGIN`，身分的錨點，不持有資料權限 |
+| 規則角色 | `simdc_p_<principal_id>_r<規則代碼雜湊>`，每條有效的規則一個；`NOLOGIN`。欄位權限、policy、匯出檢視表只掛在它上面 |
 | 時區 | `Asia/Taipei`（授權起迄與「今天」） |
 
 | schema | 內容 | 被授權者看得到什麼 |
 |---|---|---|
-| `data` | 四張表：`customer_master`、`sales_order`、`product_cost`、`payroll`。欄名就是平台目錄的欄位代碼，另有列條件欄（`region`、`product_line`、`pay_type`）與技術鍵 `row_id` | 規則給的欄位＋`row_id` 的欄位權限；每條規則一個 RLS policy |
-| `export` | 每個可以匯出的角色、每個主題包一個檢視表（`security_invoker`） | 只有自己的那一個 |
+| `data` | 四張表：`customer_master`、`sales_order`、`product_cost`、`payroll`。欄名就是平台目錄的欄位代碼，另有列條件欄（`region`、`product_line`、`pay_type`）與技術鍵 `row_id` | 每條規則的角色：該規則給的欄位＋`row_id` 的欄位權限、該規則的一個 RLS policy |
+| `export` | 每個可以匯出的規則角色、每個主題包一個檢視表（`security_invoker`） | 只有自己的那一個 |
 | `simdc` | RLS 用的判斷函式（`rule_match`、`rule_reason`、`as_of`） | 執行權 |
 | `simdc_meta` | 服務收到的規則、撤回請求、呼叫紀錄 | 沒有 |
 
@@ -55,6 +56,7 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 | `PUT {base}/rule-sets/{case_no}` | 套用規則（**要簽章**） | `data_access_rule_set/1` → `{"status":"applied","dc_ref":"DC-{case_no}-v{版}"}` |
 | `DELETE {base}/rule-sets/{case_no}` | 撤回（**要簽章**） | `{"request_id","case_no","rule_ids"?}` → `{"status":"withdrawn"}`；省略 `rule_ids` 是全部 |
 | `GET {base}/rule-sets`、`GET {base}/rule-sets/{case_no}` | 服務收到並接受了哪些規則（服務自己的紀錄） | → 規則清單 |
+| `POST {base}/maintenance/purge-expired` | 清除授權期間已結束的規則（可由排程呼叫；platform 金鑰；不需簽章，只會收回已過期的） | `{}` → `{"status":"purged","count","purged":[{"case_no","rule_id","db_role"}]}` |
 | `POST {base}/test-query` | 以某個被授權者的身分真的查一次 | `{"principal_id","query","probe_missing_row"?}` → 見下 |
 | `POST {base}/test-queries` | 平台的驗證（02 §8.5 `verify_request`） | `{"request_id","run_id","rule_set","cases"}` → `{"status":"completed","results":[{"code","actual","reason","detail"}]}` |
 | `GET {base}/reconciliation[?exclude_inactive=1]` | 對帳回報：資料庫裡實際存在的權限 | → 見下 |
@@ -66,16 +68,17 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 ### 套用的語意
 
 - 只接受 `format = data_access_rule_set/1`（`pack_data_access.build_fulfilment` 的實際輸出）。檢查的只有「能不能執行」：主題包、欄位、列條件在 DC 的目錄上、運算子與值的型別對、`rules[].system` 是本 DC 接受的（`SIM_DC_SYSTEMS`）。
-- 每次套用或撤回，把該被授權者在資料庫裡的權限**整個重算**：收回全部 → 依目前所有有效的規則重新授予。所以：同一份規則送兩次結果相同；新的一版取代舊的一版（縮小就真的變小）；直接在資料庫做的改動（例如管理後門）在下一次重算時會被蓋掉。
+- 每次套用、撤回或清除，把該被授權者在資料庫裡的權限**整個重算**：收回全部 → 依目前所有有效的規則，各自建立一個規則角色並授予。所以：同一份規則送兩次結果相同；新的一版取代舊的一版（縮小就真的變小）；直接在資料庫做的改動（例如管理後門）在下一次重算時會被蓋掉。
 - 版本：同一版同內容 → 冪等；同一版不同內容、較舊的版本、已撤回的同一版 → 409（擋下重送舊的已簽章規則）。撤回請求以 `request_id` 記住，重送不會再動作。
-- 每條規則一個 policy：`simdc.rule_match('<規則 JSON>'::jsonb, jsonb_build_object(<條件欄>))`，判斷授權起迄（以查詢日期）、列條件（全部成立）、資料期間。`export` 是 `true` 或 `null` 時建立匯出檢視表。
+- **規則互相隔離**：同一個被授權者有 A 單（欄位 a、北區）與 B 單（欄位 b、南區）時，a 只在 A 的列條件、授權期間、資料期間內可讀，b 只在 B 的範圍內可讀；實際範圍恰好是各規則範圍的聯集。匯出同樣各自隔離。
+- 每條規則一個 policy（掛在該規則的角色上）：`simdc.rule_match('<規則 JSON>'::jsonb, jsonb_build_object(<條件欄>))`，判斷授權起迄（以查詢日期）、列條件（全部成立）、資料期間。`export` 是 `true` 或 `null` 時建立匯出檢視表。
 
 ### 測試查詢
 
 `query` 是 02 §5.11 的格式：`{"package","fields","row","data_date","action","as_of"}`。
 
 1. 以服務角色（資料表擁有者）找出 `row`、`data_date` 對得上的資料列 → `rows_matching`。沒有：回 `decision: "no_data"`（本來就沒有資料）；`probe_missing_row: true` 時改為在這個交易裡插入一列測試資料。
-2. `SET ROLE` 成被授權者角色，`select row_id, <fields> from data.<主題包>`（匯出是它的匯出檢視表）`where row_id = any(…)`，查詢日期設為 `as_of`。PostgreSQL 回權限錯誤或 0 列 → `deny`；有列 → `allow`。
+2. 對被授權者的每個規則角色、每個查詢的欄位，各自 `SET ROLE` 後 `select row_id, <欄位> from data.<主題包>`（匯出是該規則角色的匯出檢視表）`where row_id = any(…)`，查詢日期設為 `as_of`。一個欄位有任何規則角色放行某列，才算那一列的這個欄位讀得到；每個欄位都讀得到的列 ≥ 1 → `allow`，否則 `deny`（欄位沒有任何規則涵蓋、或列被擋下）。放不放行都是 PostgreSQL 判定。
 3. 被擋下時從系統目錄讀原因（只供人閱讀）：`no_rule`、`field_not_granted`、`export_not_allowed`、`not_yet_valid`、`expired`、`row_filter`、`data_period`。
 4. 整個交易 rollback，不回傳任何資料內容。
 
@@ -85,7 +88,7 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 
 ### 對帳回報
 
-全部從系統目錄讀，不讀服務自己的紀錄：欄位權限用 `has_column_privilege`（含資料表層級、角色繼承、PUBLIC），列的限制解析 `pg_policy` 的運算式，主體讀角色說明，匯出讀 `export` 檢視表的權限。
+全部從系統目錄讀，不讀服務自己的紀錄：每個規則角色的欄位權限用 `has_column_privilege`（含資料表層級、角色繼承、PUBLIC），列的限制解析 `pg_policy` 的運算式，主體讀角色說明，匯出讀 `export` 檢視表的權限。
 
 ```json
 {
@@ -104,13 +107,15 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
       "constraints": {"row_filter": [{"filter": "region", "op": "in", "values": ["central", "north"]}],
                       "data_period": {"field": "order_date", "from": "2025-01-01", "to": "2026-12-31"}},
       "properties": {"db_role": "simdc_p_…", "policy": "rule_…", "rule_id": "DA-2026-0004-2", "case_no": "DA-2026-0004",
-                     "case_version_no": 1, "valid": {"from": "2026-11-16", "to": "2027-05-15"}, "effective_now": true}
+                     "case_version_no": 1, "valid": {"from": "2026-11-16", "to": "2027-05-15"}, "effective_now": true, "lifecycle": "effective"}
     }
   ],
   "superusers": ["das_dev", "postgres"],
   "rls_disabled": []
 }
 ```
+
+每個項目是「一條規則 × 一個欄位 × 一個動作」，`properties.db_role` 是該規則的角色，`constraints` 只有該規則自己的列條件與資料期間（不會因為同一被授權者有別張單而變寬或變窄）。`properties.lifecycle`：`effective`（有效）、`expired_uncleared`（已到期但權限還在目錄上，還沒清除）、`not_yet_valid`；清除之後該規則的項目就不再出現。
 
 `items` 可以直接上傳到平台的 `POST /integration/v1/reconciliation/runs/{run_id}/items`（05 §8.3）。不是服務形式的 policy（例如有人直接建了 `using (true)`）回報成沒有限制（`constraints: {}`，`properties.unrecognized_policy`）；有欄位權限卻沒有 policy 回報 `properties.no_policy`；欄位不在任何規則裡回報 `properties.column_not_in_rule`；不是服務建立的角色以角色名稱回報（`provider: dc_db_role`）。
 
@@ -155,8 +160,8 @@ curl -X PUT -H 'Authorization: Bearer sim-dc-platform-key' -H "Sgn-Signature: $s
 
 | 操作 | 本文 | 效果 |
 |---|---|---|
-| `grant_column` | `{"principal_id","package","field","action":"read"\|"export"}` | 多給一個欄位（或匯出） |
-| `revoke_column` | 同上 | 少給一個欄位 |
+| `grant_column` | `{"principal_id","package","field","action":"read"\|"export","rule_id"?}` | 多給一個欄位（或匯出）給 `rule_id` 的角色；省略時給該主題包第一條規則的角色 |
+| `revoke_column` | 同上 | 少給一個欄位（省略 `rule_id` 時，該被授權者的所有規則角色都收回） |
 | `drop_policy` | `{"package","rule_id"}` | 刪掉一條規則的 policy |
 | `clear_row_filter` | `{"package","rule_id"}` | 拿掉一條規則的列條件 |
 | `sabotage` | `{"rule_id","clear"?}` | 之後套用時默默略過這條規則（仍回 `applied`），製造「核准未設定」 |
@@ -164,4 +169,4 @@ curl -X PUT -H 'Authorization: Bearer sim-dc-platform-key' -H "Sgn-Signature: $s
 
 ## 已知限制
 
-見 `docs/handoff/sim-dc.md` 的「限制」：同一個被授權者有多張單時欄位與列條件會交叉合併、到期的權限仍留在目錄上、沙箱以執行計畫為準、容器映像沒有 PostgreSQL 等。
+見 `docs/handoff/sim-dc.md` 的「限制」：到期的權限要呼叫清除端點才會離開目錄、真實使用者必須以規則角色連線（見下）、沙箱以執行計畫為準、容器映像沒有 PostgreSQL 等。

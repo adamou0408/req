@@ -5,7 +5,7 @@ import { findColumn, findPackage, ROW_ID } from './catalog.ts';
 import { ident, type Db } from './db.ts';
 import { exportViewName, grantExport, viewColumns } from './exportView.ts';
 import { createPolicySql, parsePolicyExpression, policyName } from './policy.ts';
-import { dropRole, ensureRole, roleExists, roleFor } from './roles.ts';
+import { dropRole, ensureRole, roleExists, roleFor, ruleRoleFor, ruleRolesOf } from './roles.ts';
 
 export class BackdoorError extends Error {}
 
@@ -18,6 +18,27 @@ function str(v: unknown, name: string): string {
     return v;
 }
 
+// 多給時：指定 rule_id 就給那條規則的角色；沒指定就給這個被授權者在該主題包上第一條規則的角色
+// （沒有的話給被授權者角色本身）。少給時：被授權者角色與它的每個規則角色都收回。
+async function targetRoles(db: Db, principalRole: string, pkgCode: string, ruleId: string | null, grant: boolean): Promise<string[]> {
+    if (ruleId !== null) {
+        const role = ruleRoleFor(principalRole, ruleId);
+        if (!(await roleExists(db, role))) fail(`沒有規則 ${ruleId} 的角色`);
+        return [role];
+    }
+    const ruleRoles = await ruleRolesOf(db, principalRole);
+    if (!grant) return [principalRole, ...ruleRoles];
+    for (const role of ruleRoles) {
+        const hasPolicy = await db.query(
+            `select 1 from pg_policy p where p.polrelid = format('data.%I', $1::text)::regclass
+               and (select oid from pg_roles where rolname = $2) = any (p.polroles)`,
+            [pkgCode, role],
+        );
+        if (hasPolicy.rowCount !== 0) return [role];
+    }
+    return [principalRole];
+}
+
 async function grantOrRevokeColumn(db: Db, prefix: string, body: Record<string, unknown>, grant: boolean): Promise<unknown> {
     const principalId = str(body['principal_id'], 'principal_id');
     const pkg = findPackage(str(body['package'], 'package'));
@@ -26,29 +47,43 @@ async function grantOrRevokeColumn(db: Db, prefix: string, body: Record<string, 
     if (findColumn(pkg, field) === undefined) fail(`${pkg.code} 沒有欄位 ${field}`);
     const action = body['action'] ?? 'read';
     if (action !== 'read' && action !== 'export') fail('action 必須是 read 或 export');
-    const role = roleFor(prefix, principalId);
+    const ruleId = body['rule_id'] === undefined ? null : str(body['rule_id'], 'rule_id');
+    const principalRole = roleFor(prefix, principalId);
     if (grant) {
-        await ensureRole(db, role, { type: 'team', principal_id: principalId, name: '（管理後門建立）' });
-    } else if (!(await roleExists(db, role))) {
-        fail(`沒有角色 ${role}`);
+        await ensureRole(db, principalRole, { type: 'team', principal_id: principalId, name: '（管理後門建立）' });
+    } else if (!(await roleExists(db, principalRole))) {
+        fail(`沒有角色 ${principalRole}`);
     }
+    const roles = await targetRoles(db, principalRole, pkg.code, ruleId, grant);
+    for (const role of roles) await changeColumn(db, role, pkg.code, field, action, grant);
+    return { role: roles[0], roles, package: pkg.code, field, action, granted: grant };
+}
+
+async function changeColumn(
+    db: Db,
+    role: string,
+    pkgCode: string,
+    field: string,
+    action: 'read' | 'export',
+    grant: boolean,
+): Promise<void> {
     if (action === 'read') {
         await db.query(
             grant
-                ? `grant select (${ident(ROW_ID)}, ${ident(field)}) on data.${ident(pkg.code)} to ${ident(role)}`
-                : `revoke select (${ident(field)}) on data.${ident(pkg.code)} from ${ident(role)}`,
+                ? `grant select (${ident(ROW_ID)}, ${ident(field)}) on data.${ident(pkgCode)} to ${ident(role)}`
+                : `revoke select (${ident(field)}) on data.${ident(pkgCode)} from ${ident(role)}`,
         );
-    } else {
-        // 匯出：把這一欄加進（或移出）角色的匯出檢視表
-        const current = (await viewColumns(db, exportViewName(pkg.code, role))) ?? [];
-        const next = grant ? [...current, field] : current.filter((c) => c !== field);
-        if (next.filter((c) => c !== ROW_ID).length === 0) {
-            await db.query(`drop view if exists export.${ident(exportViewName(pkg.code, role))}`);
-        } else {
-            await grantExport(db, pkg.code, role, next);
-        }
+        return;
     }
-    return { role, package: pkg.code, field, action, granted: grant };
+    // 匯出：把這一欄加進（或移出）角色的匯出檢視表
+    const view = exportViewName(pkgCode, role);
+    const current = (await viewColumns(db, view)) ?? [];
+    const next = grant ? [...current, field] : current.filter((c) => c !== field);
+    if (next.filter((c) => c !== ROW_ID).length === 0) {
+        await db.query(`drop view if exists export.${ident(view)}`);
+    } else {
+        await grantExport(db, pkgCode, role, next);
+    }
 }
 
 async function policyOf(db: Db, pkgCode: string, ruleId: string): Promise<{ expr: string; roles: string[] }> {

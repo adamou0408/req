@@ -1,7 +1,7 @@
 // HTTP 端點。路徑前綴 /v1 是正式（合成）資料，/masked/v1 是遮罩資料；兩者端點相同，另外遮罩環境多一個沙箱。
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { applyRuleSet, ApplyConflict, listRuleSets, withdrawRules, WithdrawNotFound } from './apply.ts';
+import { applyRuleSet, ApplyConflict, listRuleSets, purgeExpired, withdrawRules, WithdrawNotFound } from './apply.ts';
 import { backdoor, BackdoorError } from './backdoor.ts';
 import type { ClientConfig, Config, Scope } from './config.ts';
 import { withTx, type Env } from './db.ts';
@@ -162,6 +162,16 @@ async function reconciliation(ctx: Ctx): Promise<unknown> {
     );
 }
 
+// 清除到期的權限（可由排程呼叫）。只會收回已經過期的規則，所以不要求簽章。
+async function purge(ctx: Ctx): Promise<unknown> {
+    requireScope(ctx, 'rules.write');
+    const purged = await withTx(ctx.env, async (db) => {
+        const today = (await db.query<{ d: string }>('select current_date::text as d')).rows[0]?.d ?? '';
+        return purgeExpired(db, ctx.env.config.rolePrefix, today);
+    });
+    return { status: 'purged', count: purged.length, purged };
+}
+
 async function route(ctx: Ctx, config: Config, keys: TrustedKeys): Promise<[number, unknown]> {
     const { path } = ctx;
     const method = ctx.req.method ?? 'GET';
@@ -180,6 +190,7 @@ async function route(ctx: Ctx, config: Config, keys: TrustedKeys): Promise<[numb
     if (path === '/test-queries' && method === 'POST') return [200, await verify(ctx)];
     if (path === '/test-query' && method === 'POST') return [200, await testQuery(ctx)];
     if (path === '/reconciliation' && method === 'GET') return [200, await reconciliation(ctx)];
+    if (path === '/maintenance/purge-expired' && method === 'POST') return [200, await purge(ctx)];
     if (path === '/sandbox/runs' && method === 'POST') {
         requireScope(ctx, 'sandbox.run');
         return [200, await runSandbox(ctx.env, config.sandboxRole, json(ctx.body))];

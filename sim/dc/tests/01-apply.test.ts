@@ -95,9 +95,11 @@ describe('權限真的在資料庫裡', () => {
     test('欄位層級權限與列層級安全', async () => {
         const role = 'simdc_t_p_0b9f6c3e00004000800000000000000a';
         const cols = await sql<{ col: string; ok: boolean }>(
-            `select c as col, has_column_privilege($1, 'data.sales_order', c, 'SELECT') as ok
-             from unnest(array['amount', 'gross_margin', 'channel', 'order_no']) as c order by c`,
-            [role],
+            `select c as col, coalesce(bool_or(has_column_privilege(r.rolname, 'data.sales_order', c, 'SELECT')), false) as ok
+             from unnest(array['amount', 'gross_margin', 'channel', 'order_no']) as c
+             left join pg_roles r on starts_with(r.rolname, $1)
+             group by c order by c`,
+            [`${role}_r`],
         );
         assert.deepEqual(cols, [
             { col: 'amount', ok: true },
@@ -108,13 +110,14 @@ describe('權限真的在資料庫裡', () => {
         // 不可匯出：export schema 裡沒有任何這個角色讀得到的檢視表
         const exportable = await sql<{ n: string }>(
             `select count(*) as n from pg_class c join pg_namespace n on n.oid = c.relnamespace
-             where n.nspname = 'export' and has_table_privilege($1, c.oid, 'SELECT')`,
-            [role],
+             join pg_roles r on starts_with(r.rolname, $1)
+             where n.nspname = 'export' and has_table_privilege(r.oid, c.oid, 'SELECT')`,
+            [`${role}_r`],
         );
         assert.equal(exportable[0]?.n, '0');
         const policies = await sql<{ n: string }>(
-            `select count(*) as n from pg_policy where polroles = array[(select oid from pg_roles where rolname = $1)]`,
-            [role],
+            `select count(*) as n from pg_policy p join pg_roles r on r.oid = any (p.polroles) where starts_with(r.rolname, $1)`,
+            [`${role}_r`],
         );
         assert.equal(policies[0]?.n, '2');
         const login = await sql<{ rolcanlogin: boolean }>('select rolcanlogin from pg_roles where rolname = $1', [role]);

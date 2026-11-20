@@ -19,7 +19,7 @@ const ROLE = 'simdc_t_p_0b9f6c3e00004000800000000000000d';
 const CASE = 'DA-2026-0400';
 
 function mine(items: ReconItem[]): ReconItem[] {
-    return items.filter((i) => i.properties['db_role'] === ROLE);
+    return items.filter((i) => String(i.properties['db_role']).startsWith(`${ROLE}_r`));
 }
 
 function find(items: ReconItem[], resource: string, action = 'read'): ReconItem[] {

@@ -28,7 +28,7 @@ const customers: QueryInput = { ...sales, package: 'customer_master', fields: ['
 
 function mine(items: ReconItem[]): string[] {
     return items
-        .filter((i) => i.properties['db_role'] === ROLE)
+        .filter((i) => String(i.properties['db_role']).startsWith(`${ROLE}_r`))
         .map((i) => `${i.resource.id}|${i.action.name}|${JSON.stringify(i.constraints)}`)
         .sort();
 }
@@ -36,11 +36,12 @@ function mine(items: ReconItem[]): string[] {
 async function catalogState(): Promise<unknown> {
     return sql(
         `select (select array_agg(polname || ':' || pg_get_expr(polqual, polrelid) order by polname) from pg_policy
-                  where polroles = array[(select oid from pg_roles where rolname = $1)]) as policies,
-                (select array_agg(c.relname || '.' || a.attname order by c.relname, a.attname)
+                  where exists (select 1 from pg_roles r where starts_with(r.rolname, $1) and r.oid = any (polroles))) as policies,
+                (select array_agg(distinct c.relname || '.' || a.attname order by c.relname || '.' || a.attname)
                    from pg_attribute a join pg_class c on c.oid = a.attrelid join pg_namespace n on n.oid = c.relnamespace
-                  where n.nspname = 'data' and a.attnum > 0 and has_column_privilege($1, c.oid, a.attname, 'SELECT')) as columns`,
-        [ROLE],
+                   join pg_roles r on starts_with(r.rolname, $1)
+                  where n.nspname = 'data' and a.attnum > 0 and has_column_privilege(r.oid, c.oid, a.attname, 'SELECT')) as columns`,
+        [`${ROLE}_r`],
     );
 }
 

@@ -1,5 +1,6 @@
 // 被授權者角色：每個被授權者一個 NOLOGIN 角色。服務以 SET ROLE 代它執行測試查詢；
 // 真實的 DC 會再把人員帳號加進這個角色（成員管理不在模擬範圍）。
+import { createHash } from 'node:crypto';
 import { ident, lit, type Db } from './db.ts';
 import { dropExportViews } from './exportView.ts';
 
@@ -22,18 +23,36 @@ export function roleFor(prefix: string, principalId: string): string {
     return prefix + principalId.toLowerCase().replaceAll('-', '');
 }
 
+// 每條規則一個角色：欄位權限與列層級安全的 policy 都只掛在這個角色上，
+// 所以不同規則的欄位與列範圍不會互相交叉。被授權者角色本身（roleFor）只是身分的錨點，不持有資料權限。
+export function ruleRoleFor(principalRole: string, ruleId: string): string {
+    return `${principalRole}_r${createHash('sha256').update(ruleId).digest('hex').slice(0, 10)}`;
+}
+
+export async function ruleRolesOf(db: Db, principalRole: string): Promise<string[]> {
+    const r = await db.query<{ rolname: string }>('select rolname from pg_roles where starts_with(rolname, $1) order by rolname', [
+        `${principalRole}_r`,
+    ]);
+    return r.rows.map((x) => x.rolname);
+}
+
 export async function roleExists(db: Db, role: string): Promise<boolean> {
     const r = await db.query('select 1 from pg_roles where rolname = $1', [role]);
     return r.rowCount !== 0;
 }
 
 // 角色的說明（pg_shdescription）記下它代表哪個被授權者：對帳從系統目錄讀回主體，不讀服務的紀錄。
-export async function ensureRole(db: Db, role: string, grantee: Grantee): Promise<void> {
+export async function ensureRole(db: Db, role: string, grantee: Grantee, ruleId: string | null = null): Promise<void> {
     if (!(await roleExists(db, role))) {
         await db.query(`create role ${ident(role)} nologin`);
     }
     await db.query(`grant ${ident(role)} to current_user with set true, inherit false`);
-    const comment = JSON.stringify({ principal_id: grantee.principal_id, type: grantee.type, name: grantee.name });
+    const comment = JSON.stringify({
+        principal_id: grantee.principal_id,
+        type: grantee.type,
+        name: grantee.name,
+        ...(ruleId === null ? {} : { rule_id: ruleId }),
+    });
     await db.query(`comment on role ${ident(role)} is ${lit(comment)}`);
     for (const schema of ['data', 'export', 'simdc']) {
         await db.query(`grant usage on schema ${schema} to ${ident(role)}`);
@@ -59,9 +78,14 @@ export async function clearRole(db: Db, role: string): Promise<void> {
     await dropExportViews(db, role);
 }
 
-// 沒有任何規則了就刪掉角色，撤回後連角色都不留。
+// 沒有任何規則了就刪掉角色，撤回後連角色都不留。被授權者角色連同它的每個規則角色一起刪。
 export async function dropRole(db: Db, role: string): Promise<void> {
     if (!(await roleExists(db, role))) return;
+    for (const ruleRole of await ruleRolesOf(db, role)) await dropSingleRole(db, ruleRole);
+    await dropSingleRole(db, role);
+}
+
+export async function dropSingleRole(db: Db, role: string): Promise<void> {
     await clearRole(db, role);
     for (const schema of ['data', 'export', 'simdc']) {
         await db.query(`revoke all on schema ${schema} from ${ident(role)}`);

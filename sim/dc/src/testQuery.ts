@@ -5,7 +5,7 @@ import { findColumn, findFilter, findPackage, ROW_ID, type PackageDef } from './
 import { ident, isPgError, lit, withTx, type Db, type Env } from './db.ts';
 import { exportViewName } from './exportView.ts';
 import { parsePolicyExpression, referencedColumns } from './policy.ts';
-import { roleExists, roleFor } from './roles.ts';
+import { roleExists, roleFor, ruleRolesOf } from './roles.ts';
 import { isDate } from './ruleset.ts';
 
 interface TestQuery {
@@ -118,28 +118,19 @@ async function targetRows(
     return { ids: inserted.rows.map((r) => r.row_id), source: 'probe' };
 }
 
-async function columnPrivileges(db: Db, role: string, schema: string, pkg: string, cols: readonly string[]): Promise<boolean> {
-    const r = await db.query<{ ok: boolean }>(
-        `select bool_and(has_column_privilege($1, format('%I.%I', $2::text, $3::text), c, 'SELECT')) as ok
-         from unnest($4::text[]) as c`,
-        [role, schema, pkg, cols],
-    );
-    return r.rows[0]?.ok === true;
-}
-
-// 以被授權者的角色執行。權限不足（42501）、匯出檢視表裡沒有這一欄（42703）或這個角色沒有匯出檢視表（42P01）時回 null。
-async function visibleAs(db: Db, role: string, relation: string, fields: readonly string[], ids: string[]): Promise<number | null> {
+// 以其中一個角色讀一個欄位，回傳它看得到的列（row_id）。權限不足（42501）、匯出檢視表裡沒有這一欄（42703）
+// 或這個角色沒有匯出檢視表（42P01）時回 null：這個角色完全不涵蓋這個欄位。
+async function visibleIds(db: Db, role: string, relation: string, field: string, ids: string[]): Promise<Set<string> | null> {
     await db.query('savepoint as_grantee');
     try {
         await db.query(`set local role ${ident(role)}`);
-        const cols = [ROW_ID, ...fields].map(ident).join(', ');
-        const r = await db.query<{ n: number }>(
-            `select count(*)::int as n from (select ${cols} from ${relation} where ${ROW_ID} = any($1::bigint[])) as s`,
+        const r = await db.query<{ row_id: string }>(
+            `select ${ROW_ID}, ${ident(field)} from ${relation} where ${ROW_ID} = any($1::bigint[])`,
             [ids],
         );
         await db.query('reset role');
         await db.query('release savepoint as_grantee');
-        return r.rows[0]?.n ?? 0;
+        return new Set(r.rows.map((x) => x.row_id));
     } catch (err) {
         await db.query('rollback to savepoint as_grantee');
         await db.query('reset role');
@@ -148,16 +139,42 @@ async function visibleAs(db: Db, role: string, relation: string, fields: readonl
     }
 }
 
-// 被列層級安全擋下時，從 pg_policy 讀出這個角色在這張表上的 policy，逐一問「這一列為什麼不符合」。
-async function rowReason(db: Db, role: string, pkg: PackageDef, rowId: string): Promise<string> {
+interface FieldView {
+    readonly field: string;
+    // 每個涵蓋這個欄位的角色各自看得到的列
+    readonly byRole: Map<string, Set<string>>;
+}
+
+// 被授權者的每條規則是各自的角色，欄位權限與列層級安全互不相通：一個欄位要在「涵蓋它的那條規則」的
+// 範圍內才讀得到，所以對每個欄位、每個角色各查一次，再看有哪些列的每個欄位都被某條規則放行。
+async function readFields(db: Db, roles: string[], pkg: PackageDef, q: TestQuery, ids: string[]): Promise<FieldView[]> {
+    const out: FieldView[] = [];
+    for (const field of q.fields) {
+        const byRole = new Map<string, Set<string>>();
+        for (const role of roles) {
+            const relation = q.action === 'export' ? `export.${ident(exportViewName(pkg.code, role))}` : `data.${ident(pkg.code)}`;
+            const seen = await visibleIds(db, role, relation, field, ids);
+            if (seen !== null) byRole.set(role, seen);
+        }
+        out.push({ field, byRole });
+    }
+    return out;
+}
+
+function visibleRows(views: readonly FieldView[], ids: readonly string[]): string[] {
+    return ids.filter((id) => views.every((v) => [...v.byRole.values()].some((seen) => seen.has(id))));
+}
+
+// 被擋下的列：從 pg_policy 讀出涵蓋這個欄位的角色的 policy，逐一問「這一列為什麼不符合」。
+async function rowReason(db: Db, roles: readonly string[], pkg: PackageDef, rowId: string): Promise<string> {
     const policies = await db.query<{ expr: string }>(
         `select pg_get_expr(p.polqual, p.polrelid) as expr
          from pg_policy p
          where p.polrelid = format('data.%I', $2::text)::regclass
            and p.polpermissive and p.polcmd in ('r', '*')
-           and ((select oid from pg_roles where rolname = $1) = any (p.polroles) or 0::oid = any (p.polroles))
+           and exists (select 1 from pg_roles r where r.rolname = any($1::text[]) and r.oid = any (p.polroles))
          order by p.polname`,
-        [role, pkg.code],
+        [roles, pkg.code],
     );
     const reasons: string[] = [];
     for (const { expr } of policies.rows) {
@@ -174,36 +191,51 @@ async function rowReason(db: Db, role: string, pkg: PackageDef, rowId: string): 
     return reasons[0] ?? 'no_rule';
 }
 
-// 被欄位權限擋下時的原因（從系統目錄讀）：完全沒有權限 → no_rule；查詢的欄位不足 → field_not_granted；
-// 查詢可以但匯出不行 → export_not_allowed。
-async function denyReason(db: Db, role: string, pkg: string, fields: readonly string[]): Promise<string> {
-    const anyCol = await db.query<{ ok: boolean }>(`select has_any_column_privilege($1, format('data.%I', $2::text), 'SELECT') as ok`, [
-        role,
-        pkg,
-    ]);
-    if (anyCol.rows[0]?.ok !== true) return 'no_rule';
-    return (await columnPrivileges(db, role, 'data', pkg, [ROW_ID, ...fields])) ? 'export_not_allowed' : 'field_not_granted';
+// 被欄位權限擋下時的原因（從系統目錄讀）：沒有任何角色有這張表的權限 → no_rule；查詢的欄位有的沒有任何規則涵蓋
+// → field_not_granted；欄位都涵蓋但匯出不行 → export_not_allowed。
+async function denyReason(db: Db, roles: readonly string[], pkg: string, fields: readonly string[]): Promise<string> {
+    const r = await db.query<{ any_col: boolean; all_covered: boolean }>(
+        `select coalesce(bool_or(has_any_column_privilege(r, format('data.%I', $2::text), 'SELECT')), false) as any_col,
+                coalesce((select bool_and(exists (select 1 from unnest($1::text[]) as r2
+                                                  where has_column_privilege(r2, format('data.%I', $2::text), f, 'SELECT')))
+                          from unnest($3::text[]) as f), false) as all_covered
+         from unnest($1::text[]) as r`,
+        [roles, pkg, fields],
+    );
+    if (r.rows[0]?.any_col !== true) return 'no_rule';
+    return r.rows[0].all_covered ? 'export_not_allowed' : 'field_not_granted';
+}
+
+// 這個被授權者的角色：被授權者角色本身（正常沒有權限，後門可能給過）與每條規則的角色。
+async function rolesOf(db: Db, principalRole: string): Promise<string[]> {
+    if (!(await roleExists(db, principalRole))) return [];
+    return [principalRole, ...(await ruleRolesOf(db, principalRole))];
 }
 
 export async function runTestQuery(env: Env, principalId: string, q: TestQuery, opts: { probe: boolean }): Promise<TestQueryResult> {
     const pkg = findPackage(q.package);
     if (pkg === undefined) fail(`DC 的目錄沒有主題包 ${q.package}`);
-    const role = roleFor(env.config.rolePrefix, principalId);
+    const principalRole = roleFor(env.config.rolePrefix, principalId);
     return withTx(
         env,
         async (db) => {
             await db.query(`select set_config('simdc.as_of', $1, true)`, [q.as_of]);
             const target = targetOf(pkg, q);
             const { ids, source } = await targetRows(db, pkg, target, opts.probe);
-            const base = { db_role: role, rows_matching: ids.length, row_source: source };
+            const base = { db_role: principalRole, rows_matching: ids.length, row_source: source };
             if (ids.length === 0) return { ...base, decision: 'no_data', reason: null, rows_visible: 0 };
-            if (!(await roleExists(db, role))) return { ...base, decision: 'deny', reason: 'no_rule', rows_visible: 0 };
-            const relation = q.action === 'export' ? `export.${ident(exportViewName(pkg.code, role))}` : `data.${ident(pkg.code)}`;
-            const visible = await visibleAs(db, role, relation, q.fields, ids);
-            if (visible === null)
-                return { ...base, decision: 'deny', reason: await denyReason(db, role, pkg.code, q.fields), rows_visible: 0 };
-            if (visible > 0) return { ...base, decision: 'allow', reason: null, rows_visible: visible };
-            return { ...base, decision: 'deny', reason: await rowReason(db, role, pkg, ids[0] ?? ''), rows_visible: 0 };
+            const roles = await rolesOf(db, principalRole);
+            if (roles.length === 0) return { ...base, decision: 'deny', reason: 'no_rule', rows_visible: 0 };
+            const views = await readFields(db, roles, pkg, q, ids);
+            if (views.some((v) => v.byRole.size === 0)) {
+                return { ...base, decision: 'deny', reason: await denyReason(db, roles, pkg.code, q.fields), rows_visible: 0 };
+            }
+            const visible = visibleRows(views, ids);
+            if (visible.length > 0) return { ...base, decision: 'allow', reason: null, rows_visible: visible.length };
+            // 第一個沒有任何一列被放行的欄位（都有的話取第一個）：它的規則為什麼擋下
+            const blocked = views.find((v) => [...v.byRole.values()].every((seen) => seen.size === 0)) ?? views[0];
+            const reason = await rowReason(db, [...(blocked?.byRole.keys() ?? [])], pkg, ids[0] ?? '');
+            return { ...base, decision: 'deny', reason, rows_visible: 0 };
         },
         { rollback: true },
     );

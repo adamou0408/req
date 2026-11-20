@@ -6,8 +6,8 @@ import { ROW_ID } from './catalog.ts';
 import { ident, type Db } from './db.ts';
 import { grantExport } from './exportView.ts';
 import { createPolicySql, specFor } from './policy.ts';
-import { clearRole, dropRole, ensureRole, roleFor } from './roles.ts';
-import type { RuleSet } from './ruleset.ts';
+import { clearRole, dropRole, dropSingleRole, ensureRole, roleFor, ruleRoleFor, ruleRolesOf } from './roles.ts';
+import type { Rule, RuleSet } from './ruleset.ts';
 
 export class ApplyConflict extends Error {}
 
@@ -20,6 +20,7 @@ interface StoredRuleSet {
     body_sha256: string;
     status: 'applied' | 'withdrawn';
     withdrawn_rule_ids: string[];
+    purged_rule_ids: string[];
     applied_at: string;
 }
 
@@ -40,40 +41,51 @@ async function stored(db: Db, caseNo: string): Promise<StoredRuleSet | null> {
     return r.rows[0] ?? null;
 }
 
-// 依服務記下的規則，重算一個被授權者在資料庫裡的全部權限。
+// 依服務記下的規則，重算一個被授權者在資料庫裡的全部權限：每條有效的規則一個角色
+// （欄位權限、policy、匯出檢視表都只掛在那個角色上），被撤回、已清除、或被後門略過的規則沒有角色。
 async function recompute(db: Db, prefix: string, principalId: string): Promise<void> {
     const role = roleFor(prefix, principalId);
     await lockPrincipal(db, role);
-    const sets = await db.query<{ body: RuleSet; withdrawn_rule_ids: string[] }>(
-        `select body, withdrawn_rule_ids from simdc_meta.rule_set
+    const sets = await db.query<{ body: RuleSet; withdrawn_rule_ids: string[]; purged_rule_ids: string[] }>(
+        `select body, withdrawn_rule_ids, purged_rule_ids from simdc_meta.rule_set
          where principal_id = $1 and status = 'applied' order by case_no`,
         [principalId],
     );
-    if (sets.rowCount === 0) {
+    const sabotaged = new Set((await db.query<{ rule_id: string }>('select rule_id from simdc_meta.sabotage')).rows.map((r) => r.rule_id));
+    const live: { body: RuleSet; rule: Rule }[] = [];
+    for (const { body, withdrawn_rule_ids: withdrawn, purged_rule_ids: purged } of sets.rows) {
+        for (const rule of body.rules) {
+            if (withdrawn.includes(rule.rule_id) || purged.includes(rule.rule_id) || sabotaged.has(rule.rule_id)) continue;
+            live.push({ body, rule });
+        }
+    }
+    // 被略過（後門）的規則仍算「有規則」：角色留著，只是沒有那條規則的權限
+    const remaining = sets.rows.filter((s) =>
+        s.body.rules.some((r) => !s.withdrawn_rule_ids.includes(r.rule_id) && !s.purged_rule_ids.includes(r.rule_id)),
+    );
+    const latest = remaining[remaining.length - 1];
+    if (latest === undefined) {
         await dropRole(db, role);
         return;
     }
-    const sabotaged = new Set((await db.query<{ rule_id: string }>('select rule_id from simdc_meta.sabotage')).rows.map((r) => r.rule_id));
-    const latest = sets.rows[sets.rows.length - 1];
-    if (latest === undefined) return;
     await ensureRole(db, role, latest.body.grantee);
     await clearRole(db, role);
-    const exportable = new Map<string, Set<string>>();
-    for (const { body, withdrawn_rule_ids: withdrawn } of sets.rows) {
-        for (const rule of body.rules) {
-            if (withdrawn.includes(rule.rule_id) || sabotaged.has(rule.rule_id)) continue;
-            const cols = [ROW_ID, ...rule.fields].map(ident).join(', ');
-            await db.query(`grant select (${cols}) on data.${ident(rule.package)} to ${ident(role)}`);
-            await db.query(createPolicySql(specFor(body, rule), role));
-            // export 是 null 代表平台不設定匯出的限制（02 §5.10 範例 3），所以和 true 一樣給匯出權限
-            if (body.export !== false) {
-                const set = exportable.get(rule.package) ?? new Set<string>();
-                rule.fields.forEach((f) => set.add(f));
-                exportable.set(rule.package, set);
-            }
-        }
+    const wanted = new Set(live.map(({ rule }) => ruleRoleFor(role, rule.rule_id)));
+    for (const old of await ruleRolesOf(db, role)) {
+        if (!wanted.has(old)) await dropSingleRole(db, old);
     }
-    for (const [pkg, fields] of exportable) await grantExport(db, pkg, role, fields);
+    for (const { body, rule } of live) await grantRule(db, role, body, rule);
+}
+
+async function grantRule(db: Db, principalRole: string, body: RuleSet, rule: Rule): Promise<void> {
+    const ruleRole = ruleRoleFor(principalRole, rule.rule_id);
+    await ensureRole(db, ruleRole, body.grantee, rule.rule_id);
+    await clearRole(db, ruleRole);
+    const cols = [ROW_ID, ...rule.fields].map(ident).join(', ');
+    await db.query(`grant select (${cols}) on data.${ident(rule.package)} to ${ident(ruleRole)}`);
+    await db.query(createPolicySql(specFor(body, rule), ruleRole));
+    // export 是 null 代表平台不設定匯出的限制（02 §5.10 範例 3），所以和 true 一樣給匯出權限
+    if (body.export !== false) await grantExport(db, rule.package, ruleRole, rule.fields);
 }
 
 interface ApplyResult {
@@ -114,13 +126,13 @@ export async function applyRuleSet(
     await db.query(
         `insert into simdc_meta.rule_set
              (case_no, case_version_no, principal_id, role_name, body, body_sha256, key_id, request_id, status,
-              withdrawn_rule_ids, applied_at, updated_at)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, 'applied', '{}', now(), now())
+              withdrawn_rule_ids, purged_rule_ids, applied_at, updated_at)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, 'applied', '{}', '{}', now(), now())
          on conflict (case_no) do update set
              case_version_no = excluded.case_version_no, principal_id = excluded.principal_id,
              role_name = excluded.role_name, body = excluded.body, body_sha256 = excluded.body_sha256,
              key_id = excluded.key_id, request_id = excluded.request_id, status = 'applied',
-             withdrawn_rule_ids = '{}', updated_at = now()`,
+             withdrawn_rule_ids = '{}', purged_rule_ids = '{}', updated_at = now()`,
         [rs.case_no, rs.case_version_no, rs.grantee.principal_id, role, canonical, hash, meta.keyId, meta.requestId],
     );
     await recompute(db, prefix, rs.grantee.principal_id);
@@ -165,6 +177,34 @@ export async function withdrawRules(db: Db, prefix: string, req: WithdrawRequest
     return { status: 'withdrawn' };
 }
 
+interface PurgedRule {
+    readonly case_no: string;
+    readonly rule_id: string;
+    readonly db_role: string;
+}
+
+// 清除授權期間已經結束的規則：收回它的角色、欄位權限、policy 與匯出檢視表。
+// 到期當下 RLS 就一列都不放行，這裡只是把目錄上殘留的權限拿掉。清除是單向的：同一版重送不會讓它回來。
+export async function purgeExpired(db: Db, prefix: string, today: string): Promise<PurgedRule[]> {
+    const sets = await db.query<StoredRuleSet>(
+        `select * from simdc_meta.rule_set where status = 'applied' and (body #>> '{valid,to}')::date < $1::date order by case_no for update`,
+        [today],
+    );
+    const purged: PurgedRule[] = [];
+    const principals = new Set<string>();
+    for (const set of sets.rows) {
+        const todo = set.body.rules.filter((r) => !set.withdrawn_rule_ids.includes(r.rule_id) && !set.purged_rule_ids.includes(r.rule_id));
+        if (todo.length === 0) continue;
+        const all = [...set.purged_rule_ids, ...todo.map((r) => r.rule_id)].sort();
+        await db.query('update simdc_meta.rule_set set purged_rule_ids = $2, updated_at = now() where case_no = $1', [set.case_no, all]);
+        const principalRole = roleFor(prefix, set.principal_id);
+        for (const r of todo) purged.push({ case_no: set.case_no, rule_id: r.rule_id, db_role: ruleRoleFor(principalRole, r.rule_id) });
+        principals.add(set.principal_id);
+    }
+    for (const principalId of principals) await recompute(db, prefix, principalId);
+    return purged;
+}
+
 export async function listRuleSets(db: Db, caseNo: string | null): Promise<unknown[]> {
     const r = await db.query<StoredRuleSet & { updated_at: string; key_id: string }>(
         `select * from simdc_meta.rule_set where $1::text is null or case_no = $1 order by case_no`,
@@ -179,7 +219,11 @@ export async function listRuleSets(db: Db, caseNo: string | null): Promise<unkno
         db_role: s.role_name,
         valid: s.body.valid,
         export: s.body.export,
-        rules: s.body.rules.map((rule) => ({ ...rule, withdrawn: s.withdrawn_rule_ids.includes(rule.rule_id) })),
+        rules: s.body.rules.map((rule) => ({
+            ...rule,
+            withdrawn: s.withdrawn_rule_ids.includes(rule.rule_id),
+            purged: s.purged_rule_ids.includes(rule.rule_id),
+        })),
         signed_by: s.key_id,
         applied_at: s.applied_at,
         updated_at: s.updated_at,

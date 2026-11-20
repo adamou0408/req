@@ -6,7 +6,7 @@ import { ident, lit } from './db.ts';
 import { PACKAGES, ROW_ID, type ColumnType } from './catalog.ts';
 
 // 結構改變時加一：啟動時發現版本不同，就整個重建（只是模擬資料，重建即可）。
-export const SCHEMA_VERSION = 4;
+export const SCHEMA_VERSION = 5;
 
 const SQL_TYPE: Record<ColumnType, string> = { text: 'text', numeric: 'numeric', date: 'date' };
 
@@ -90,6 +90,7 @@ function metaSql(): string[] {
             request_id text,
             status text not null check (status in ('applied', 'withdrawn')),
             withdrawn_rule_ids text[] not null default '{}',
+            purged_rule_ids text[] not null default '{}',
             applied_at timestamptz not null,
             updated_at timestamptz not null
         )`,
