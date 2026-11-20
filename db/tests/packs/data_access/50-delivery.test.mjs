@@ -902,6 +902,39 @@ test('架構：被入侵的後端（sgn_app）不能領取交付、不能謊報�
     await rejectsPermission(reconciler.query(`select api_delivery.delivery_claim('dc', 1)`));
 });
 
+test('K-DELIVERY-MANUAL K-GRANT-EXPIRE 人工的受管系統授權到期：開例外並通知管理人去拿掉（人工設上去的權限不會自己消失；裁決 D89）', async () => {
+    const content = {
+        scope: [{ package: 'payroll', fields: ['employee_id', 'net_pay'], row_filters: [] }],
+        data_period: { from: '2095-01-01', to: '2095-12-31' },
+        purpose_category: 'operations',
+        purpose_description: '交付測試（人工、正常到期）',
+        export_allowed: false,
+    };
+    const t = { principal_id: P['ap-recon-bot'], valid_from: today(), valid_to: today(60) };
+    const c = await call(app, 'case_submit_new', users.p04.session, DA, content, t, null);
+    for (const who of ['p12', 'p03', 'p15', 'p19']) await decide(app, users[who], c.case_id);
+    await call(app, 'task_claim', users.p16.session, c.case_id);
+    await decide(app, users.p16, c.case_id);
+    await call(app, 'task_claim', users.p30.session, c.case_id);
+    assert.equal(await decide(app, users.p30, c.case_id, 'fulfil'), 'verifying');
+    assert.equal(await confirmed(c.case_id), 'active');
+    // 測試準備：模擬授權迄日已過
+    await admin.query(`update sgn.grant_record set valid_to = current_date - 1 where case_id = $1`, [c.case_id]);
+    assert.ok((await one(scheduler, 'select api_job.grant_expire_due() as r')).r.expired >= 1);
+    assert.equal((await view(c.case_id)).state, 'expired');
+    const manual = await admin.query(
+        `select detail ->> 'event' as event from sgn.exception_record where case_id = $1 and rule_code = 'K-DELIVERY-MANUAL'`,
+        [c.case_id],
+    );
+    assert.equal(manual.rows.filter((r) => r.event === 'expired').length, 1);
+    const told = await admin.query(
+        `select person_id from sgn.notification_outbox
+         where case_id = $1 and event_code = 'delivery.manual_required' and payload ->> 'event' = 'expired'`,
+        [c.case_id],
+    );
+    assert.ok(told.rows.some((r) => r.person_id === users.p30.personId));
+});
+
 test('K-GRANT-LATE 過了授權迄日才標記已套用（人工）或確認（自動）：不生效、直接走到期、不產生授權；人工的受管系統開例外並通知管理人去拿掉（裁決 D88 (5)）', async () => {
     // 測試準備：模擬「核准後很久都沒人執行」——這一版的授權期間整個移到過去
     const lapse = (caseId) =>
@@ -935,10 +968,7 @@ test('K-GRANT-LATE 過了授權迄日才標記已套用（人工）或確認（�
         `select detail ->> 'event' as event from sgn.exception_record where case_id = $1 and rule_code = 'K-DELIVERY-MANUAL' order by id`,
         [c.case_id],
     );
-    assert.ok(
-        manual.rows.some((r) => r.event === 'lapsed'),
-        '人工的受管系統：開例外叫管理人去拿掉',
-    );
+    assert.equal(manual.rows.filter((r) => r.event === 'expired').length, 1, '人工的受管系統：開一筆例外叫管理人去拿掉');
     const told = await admin.query(
         `select person_id from sgn.notification_outbox where case_id = $1 and event_code = 'delivery.manual_required'`,
         [c.case_id],
