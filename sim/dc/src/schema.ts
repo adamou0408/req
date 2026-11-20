@@ -1,12 +1,12 @@
-// 資料庫結構：資料表（schema data）、匯出用的檢視表（schema export）、
+// 資料庫結構：資料表（schema data）、匯出用的檢視表（schema export，每個角色一個，見 exportView.ts）、
 // 列層級安全用的判斷函式（schema simdc）、服務自己的紀錄（schema simdc_meta）。
-// 被授權者角色只會拿到 data、export 的欄位權限與 simdc 的 usage；simdc_meta 對它們不可見。
+// 被授權者角色只會拿到 data 的欄位權限、自己的匯出檢視表與 simdc 的 usage；simdc_meta 對它們不可見。
 
 import { ident, lit } from './db.ts';
 import { PACKAGES, ROW_ID, type ColumnType } from './catalog.ts';
 
 // 結構改變時加一：啟動時發現版本不同，就整個重建（只是模擬資料，重建即可）。
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 const SQL_TYPE: Record<ColumnType, string> = { text: 'text', numeric: 'numeric', date: 'date' };
 
@@ -16,11 +16,6 @@ function tablesSql(): string[] {
         const cols = pkg.columns.map((c) => `${ident(c.code)} ${SQL_TYPE[c.type]}`).join(', ');
         out.push(`create table data.${ident(pkg.code)} (${ROW_ID} bigint generated always as identity primary key, ${cols})`);
         out.push(`alter table data.${ident(pkg.code)} enable row level security`);
-        // 檢視表以呼叫者的身分讀底表（security_invoker），所以底表的欄位權限與列層級安全照樣生效；
-        // 匯出另外需要這個檢視表的欄位權限，查詢與匯出因此是兩個分開的權限。
-        out.push(
-            `create view export.${ident(pkg.code)} with (security_invoker = true) as select * from data.${ident(pkg.code)}`,
-        );
         if (pkg.periodField !== null) {
             out.push(`create index on data.${ident(pkg.code)} (${ident(pkg.periodField)})`);
         }
@@ -118,9 +113,10 @@ function metaSql(): string[] {
     ];
 }
 
+export const DROP_SCHEMAS_SQL = 'drop schema if exists data, export, simdc, simdc_meta cascade';
+
 export function schemaSql(serviceRole: string): string[] {
     return [
-        `drop schema if exists data, export, simdc, simdc_meta cascade`,
         `revoke all on schema public from public`,
         `create schema data`,
         `create schema export`,

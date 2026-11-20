@@ -3,7 +3,7 @@
 import pg from 'pg';
 import type { Config, EnvConfig } from './config.ts';
 import { ident, lit, servicePool, withTx, type Env } from './db.ts';
-import { SCHEMA_VERSION, schemaSql } from './schema.ts';
+import { DROP_SCHEMAS_SQL, SCHEMA_VERSION, schemaSql } from './schema.ts';
 import { loadSeed } from './seed.ts';
 import { dropManagedRoles } from './roles.ts';
 
@@ -31,10 +31,9 @@ async function ensureServiceRoleAndDatabases(config: Config): Promise<void> {
 }
 
 async function currentVersion(env: Env): Promise<number | null> {
-    const r = await env.pool.query<{ v: number | null }>(
-        `select case when to_regclass('simdc_meta.schema_info') is null then null
-                     else (select max(version) from simdc_meta.schema_info) end as v`,
-    );
+    const exists = await env.pool.query(`select to_regclass('simdc_meta.schema_info') is not null as ok`);
+    if (exists.rows[0]?.ok !== true) return null;
+    const r = await env.pool.query<{ v: number | null }>('select max(version) as v from simdc_meta.schema_info');
     return r.rows[0]?.v ?? null;
 }
 
@@ -62,6 +61,7 @@ async function setupEnv(config: Config, envConfig: EnvConfig, reset: boolean): P
     const version = await currentVersion(env);
     if (reset || version !== SCHEMA_VERSION) {
         await withTx(env, async (db) => {
+            await db.query(DROP_SCHEMAS_SQL);
             await dropManagedRoles(db, envConfig.rolePrefix);
             for (const sql of schemaSql(config.serviceRole)) await db.query(sql);
             await loadSeed(db, envConfig.masked);

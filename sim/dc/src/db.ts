@@ -46,3 +46,10 @@ export async function withTx<T>(env: Env, fn: (db: Db) => Promise<T>, opts: { ro
 export function isPgError(err: unknown, code: string): boolean {
     return typeof err === 'object' && err !== null && 'code' in err && (err as { code: unknown }).code === code;
 }
+
+// 以 extended protocol 送出：PostgreSQL 在這個協定下只接受單一語句（「select 1; drop ...」會被拒絕）。
+// pg 支援 queryMode，但 @types/pg 8.15 還沒有這個欄位，所以先放進變數再交出去。
+export function singleStatement(text: string): pg.QueryConfig {
+    const config = { text, queryMode: 'extended' };
+    return config;
+}

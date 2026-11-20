@@ -6,7 +6,7 @@
 export type ColumnType = 'text' | 'numeric' | 'date';
 export type FilterValueType = 'enum' | 'number' | 'date';
 
-export interface ColumnDef {
+interface ColumnDef {
     readonly code: string;
     readonly name: string;
     readonly type: ColumnType;
@@ -14,7 +14,7 @@ export interface ColumnDef {
     readonly classification: 'L1' | 'L2' | 'L3' | 'L4' | null;
 }
 
-export interface FilterDef {
+interface FilterDef {
     readonly code: string;
     readonly valueType: FilterValueType;
     // 列條件判斷的是哪一欄

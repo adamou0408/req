@@ -83,7 +83,9 @@ export function loadConfig(): Config {
                 masked: true,
             },
         ],
-        systems: required('SIM_DC_SYSTEMS').split(/\s+/).filter((s) => s !== ''),
+        systems: required('SIM_DC_SYSTEMS')
+            .split(/\s+/)
+            .filter((s) => s !== ''),
         timezone: required('SIM_DC_TIMEZONE'),
         trustedKeysFile: required('SIM_DC_TRUSTED_KEYS_FILE'),
         backdoor: process.env['SIM_DC_ENABLE_BACKDOOR'] === '1',

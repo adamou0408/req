@@ -1,6 +1,7 @@
 // 被授權者角色：每個被授權者一個 NOLOGIN 角色。服務以 SET ROLE 代它執行測試查詢；
 // 真實的 DC 會再把人員帳號加進這個角色（成員管理不在模擬範圍）。
 import { ident, lit, type Db } from './db.ts';
+import { dropExportViews } from './exportView.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INTEGER = /^[1-9][0-9]{0,18}$/;
@@ -53,23 +54,9 @@ export async function clearRole(db: Db, role: string): Promise<void> {
     for (const p of policies.rows) {
         await db.query(`drop policy ${ident(p.polname)} on data.${ident(p.relname)}`);
     }
-    for (const schema of ['data', 'export']) {
-        await db.query(`revoke all on all tables in schema ${schema} from ${ident(role)}`);
-    }
-    // 欄位層級的權限不會被 revoke ... on all tables 收回，要逐表逐欄收
-    const cols = await db.query<{ nspname: string; relname: string; attname: string }>(
-        `select n.nspname, c.relname, a.attname
-         from pg_attribute a
-         join pg_class c on c.oid = a.attrelid
-         join pg_namespace n on n.oid = c.relnamespace
-         cross join lateral aclexplode(a.attacl) as x
-         where n.nspname in ('data', 'export') and a.attnum > 0 and not a.attisdropped
-           and x.grantee = (select oid from pg_roles where rolname = $1)`,
-        [role],
-    );
-    for (const c of cols.rows) {
-        await db.query(`revoke all (${ident(c.attname)}) on ${ident(c.nspname)}.${ident(c.relname)} from ${ident(role)}`);
-    }
+    // 資料表層級的 revoke 會一併收回各欄的權限
+    await db.query(`revoke all on all tables in schema data from ${ident(role)}`);
+    await dropExportViews(db, role);
 }
 
 // 沒有任何規則了就刪掉角色，撤回後連角色都不留。
@@ -82,14 +69,10 @@ export async function dropRole(db: Db, role: string): Promise<void> {
     await db.query(`drop role ${ident(role)}`);
 }
 
+// 重建結構時使用：呼叫前已經 drop schema ... cascade，角色在本資料庫已經沒有任何依賴，可以直接刪。
 export async function dropManagedRoles(db: Db, prefix: string): Promise<void> {
-    const roles = await db.query<{ rolname: string }>(
-        `select rolname from pg_roles where starts_with(rolname, $1) and pg_has_role(current_user, oid, 'USAGE')`,
-        [prefix],
-    );
+    const roles = await db.query<{ rolname: string }>('select rolname from pg_roles where starts_with(rolname, $1)', [prefix]);
     for (const { rolname } of roles.rows) {
-        // 結構可能還沒建立（第一次啟動）或已經損壞：先收回本資料庫裡它擁有的一切，再刪角色
-        await db.query(`drop owned by ${ident(rolname)}`);
         await db.query(`drop role ${ident(rolname)}`);
     }
 }

@@ -159,7 +159,7 @@ function masked(pkg: PackageDef, row: Row, rand: () => number): Row {
     return out;
 }
 
-export function generateRows(packageCode: string, mask: boolean): Row[] {
+function generateRows(packageCode: string, mask: boolean): Row[] {
     const pkg = findPackage(packageCode);
     const gen = GENERATORS[packageCode];
     if (pkg === undefined || gen === undefined) throw new Error(`沒有 ${packageCode} 的資料產生器`);
