@@ -164,7 +164,8 @@ test('K-DECISION-PROOF 沒有證明就沒有決定：改狀態的入口是固定
         'sgn_internal.decision_apply',
     ]);
     assert.deepEqual(await callers('sgn_internal.decision_apply'), ['sgn_internal.decision_commit']);
-    assert.deepEqual(await callers('sgn_internal.decision_commit'), ['api.case_decide_idp', 'api.case_decide_passkey']);
+    // 紅隊 高-2：後端帳號能用的決定入口只剩通行金鑰（身分提供者再驗證的比較版本在 api_verified，只有測試帳號能用）
+    assert.deepEqual(await callers('sgn_internal.decision_commit'), ['api.case_decide_passkey']);
     // decision_commit 只轉移挑戰值綁定的決定；挑戰值只發給動作目錄裡 needs_proof 的動作
     const proofActions = await admin.query('select action from sgn.action where needs_proof order by 1');
     assert.deepEqual(

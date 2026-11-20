@@ -5,7 +5,8 @@ import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
     // sim/ 與 docs/ 不歸這個 repo 的程式碼品質關卡管（sim 有自己的規範：shellcheck）
-    { ignores: ['**/node_modules/**', '.run/**', 'sim/**', 'docs/**'] },
+    // redteam/exploits/ 是紅隊留下的攻擊證據，必須保持原樣才能重跑對照（任務規定不得修改），不歸程式碼品質關卡管
+    { ignores: ['**/node_modules/**', '.run/**', 'sim/**', 'docs/**', 'redteam/exploits/**'] },
     js.configs.recommended,
     ...tseslint.configs.strict,
     {

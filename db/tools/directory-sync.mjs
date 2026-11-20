@@ -49,7 +49,13 @@ export async function syncDirectory(config = loadConfig()) {
     const db = new pg.Client({ connectionString: roleUrl(config, 'SYNC') });
     await db.connect();
     try {
-        const { rows } = await db.query('select api_sync.directory_apply($1, $2) as result', [SOURCE, JSON.stringify(entries)]);
+        // 讀的是 LDAP 的全部人員，所以宣告為完整快照並帶總筆數（與現況差異超過門檻時資料庫會整批拒絕）
+        const { rows } = await db.query('select api_sync.directory_apply($1, $2, $3, $4) as result', [
+            SOURCE,
+            'full',
+            entries.length,
+            JSON.stringify(entries),
+        ]);
         return rows[0].result;
     } finally {
         await db.end();

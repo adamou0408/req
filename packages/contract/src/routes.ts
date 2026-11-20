@@ -2,6 +2,9 @@
 // 參數名 session 由後端從 cookie 填入；其餘參數照名稱從請求的 JSON 取，依順序對應 function 的 p_<名稱>。
 // 回傳一律是 jsonb，結構寫在 returns；db/tests/kernel/90-contract.test.mjs 檢查 function 的簽章與實際回傳。
 // 刻意沒有「只憑工作階段就能做決定」的路由：做決定只有 case_decide_passkey，身分由資料庫從通行金鑰的簽章得出。
+// 這張表也是資料庫執行權限的唯一來源：db/tools/grants-sql.mjs 只把這裡列出的 function 授權給各執行期帳號
+// （後端 sgn_app：routes、packRoutes、backendCalls；人員同步 sgn_sync：syncCalls；排程 sgn_job：jobCalls），
+// db/tests/kernel/12-grants.test.mjs 檢查實際權限與這裡完全相等。
 import type { Shape } from './shape.ts';
 
 export { shapeProblems, type Shape } from './shape.ts';
@@ -164,6 +167,26 @@ const chainEvent: Shape = {
     },
 };
 
+const roleChange: Shape = {
+    object: {
+        request_id: 'uuid',
+        holder_name: 'text',
+        role_code: 'text',
+        role_name: 'text',
+        scope_ref: { nullable: 'text' },
+        /** grant（授予）或 revoke（撤除） */
+        change: 'text',
+        reason: 'text',
+        /** pending 或 approved */
+        status: 'text',
+        proposed_by_name: 'text',
+        proposed_at: 'timestamp',
+        approved_by_name: { nullable: 'text' },
+        approved_at: { nullable: 'timestamp' },
+        actions: { array: 'text' },
+    },
+};
+
 /**
  * 畫面呼叫的核心路由：POST /api/<fn>。每個使用者動作一個。
  * 決定（核准、縮小後核准、退回、駁回、撤回、執行完成）都是 challenge_issue → case_decide_passkey 兩步；
@@ -215,6 +238,33 @@ export const routes = [
         returns: {
             array: { object: { id: 'int', rule_code: 'text', case_no: { nullable: 'int' }, opened_at: 'timestamp', event_seq: 'int' } },
         },
+    },
+    // 角色指派變更（控制、平台、治理類角色只能走這裡）：提出 → 另一位有權的人以通行金鑰核准
+    {
+        fn: 'role_change_options',
+        params: ['session'],
+        returns: {
+            object: {
+                roles: { array: { object: { code: 'text', name: 'text', category: 'text' } } },
+                people: { array: { object: { person_id: 'uuid', name: 'text' } } },
+            },
+        },
+    },
+    { fn: 'role_change_list', params: ['session'], returns: { array: roleChange } },
+    {
+        fn: 'role_change_propose',
+        params: ['session', 'holder_id', 'role_code', 'scope_ref', 'change', 'reason'],
+        returns: roleChange,
+    },
+    {
+        fn: 'role_change_challenge',
+        params: ['session', 'request_id'],
+        returns: { object: { challenge_id: 'uuid', challenge: 'b64url', binding: 'json' } },
+    },
+    {
+        fn: 'role_change_approve_passkey',
+        params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
+        returns: roleChange,
     },
 ] as const satisfies readonly Call[];
 
@@ -274,7 +324,21 @@ export const backendCalls = {
     },
 } as const satisfies Record<string, Call>;
 
-/** 存在但刻意不開放給後端的 api function，與理由。 */
-export const notExposed: Readonly<Record<string, string>> = {
-    case_decide_idp: '身分提供者再驗證的決定等於只靠密碼（Dex 不帶 amr）；只有資料庫測試使用，畫面一律走通行金鑰',
+/** 只有名稱與參數的呼叫（人員同步、排程）：回傳不是畫面用的 jsonb 結構，由各自的工具讀取。 */
+export type Grant = {
+    readonly fn: string;
+    readonly params: readonly string[];
 };
+
+/** 人員同步工具（db/tools/directory-sync.mjs，帳號 sgn_sync）能執行的 api_sync function。 */
+export const syncCalls = {
+    directoryApply: { fn: 'directory_apply', params: ['source', 'kind', 'total', 'entries'] },
+} as const satisfies Record<string, Grant>;
+
+/** 錨定與排程（db/tools/chain-lib.mjs，帳號 sgn_job）能執行的 api_job function。 */
+export const jobCalls = {
+    chainHead: { fn: 'chain_head', params: [] },
+    eventsAfter: { fn: 'events_after', params: ['after_seq', 'limit'] },
+    codeFingerprint: { fn: 'code_fingerprint', params: [] },
+    directorySettle: { fn: 'directory_settle', params: [] },
+} as const satisfies Record<string, Grant>;

@@ -5,8 +5,8 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { after, before, test } from 'node:test';
-import { backendCalls, notExposed, packRoutes, routes, shapeProblems } from '../../../packages/contract/src/routes.ts';
-import { call, closePools, idToken, login, newAuthenticator, pool, PROBE, registrationNonce } from './lib/harness.mjs';
+import { backendCalls, jobCalls, packRoutes, routes, shapeProblems, syncCalls } from '../../../packages/contract/src/routes.ts';
+import { call, closePools, idToken, login, newAuthenticator, pool, PROBE, registerPasskey, registrationNonce } from './lib/harness.mjs';
 
 const admin = pool('ADMIN');
 const app = pool('APP');
@@ -39,10 +39,34 @@ test('契約：路由表與後端呼叫的每個 function 都存在、參數名�
     }
 });
 
-test('契約：每個 api function 都有歸屬（路由、後端流程、或明列不開放的理由），沒有孤兒', async () => {
-    const known = new Set([...allCalls.map((c) => c.fn), ...Object.keys(notExposed)]);
+test('契約：每個 api function 都有歸屬（路由或後端流程），沒有孤兒', async () => {
+    // 紅隊 高-2 之後沒有「存在但不開放」的 api function：不開放的就不在正式建置裡（權限只依路由表授權）
+    const known = new Set(allCalls.map((c) => c.fn));
     const orphans = (await apiFunctions()).map((r) => r.fn).filter((fn) => !known.has(fn));
     assert.deepEqual(orphans, []);
+});
+
+test('契約：人員同步與排程的允許清單（syncCalls、jobCalls）引用的 function 都存在、參數名稱與順序相符，且沒有清單外的 function', async () => {
+    for (const [schema, calls] of [
+        ['api_sync', Object.values(syncCalls)],
+        ['api_job', Object.values(jobCalls)],
+    ]) {
+        const { rows } = await admin.query(
+            `select p.proname as fn, coalesce(p.proargnames[1:p.pronargs], '{}') as args
+             from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = $1 order by 1`,
+            [schema],
+        );
+        const byName = new Map(rows.map((r) => [r.fn, r]));
+        for (const c of calls) {
+            assert.ok(byName.get(c.fn), `${schema}.${c.fn} 不存在`);
+            assert.deepEqual(
+                byName.get(c.fn).args,
+                c.params.map((p) => `p_${p}`),
+                `${schema}.${c.fn} 的參數`,
+            );
+        }
+        assert.deepEqual(rows.map((r) => r.fn).sort(), calls.map((c) => c.fn).sort(), `${schema} 有清單外的 function`);
+    }
 });
 
 test('架構：api function 不接受任何「人」當參數；行為人只來自工作階段或驗過的證明（第一個參數是 p_session 或 p_challenge_id）', async () => {
@@ -75,6 +99,11 @@ const AUTHORIZATION_CODES = [
     'NOT_FULFILLER',
     'SOD_DISTINCT',
     'DECIDER_ROLE_EXCLUDED',
+    'ROLE_CHANGE_NOT_PROPOSER',
+    'ROLE_CHANGE_NOT_APPROVER',
+    'ROLE_CHANGE_SELF',
+    'ROLE_CHANGE_EXCLUDED',
+    'ROLE_CHANGE_STATE',
 ];
 // 授權入口：denial_reason 是唯一的判斷；決定者資格（職責分離）拆成 decider_denial，由 denial_reason 與解析器共用，
 // 所以「能不能被指派」和「能不能做決定」是同一個判斷（K-DECISION-ELIGIBLE）。
@@ -140,11 +169,16 @@ let applicant;
 let manager;
 let auditor;
 let groupMember;
+let auditHead;
+let auditGovernor;
 before(async () => {
     applicant = await login(app, 'p04');
     manager = await login(app, 'p03');
     auditor = await login(app, 'p22');
     groupMember = await login(app, 'p16');
+    auditHead = await login(app, 'p21');
+    auditGovernor = await login(app, 'p28');
+    auditGovernor.key = await registerPasskey(app, auditGovernor);
 });
 
 test('契約：每個路由與後端呼叫的回傳結構都符合路由表（真的呼叫一次，結構不多不少）', async () => {
@@ -191,6 +225,17 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     await check('audit_chain', auditor.session, 0, 50);
     await check('audit_code_fingerprint', auditor.session);
     await check('audit_exceptions', auditor.session);
+    // 角色指派變更：稽核主管提出、稽核治理人以通行金鑰核准；最後撤除，不影響其他測試
+    await check('role_change_options', auditHead.session);
+    const changeRole = async (change) => {
+        const proposed = await check('role_change_propose', auditHead.session, applicant.personId, 'auditor', null, change, '契約測試');
+        await check('role_change_list', auditGovernor.session);
+        const ch = await check('role_change_challenge', auditGovernor.session, proposed.request_id);
+        const a = auditGovernor.key.assert(ch.challenge);
+        return check('role_change_approve_passkey', ch.challenge_id, a.credentialId, a.authenticatorData, a.clientDataJSON, a.signature);
+    };
+    assert.equal((await changeRole('grant')).status, 'approved');
+    assert.equal((await changeRole('revoke')).status, 'approved');
     // 登出
     await check('session_close', opened.session_token);
 

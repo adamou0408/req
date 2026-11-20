@@ -63,7 +63,7 @@ test('角色隔離：一般後端呼叫內部、驗證服務、同步、錨定�
     await rejectsPermission(app.query(`select sgn_internal.audit_append('x', null, null, '{}')`));
     await rejectsPermission(app.query(`select sgn_internal.es256_verify('\\x', '\\x', '\\x')`));
     await rejectsPermission(app.query(`select api_verified.case_decide_passkey($1, 'approve', 'x', 1, '{}')`, [uuid]));
-    await rejectsPermission(app.query(`select api_sync.directory_apply('sim-ldap', '[]')`));
+    await rejectsPermission(app.query(`select api_sync.directory_apply('sim-ldap', 'full', 0, '[]')`));
     await rejectsPermission(app.query('select * from api_job.events_after(0, 10)'));
 });
 

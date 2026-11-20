@@ -38,6 +38,11 @@ const entry = (uid, manager, name) => ({
 });
 // 假快照：把 p04（林怡君）的主管改成 p05（王志明）。
 const forgedSnapshot = [entry('p04', 'p05', '林怡君'), entry('p05', 'p03', '王志明')];
+// 只列兩個人，所以宣告為增量同步（紅隊 中-1 之後，宣告成完整快照會因差異超過門檻被整批拒絕）
+const forged = (source) => [
+    'select api_sync.directory_apply($1, $2, $3, $4)',
+    [source, 'incremental', forgedSnapshot.length, JSON.stringify(forgedSnapshot)],
+];
 
 before(async () => {
     for (const uid of ['p03', 'p04', 'p05', 'p22']) users[uid] = await login(app, uid);
@@ -61,7 +66,7 @@ const lastEvent = async (type) =>
 test('K-DETECT-MANAGER-FLIP 攻擊：同步帳號把指定的人設成主管 → 異動逐筆進鏈、送審開例外、申請人／簽核人／稽核都看得到、決定事件記下例外', async () => {
     try {
         const head = (await lastEvent('directory.synced')).seq;
-        await syncDb.query('select api_sync.directory_apply($1, $2)', ['sim-ldap', JSON.stringify(forgedSnapshot)]);
+        await syncDb.query(...forged('sim-ldap'));
 
         // 1. 這筆異動單獨在鏈上：誰、舊主管、新主管
         const { rows: changes } = await admin.query(
@@ -132,7 +137,7 @@ test('K-DETECT-MANAGER-FLIP 攻擊：同步帳號把指定的人設成主管 →
 test('K-DETECT-MANAGER-FLIP 進行中的單：送審後的同步異動不改變簽核人，攻擊者拿不到挑戰值', async () => {
     const caseId = await createSubmittedCase(app, users.p04);
     try {
-        await syncDb.query('select api_sync.directory_apply($1, $2)', ['sim-ldap', JSON.stringify(forgedSnapshot)]);
+        await syncDb.query(...forged('sim-ldap'));
         await rejectsWith(issueChallenge(app, users.p05, caseId), 'NOT_APPROVER');
         const view = await call(app, 'case_get', users.p04.session, caseId);
         assert.deepEqual(view.waiting_on, ['陳建宏']);
@@ -152,10 +157,7 @@ test('K-DETECT-MANAGER-FLIP 基準只有一次：之後的同步一律不是基�
          where event_type = 'directory.synced' and convert_from(body, 'UTF8')::jsonb #>> '{data,baseline}' = 'true'`,
     );
     assert.equal(baselines.n, 1);
-    await rejectsWith(
-        syncDb.query('select api_sync.directory_apply($1, $2)', ['evil-source', JSON.stringify(forgedSnapshot)]),
-        'DIRECTORY_SOURCE_UNKNOWN',
-    );
+    await rejectsWith(syncDb.query(...forged('evil-source')), 'DIRECTORY_SOURCE_UNKNOWN');
     // 同步帳號碰不到例外與決定：它只能執行 api_sync
     const fns = await admin.query(
         `select distinct n.nspname from pg_proc p join pg_namespace n on n.oid = p.pronamespace

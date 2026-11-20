@@ -83,7 +83,8 @@ async function auditExceptions() {
                       el(
                           'li',
                           {},
-                          el('a', { href: `#audit/${x.case_no}` }, `${t.caseNo} ${x.case_no}`),
+                          // 人員同步、角色來源的例外不屬於任何一張單
+                          x.case_no === null ? t.exceptionNoCase : el('a', { href: `#audit/${x.case_no}` }, `${t.caseNo} ${x.case_no}`),
                           `・${t.exception[x.rule_code] ?? t.exceptionUnknown}`,
                       ),
                   ),
@@ -97,5 +98,15 @@ export async function renderHome(ctx) {
     if (can('inbox')) parts.push(fillInbox(ctx));
     if (can('case.submit')) parts.push(fillMine());
     if (can('audit')) parts.push(Promise.resolve(auditSearch()), auditExceptions());
+    if (can('role_change'))
+        parts.push(
+            Promise.resolve(
+                section(
+                    'roles',
+                    t.roleChange.title,
+                    el('a', { class: 'card', href: '#roles', 'data-testid': 'open-roles' }, t.roleChange.open),
+                ),
+            ),
+        );
     return (await Promise.all(parts)).flat();
 }

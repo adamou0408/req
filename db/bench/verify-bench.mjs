@@ -16,7 +16,7 @@ import {
     closePools,
     config,
     createSubmittedCase,
-    decideIdp,
+    decideStepUp,
     decidePasskey,
     idToken,
     issueChallenge,
@@ -92,6 +92,7 @@ async function primitiveBench() {
 
 async function decisionBench() {
     const app = pool('APP');
+    const verifier = pool('TEST_VERIFIER');
     const applicant = await login(app, 'p04');
     const manager = await login(app, 'p03');
     const key = await registerPasskey(app, manager);
@@ -119,7 +120,7 @@ async function decisionBench() {
             const ch = await newChallenge();
             return { ch, token: await idToken('p03', ch.challenge) };
         },
-        async ({ ch, token }) => expectApproved(await decideIdp(app, ch.challenge_id, 'approve', token)),
+        async ({ ch, token }) => expectApproved(await decideStepUp(verifier, ch.challenge_id, 'approve', token)),
     );
     const service = await startVerifierService({ port: 0 });
     const c = await measure(

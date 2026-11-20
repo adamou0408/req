@@ -43,13 +43,15 @@ recreate_roles() {
     done
 }
 
-# 建一個資料庫的 schema：核心 migration（依版本序）→ 各流程包（依版本序）→ 測試資料庫另加 db/testing/ → 權限 → 環境設定。
+# 建一個資料庫的 schema：核心 migration（依版本序）→ 各流程包（依版本序）→ 測試資料庫另加 db/testing/ → 權限
+# （90_grants.sql，再由 db/tools/grants-sql.mjs 收斂成路由表的允許清單）→ 環境設定。新建的 function 預設不對 PUBLIC 開放。
 # 套用順序依骨幹第 1.1 節：核心全部 → 各流程包。90_grants.sql 帶變數，最後單獨套用。
 build_schema() {
     local db="$1" with_testing="$2" connect="$SGN_ROLE_APP\", \"$SGN_ROLE_SYNC\", \"$SGN_ROLE_JOB"
     (( with_testing )) && connect="$connect\", \"$SGN_ROLE_TEST_VERIFIER"
     psql_admin postgres -c "create database \"$db\" owner \"$SGN_ROLE_OWNER\""
-    psql_admin "$db" -c "revoke all on database \"$db\" from public" -c "grant connect on database \"$db\" to \"$connect\""
+    psql_admin "$db" -c "revoke all on database \"$db\" from public" -c "grant connect on database \"$db\" to \"$connect\"" \
+        -c "alter default privileges for role \"$SGN_ROLE_OWNER\" revoke execute on functions from public"
     # 01_core 建立 schema；pgcrypto 要以 superuser 裝進 sgn_internal，其餘 migration 以 owner 身分套用。
     local args=(-c "set role \"$SGN_ROLE_OWNER\"" -f "$here/kernel/01_core.sql" -c "reset role"
         -c "create extension pgcrypto schema sgn_internal" -c "set role \"$SGN_ROLE_OWNER\"")
@@ -64,6 +66,8 @@ build_schema() {
     fi
     args+=(-c "reset role" -v owner="$SGN_ROLE_OWNER" -v app="$SGN_ROLE_APP" -v sync="$SGN_ROLE_SYNC" -v job="$SGN_ROLE_JOB" -f "$here/kernel/90_grants.sql")
     psql_admin "$db" "${args[@]}" >/dev/null
+    # 執行權限的允許清單（來源是路由表）：取代 90_grants.sql 的「整個 schema 授權」（紅隊 高-2）
+    node "$here/tools/grants-sql.mjs" | psql_admin "$db" -f - >/dev/null
     psql_admin "$db" -c "set role \"$SGN_ROLE_OWNER\"" \
         -c "select sgn_internal.register_setting_value('webauthn.rp_id', 'global', to_jsonb('$SGN_RP_ID'::text), 'db/build.sh：開發環境')" \
         -c "select sgn_internal.register_setting_value('webauthn.origin', 'global', to_jsonb('$SGN_RP_ORIGIN'::text), 'db/build.sh：開發環境')" >/dev/null

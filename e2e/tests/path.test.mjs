@@ -540,6 +540,53 @@ test('尚未錨定：錨定程式暫停時，稽核畫面明確標示「尚未�
     assert.equal(await auditor.page.locator('[data-testid=unanchored]').count(), 0);
 });
 
+/** 在角色指派頁提出一張變更（手機畫面）。 */
+async function proposeRole(p, holderName, role, change, reason) {
+    await home(p);
+    await p.page.click('[data-testid=open-roles]');
+    await p.page.waitForSelector('[data-testid=role-change-form]');
+    await p.page.selectOption('#holder_id', { label: holderName });
+    await p.page.selectOption('#role_code', role);
+    await p.page.selectOption('#change', change);
+    await p.page.fill('#reason', reason);
+    return flashAfter(p.page, () => p.page.click('[data-testid=role-change-submit]'));
+}
+
+/** 在角色指派頁用通行金鑰核准第一張可以核准的變更。 */
+async function approveRole(p) {
+    await home(p);
+    await p.page.click('[data-testid=open-roles]');
+    await p.page.waitForSelector('[data-testid=section-role-changes]');
+    await ensurePasskey(p);
+    await p.page.click('[data-testid=role-change-approve]');
+    return flashAfter(p.page, () => p.page.click('[data-testid=confirm-passkey]'));
+}
+
+test('K-ROLE-SOURCE 稽核角色只能在平台內指派：鍾國強在手機上提出、白崇德用通行金鑰核准後才生效（K-AUDITOR-INDEPENDENT）', async () => {
+    const head = await loggedIn('p21');
+    const holder = await loggedIn('p08');
+    const canAudit = async () => (await callApi(holder.page, '/api/me')).result.capabilities.includes('audit');
+    assert.equal(await canAudit(), false);
+    const proposed = await proposeRole(head, '何宗翰', 'auditor', 'grant', '稽核室新進人員');
+    assert.equal(proposed.ok, true, proposed.text);
+    const problems = await layoutProblems(head.page, '角色指派');
+    assert.equal(await canAudit(), false, '提出之後、核准之前不生效');
+    // 提出人自己的畫面沒有核准按鈕；直接打後端也被擋
+    assert.equal(await head.page.locator('[data-testid=role-change-approve]').count(), 0);
+    const [pending] = (await callApi(head.page, '/api/role_change_list')).result;
+    const self = await callApi(head.page, '/api/role_change_challenge', { request_id: pending.request_id });
+    assert.equal(self.error.code, 'ROLE_CHANGE_SELF');
+    const governor = await loggedIn('p28');
+    const approved = await approveRole(governor);
+    assert.equal(approved.ok, true, approved.text);
+    assert.equal(await canAudit(), true);
+    // 還原：撤除也走同一個流程
+    assert.equal((await proposeRole(head, '何宗翰', 'auditor', 'revoke', '測試結束')).ok, true);
+    assert.equal((await approveRole(governor)).ok, true);
+    assert.equal(await canAudit(), false);
+    assert.deepEqual(problems, []);
+});
+
 test('K-SESSION 登出：資料庫裡的工作階段失效，留下來的 cookie 再也打不開任何功能', async () => {
     const p = await person('p05');
     await login(p);

@@ -6,3 +6,5 @@ docs/
 *.md
 package-lock.json
 db/tests/kernel/fixtures/
+# 紅隊留下的攻擊證據：必須保持原樣才能重跑對照（不得修改），不重新排版
+redteam/exploits/

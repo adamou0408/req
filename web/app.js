@@ -6,6 +6,7 @@ import { renderApply } from './pages/apply.js';
 import { renderAudit } from './pages/audit.js';
 import { renderCase } from './pages/case.js';
 import { renderHome } from './pages/home.js';
+import { renderRoles } from './pages/roles.js';
 import { el, explain, flash, loading, takePendingFlash } from './ui.js';
 
 const main = document.getElementById('main');
@@ -16,6 +17,7 @@ const pages = [
     [/^#edit\/([0-9a-f-]{36})$/, (m) => renderApply(ctx, m[1])],
     [/^#case\/([0-9a-f-]{36})$/, (m) => renderCase(ctx, m[1])],
     [/^#audit\/(\d+)$/, (m) => renderAudit(ctx, Number(m[1]))],
+    [/^#roles$/, () => renderRoles(ctx)],
 ];
 
 let rendering = 0;

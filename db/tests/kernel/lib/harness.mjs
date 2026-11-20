@@ -119,9 +119,19 @@ export async function decidePasskey(db, challengeId, decision, assertion) {
     return decided.state;
 }
 
+/**
+ * 以身分提供者再驗證的 ID token 做決定，走「後端帳號」（api.case_decide_idp）。正式建置與資料庫測試都沒有這條路徑
+ * （紅隊 高-2）：攻擊腳本與回歸測試用它斷言「後端帳號做不到」。
+ */
 export async function decideIdp(db, challengeId, decision, token) {
     const decided = await call(db, 'case_decide_idp', challengeId, decision, token);
     return decided.state;
+}
+
+/** 比較用的架構 (b)：只裝在資料庫測試用的資料庫、只有測試專用帳號能執行（db/testing/70_idp_decide.sql）。 */
+export async function decideStepUp(verifier, challengeId, decision, token) {
+    const { rows } = await verifier.query('select api_verified.case_decide_idp($1, $2, $3) as result', [challengeId, decision, token]);
+    return rows[0].result.state;
 }
 
 /**
@@ -132,6 +142,28 @@ export async function settleManagerChange(admin, personId) {
     await admin.query(
         `update sgn.reporting_line set valid_from = valid_from - interval '5 days'
          where person_id = $1 and valid_to is null and origin = 'sync_change'`,
+        [personId],
+    );
+}
+
+/**
+ * 模擬「人員同步的冷卻期已經過了」（directory.sync_cooling_workdays）：把這個人由同步而來、還沒生效的業務角色新增與
+ * 排定的移除、延後的停用，都往前移 5 天，再套用到期的停用。只給測試用的管理者連線使用。
+ */
+export async function settleSyncChanges(admin, personId) {
+    await admin.query(
+        `update sgn.role_assignment set effective_from = effective_from - interval '5 days'
+         where person_id = $1 and effective_from > clock_timestamp()`,
+        [personId],
+    );
+    await admin.query(
+        `update sgn.role_assignment set valid_to = valid_to - interval '5 days'
+         where person_id = $1 and valid_to > clock_timestamp()`,
+        [personId],
+    );
+    await admin.query(
+        `update sgn.person_deactivation set effective_at = effective_at - interval '5 days'
+         where person_id = $1 and applied_at is null and cancelled_at is null`,
         [personId],
     );
 }
