@@ -21,6 +21,7 @@ import {
     pool,
     PROBE,
     registerPasskey,
+    setSetting,
 } from './lib/harness.mjs';
 
 const runDir = RUN_DIR;
@@ -82,12 +83,16 @@ const replaceBody = (seq) =>
     `update sgn.audit_event set body = convert_to(replace(convert_from(body, 'UTF8'), '"type"', '"forged": true, "type"'), 'UTF8') where seq = ${seq}`;
 
 before(async () => {
+    // 這個檔案測的是竄改與重算，不是錨定程式停擺：錨點落後的時間門檻（K-ANCHOR-LAG，開發環境 30 秒）放寬，
+    // 複本建立時也帶著這個值；結束時設回開發環境的值
+    await setSetting(pool('ADMIN'), 'audit.anchor_max_lag_seconds', 3600);
     mkdirSync(runDir, { recursive: true });
     rmSync(anchorFile, { force: true });
     execFileSync('pg_dump', ['--format=custom', `--file=${backupFile}`, adminUrl(config)]);
 });
 
 after(async () => {
+    await setSetting(pool('ADMIN'), 'audit.anchor_max_lag_seconds', 30);
     await closePools();
     for (const db of copies) await adminQuery('postgres', `drop database if exists "${db}" with (force)`);
 });
@@ -117,15 +122,15 @@ test('K-AUDIT-APPEND 20 個連線同時寫入：序號連續、沒有分叉、�
     assert.equal(stats.n, WRITERS * PER_WRITER);
     assert.equal(stats.hi - stats.lo + 1, stats.n, '序號有缺口');
     assert.equal(stats.prevs, stats.n, '有兩筆接在同一個前一筆之後（分叉）');
+    // 先錨定再全量驗證：完全沒有錨點的鏈，驗證工具判為落後（D71，K-ANCHOR-LAG）。錨定本身也從創世增量重算過一次。
+    const anchored = await anchorOnce({ dbUrl: roleUrl(config, 'JOB'), anchorFile });
+    assert.equal(anchored.ok, true);
+    anchoredSeq = anchored.anchor.seq;
     const result = await verifyDb(mainDb);
     assert.equal(result.ok, true, JSON.stringify(result.problems.slice(0, 5)));
     console.log(
         `# concurrent append: ${stats.n} events by ${WRITERS} connections in ${elapsedMs.toFixed(0)} ms (${(stats.n / (elapsedMs / 1000)).toFixed(0)} events/s)`,
     );
-
-    const anchored = await anchorOnce({ dbUrl: roleUrl(config, 'JOB'), anchorFile });
-    assert.equal(anchored.ok, true);
-    anchoredSeq = anchored.anchor.seq;
     for (let i = 0; i < TAIL; i += 1) {
         await app.query('select * from api.case_create($1, $2, $3, $4)', [user.session, PROBE, { tail: i }, {}]);
     }

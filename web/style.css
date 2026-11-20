@@ -367,3 +367,10 @@ pre {
 .result p {
     margin: 4px 0;
 }
+
+/* 通行金鑰的六位數短碼（兩邊畫面對照用，D65） */
+.code {
+    font-size: 1.6rem;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.2em;
+}

@@ -7,7 +7,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { RUN_DIR, adminUrl, loadConfig } from '../../db/tools/lib/env.mjs';
+import { decisionChallenge, pool as dbPool } from '../../db/tests/kernel/lib/harness.mjs';
 import {
+    API,
     ORIGIN,
     apply,
     callApi,
@@ -26,6 +28,8 @@ import {
     openNew,
     person,
     login,
+    requestPasskeyInUi,
+    sessionOf,
     startBrowser,
     stopBrowser,
     submitForm,
@@ -234,6 +238,9 @@ test('K-DECISION-PROOF 沒有通行金鑰的證明就核准不了', async () => 
 
     // 2. 有挑戰值、但證明是空的
     const ch = (await callApi(manager.page, '/api/challenge_issue', { case_id: caseId, decision: 'approve', input: {} })).result;
+    assert.equal(ch.challenge, undefined, '後端不給可以直接簽的值（D68）');
+    // 偽造的 assertion 用「正確算出的」挑戰值，才能測到簽章本身（測試在資料庫那一側扮演主管的瀏覽器算）
+    const computed = await decisionChallenge(dbPool('APP'), await sessionOf(manager), caseId, 'approve', {}, ch);
     const empty = await callApi(manager.page, '/api/case_decide_passkey', { challenge_id: ch.challenge_id, decision: 'approve' });
     outcomes.empty_proof = empty.error.code;
     assert.notEqual(empty.status, 200);
@@ -271,7 +278,7 @@ test('K-DECISION-PROOF 沒有通行金鑰的證明就核准不了', async () => 
                 stolenId: { ...proof, credentialId: registeredId },
             };
         },
-        { challenge: ch.challenge, registeredId },
+        { challenge: computed, registeredId },
     );
     for (const [name, a] of Object.entries(forged)) {
         const res = await callApi(manager.page, '/api/case_decide_passkey', {
@@ -540,16 +547,20 @@ test('尚未錨定：錨定程式暫停時，稽核畫面明確標示「尚未�
     assert.equal(await auditor.page.locator('[data-testid=unanchored]').count(), 0);
 });
 
-/** 在角色指派頁提出一張變更（手機畫面）。 */
+/** 在角色指派頁提出一張變更（手機畫面）：填表 → 確認面板 → 用通行金鑰確認（提出也要金鑰，D68）。 */
 async function proposeRole(p, holderName, role, change, reason) {
     await home(p);
     await p.page.click('[data-testid=open-roles]');
+    await p.page.waitForSelector('[data-testid=role-change-form]');
+    await ensurePasskey(p);
     await p.page.waitForSelector('[data-testid=role-change-form]');
     await p.page.selectOption('#holder_id', { label: holderName });
     await p.page.selectOption('#role_code', role);
     await p.page.selectOption('#change', change);
     await p.page.fill('#reason', reason);
-    return flashAfter(p.page, () => p.page.click('[data-testid=role-change-submit]'));
+    await p.page.click('[data-testid=role-change-submit]');
+    assert.match(await p.page.textContent('[data-testid=consequence]'), new RegExp(holderName));
+    return flashAfter(p.page, () => p.page.click('[data-testid=confirm-passkey]'));
 }
 
 /** 在角色指派頁用通行金鑰核准第一張可以核准的變更。 */
@@ -574,7 +585,7 @@ test('K-ROLE-SOURCE 稽核角色只能在平台內指派：鍾國強在手機上
     // 提出人自己的畫面沒有核准按鈕；直接打後端也被擋
     assert.equal(await head.page.locator('[data-testid=role-change-approve]').count(), 0);
     const [pending] = (await callApi(head.page, '/api/role_change_list')).result;
-    const self = await callApi(head.page, '/api/role_change_challenge', { request_id: pending.request_id });
+    const self = await callApi(head.page, '/api/role_change_challenge', { request_id: pending.request_id, decision: 'approve' });
     assert.equal(self.error.code, 'ROLE_CHANGE_SELF');
     const governor = await loggedIn('p28');
     const approved = await approveRole(governor);
@@ -587,6 +598,65 @@ test('K-ROLE-SOURCE 稽核角色只能在平台內指派：鍾國強在手機上
     assert.deepEqual(problems, []);
 });
 
+test('K-PASSKEY-ENROLL 第一把通行金鑰由主管背書：鄭雅文登記後畫面顯示短碼，張美玲在自己的手機上看到同一組短碼，用通行金鑰核准；冷卻期內還不能做決定', async () => {
+    const owner = await loggedIn('p11');
+    const staff = await loggedIn('p13');
+    // 鄭雅文沒有待簽的單：從她自己送出的申請單（撤回要通行金鑰）進去，畫面才有登記的提示
+    const { caseNo } = await apply('p13', l3({ principal: '季度業績看板', description: '登記金鑰測試' }));
+    await openFromHome(staff, caseNo);
+    await staff.page.waitForSelector('[data-testid=passkey-missing]');
+    const code = await requestPasskeyInUi(staff);
+    assert.match(code, /^\d{6}$/);
+    const layout = await layoutProblems(staff.page, '待核准的通行金鑰');
+    // 主管的首頁出現「待核准的通行金鑰登記」，短碼和本人畫面上的一樣
+    await home(owner);
+    await ensurePasskey(owner);
+    await owner.page.click('[data-testid=open-passkeys]');
+    await owner.page.waitForSelector('[data-testid=enrollment-item]');
+    const item = owner.page.locator('[data-testid=enrollment-item]', { hasText: '鄭雅文' });
+    assert.equal((await item.locator('[data-testid=endorse-short-code]').textContent()).trim(), code);
+    layout.push(...(await layoutProblems(owner.page, '背書通行金鑰')));
+    await item.locator('[data-testid=endorse]').click();
+    assert.match(await owner.page.textContent('[data-testid=consequence]'), new RegExp(code));
+    const done = await flashAfter(owner.page, () => owner.page.click('[data-testid=confirm-passkey]'));
+    assert.equal(done.ok, true, done.text);
+    // 本人：金鑰已核准，冷卻期內畫面說明什麼時候生效，還不能做決定
+    await staff.page.reload();
+    await waitPage(staff.page);
+    await staff.page.waitForSelector('[data-testid=passkey-cooling]');
+    assert.equal(await staff.page.locator('[data-action=recall]').count(), 1, '按鈕依資料庫的 actions 顯示');
+    results.tests.passkey_enroll = { short_code_matches: true, layout_problems: layout };
+    assert.deepEqual(layout, []);
+});
+
+test('D68 頁面與後端分開來源：頁面帶 CSP、後端只回 JSON；網址上的 ?error= 只收錯誤代碼（D71）', async () => {
+    const page = await (await person('p26')).page;
+    const pageResponse = await page.goto(`${ORIGIN}/`);
+    const csp = pageResponse.headers()['content-security-policy'];
+    assert.match(csp, /script-src 'self'/);
+    assert.match(csp, new RegExp(`connect-src 'self' ${API}`));
+    // 後端不送頁面：舊網址導回頁面的來源，任意文字的 error 被丟掉
+    const back = await fetch(`${API}/?error=${encodeURIComponent('請改到 https://evil.example 重新登入')}`, { redirect: 'manual' });
+    assert.equal(back.status, 302);
+    assert.equal(back.headers.get('location'), `${ORIGIN}/`);
+    assert.equal((await fetch(`${API}/index.html`)).status, 404);
+    // 頁面直接帶任意文字：不顯示；帶錯誤代碼：顯示錯誤目錄的文字
+    await page.goto(`${ORIGIN}/?error=${encodeURIComponent('系統升級中，請改到 https://evil.example')}`);
+    await page.waitForSelector('[data-testid=login]');
+    assert.equal(await page.isVisible('#flash'), false);
+    await page.goto(`${ORIGIN}/?error=LOGIN_FLOW_INVALID`);
+    await page.waitForSelector('#flash:not([hidden])');
+    assert.match(await page.textContent('#flash'), /登入流程已逾時或無效/);
+    // 別的來源帶 cookie 打後端：CORS 只開給頁面的來源，會改狀態的請求被拒
+    const forged = await fetch(`${API}/api/me`, {
+        method: 'POST',
+        headers: { origin: 'https://evil.example', 'content-type': 'application/json' },
+        body: '{}',
+    });
+    assert.equal(forged.status, 403);
+    results.tests.frontdoor = { csp };
+});
+
 test('K-SESSION 登出：資料庫裡的工作階段失效，留下來的 cookie 再也打不開任何功能', async () => {
     const p = await person('p05');
     await login(p);
@@ -596,7 +666,7 @@ test('K-SESSION 登出：資料庫裡的工作階段失效，留下來的 cookie
     await p.page.waitForSelector('[data-testid=login]');
     // 攻擊者手上留著登出前的 cookie：換一個乾淨的瀏覽器環境帶著它打後端
     const replay = await theBrowser().newContext();
-    await replay.addCookies([{ name: 'sid', value: sid.value, url: ORIGIN }]);
+    await replay.addCookies([{ name: 'sid', value: sid.value, url: API }]);
     const page = await replay.newPage();
     await page.goto(ORIGIN);
     const res = await callApi(page, '/api/me');

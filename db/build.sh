@@ -70,7 +70,8 @@ build_schema() {
     node "$here/tools/grants-sql.mjs" | psql_admin "$db" -f - >/dev/null
     psql_admin "$db" -c "set role \"$SGN_ROLE_OWNER\"" \
         -c "select sgn_internal.register_setting_value('webauthn.rp_id', 'global', to_jsonb('$SGN_RP_ID'::text), 'db/build.sh：開發環境')" \
-        -c "select sgn_internal.register_setting_value('webauthn.origin', 'global', to_jsonb('$SGN_RP_ORIGIN'::text), 'db/build.sh：開發環境')" >/dev/null
+        -c "select sgn_internal.register_setting_value('webauthn.origin', 'global', to_jsonb('$SGN_WEB_ORIGIN'::text), 'db/build.sh：開發環境（頁面的 origin）')" \
+        -c "select sgn_internal.register_setting_value('audit.anchor_max_lag_seconds', 'global', to_jsonb(30), 'db/build.sh：開發環境每 2 秒錨定一次')" >/dev/null
 }
 
 # 核心（不含 01_core 與 90_grants）與各流程包的 migration，各自依檔名的版本序。
@@ -138,6 +139,7 @@ for db in "$SGN_DB_TEST" "$SGN_DB_E2E"; do
     build_schema "$db" "$with_testing"
     seed_from_sim "$db"
     load_seed "$db"
+    SGN_DATABASE="$db" node "$here/tools/bootstrap-registrar.mjs" >/dev/null
     rm -f "$repo/.run/anchors-$db.jsonl"
 done
 

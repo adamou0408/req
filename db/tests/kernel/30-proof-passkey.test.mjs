@@ -100,7 +100,7 @@ test('攻擊 (a)：主管登記 A 金鑰的 ID token 被拿去登記攻擊者的
     );
 });
 
-test('攻擊 (a)：重放同一份證明 → CHALLENGE_USED；舊證明配新挑戰值 → PASSKEY_INVALID', async () => {
+test('攻擊 (a)：重放同一份證明 → CHALLENGE_USED；舊證明配新挑戰值 → SIGNED_CONTENT_MISMATCH', async () => {
     const caseId = await createSubmittedCase(app, applicant);
     const ch = await issueChallenge(app, manager, caseId);
     const assertion = managerKey.assert(ch.challenge);
@@ -108,7 +108,8 @@ test('攻擊 (a)：重放同一份證明 → CHALLENGE_USED；舊證明配新挑
     await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', assertion), 'CHALLENGE_USED');
     const caseB = await createSubmittedCase(app, applicant);
     const chB = await issueChallenge(app, manager, caseB);
-    await rejectsWith(decidePasskey(app, chB.challenge_id, 'approve', assertion), 'PASSKEY_INVALID');
+    // 挑戰值不符有自己的代碼（D68：簽的內容和資料庫的紀錄不符）；原本是 PASSKEY_INVALID
+    await rejectsWith(decidePasskey(app, chB.challenge_id, 'approve', assertion), 'SIGNED_CONTENT_MISMATCH');
 });
 
 test('攻擊 (a)：計數器恆為 0 的同步型通行金鑰，重放仍由一次性挑戰值擋下 → CHALLENGE_USED', async () => {
@@ -120,12 +121,12 @@ test('攻擊 (a)：計數器恆為 0 的同步型通行金鑰，重放仍由一�
     await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', assertion), 'CHALLENGE_USED');
 });
 
-test('攻擊 (a)：A 單的證明用在 B 單 → PASSKEY_INVALID，A、B 都沒被核准', async () => {
+test('攻擊 (a)：A 單的證明用在 B 單 → SIGNED_CONTENT_MISMATCH，A、B 都沒被核准', async () => {
     const caseA = await createSubmittedCase(app, applicant);
     const caseB = await createSubmittedCase(app, applicant);
     const chA = await issueChallenge(app, manager, caseA);
     const chB = await issueChallenge(app, manager, caseB);
-    await rejectsWith(decidePasskey(app, chB.challenge_id, 'approve', managerKey.assert(chA.challenge)), 'PASSKEY_INVALID');
+    await rejectsWith(decidePasskey(app, chB.challenge_id, 'approve', managerKey.assert(chA.challenge)), 'SIGNED_CONTENT_MISMATCH');
     const states = await admin.query('select state from sgn.request_case where id = any($1)', [[caseA, caseB]]);
     assert.deepEqual(
         states.rows.map((r) => r.state),

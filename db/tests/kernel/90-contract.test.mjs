@@ -6,7 +6,23 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { after, before, test } from 'node:test';
 import { backendCalls, jobCalls, packRoutes, routes, shapeProblems, syncCalls } from '../../../packages/contract/src/routes.ts';
-import { call, closePools, idToken, login, newAuthenticator, pool, PROBE, registerPasskey, registrationNonce } from './lib/harness.mjs';
+import {
+    call,
+    closePools,
+    decisionChallenge,
+    endorsementChallenge,
+    idToken,
+    login,
+    newAuthenticator,
+    pool,
+    proposalChallenge,
+    PROBE,
+    registerPasskey,
+    registrar,
+    registrationNonce,
+    roleDecisionChallenge,
+    settlePasskey,
+} from './lib/harness.mjs';
 
 const admin = pool('ADMIN');
 const app = pool('APP');
@@ -104,6 +120,11 @@ const AUTHORIZATION_CODES = [
     'ROLE_CHANGE_SELF',
     'ROLE_CHANGE_EXCLUDED',
     'ROLE_CHANGE_STATE',
+    'ROLE_CHANGE_SAME_ROLE',
+    'ROLE_CHANGE_SOURCE',
+    'ROLE_CHANGE_SCOPE_NOT_COVERED',
+    'ROLE_CHANGE_NOT_GOVERNOR',
+    'PASSKEY_ENDORSER_NOT_ALLOWED',
 ];
 // 授權入口：denial_reason 是唯一的判斷；決定者資格（職責分離）拆成 decider_denial，由 denial_reason 與解析器共用，
 // 所以「能不能被指派」和「能不能做決定」是同一個判斷（K-DECISION-ELIGIBLE）。
@@ -179,6 +200,7 @@ before(async () => {
     auditHead = await login(app, 'p21');
     auditGovernor = await login(app, 'p28');
     auditGovernor.key = await registerPasskey(app, auditGovernor);
+    auditHead.key = await registerPasskey(app, auditHead);
 });
 
 test('契約：每個路由與後端呼叫的回傳結構都符合路由表（真的呼叫一次，結構不多不少）', async () => {
@@ -186,16 +208,30 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     const begin = await check('session_begin');
     const opened = await check('session_open', begin.challenge_id, await idToken('p04', begin.nonce));
     await check('error_catalog');
-    // 登記通行金鑰
+    // 登記通行金鑰：再驗證之後是待核准；登記人以通行金鑰背書；（模擬）冷卻期過了才能簽
     const key = newAuthenticator();
     const reg = await check('passkey_register_begin', manager.session);
-    await check(
+    const pending = await check(
         'passkey_register',
         reg.challenge_id,
         await idToken('p03', registrationNonce(reg.challenge, key.spki)),
         key.credentialIdB64,
         key.spkiB64,
     );
+    const endorser = await registrar(app);
+    await check('passkey_enrollment_list', endorser.session);
+    const nonce = await check('passkey_endorse_challenge', endorser.session, pending.enrollment_id);
+    const signed = endorser.key.assert(await endorsementChallenge(app, endorser, pending.enrollment_id, nonce));
+    await check(
+        'passkey_endorse_passkey',
+        nonce.challenge_id,
+        signed.credentialId,
+        signed.authenticatorData,
+        signed.clientDataJSON,
+        signed.signature,
+    );
+    await settlePasskey(app, key);
+    await check('frontdoor_policy');
     // 申請人
     await check('me', applicant.session);
     await check('process_type_list', applicant.session);
@@ -210,7 +246,7 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     await check('inbox_list', manager.session);
     const decide = async (person, caseId, decision, input) => {
         const ch = await check('challenge_issue', person.session, caseId, decision, input);
-        const a = key.assert(ch.challenge);
+        const a = key.assert(await decisionChallenge(app, person, caseId, decision, input, ch));
         return check('case_decide_passkey', ch.challenge_id, decision, a.credentialId, a.authenticatorData, a.clientDataJSON, a.signature);
     };
     assert.equal((await decide(manager, submitted.case_id, 'approve', {})).state, 'completed');
@@ -228,11 +264,37 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     // 角色指派變更：稽核主管提出、稽核治理人以通行金鑰核准；最後撤除，不影響其他測試
     await check('role_change_options', auditHead.session);
     const changeRole = async (change) => {
-        const proposed = await check('role_change_propose', auditHead.session, applicant.personId, 'auditor', null, change, '契約測試');
+        const spec = { holderId: applicant.personId, role: 'auditor', scope: null, change, reason: '契約測試' };
+        const proposal = await check(
+            'role_change_propose_challenge',
+            auditHead.session,
+            spec.holderId,
+            spec.role,
+            null,
+            change,
+            spec.reason,
+        );
+        const p = auditHead.key.assert(await proposalChallenge(app, auditHead, spec, proposal));
+        const proposed = await check(
+            'role_change_propose_passkey',
+            proposal.challenge_id,
+            p.credentialId,
+            p.authenticatorData,
+            p.clientDataJSON,
+            p.signature,
+        );
         await check('role_change_list', auditGovernor.session);
-        const ch = await check('role_change_challenge', auditGovernor.session, proposed.request_id);
-        const a = auditGovernor.key.assert(ch.challenge);
-        return check('role_change_approve_passkey', ch.challenge_id, a.credentialId, a.authenticatorData, a.clientDataJSON, a.signature);
+        const ch = await check('role_change_challenge', auditGovernor.session, proposed.request_id, 'approve');
+        const a = auditGovernor.key.assert(await roleDecisionChallenge(app, auditGovernor, proposed.request_id, 'approve', ch));
+        return check(
+            'role_change_decide_passkey',
+            ch.challenge_id,
+            'approve',
+            a.credentialId,
+            a.authenticatorData,
+            a.clientDataJSON,
+            a.signature,
+        );
     };
     assert.equal((await changeRole('grant')).status, 'approved');
     assert.equal((await changeRole('revoke')).status, 'approved');

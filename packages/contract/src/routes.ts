@@ -111,24 +111,25 @@ export const caseDetail: Shape = {
     },
 };
 
-const challenge: Shape = {
-    object: {
-        challenge_id: 'uuid',
-        challenge: 'b64url',
-        binding: {
-            object: {
-                case_id: 'uuid',
-                case_no: 'int',
-                version: 'int',
-                content_sha256: 'hex',
-                version_sha256: 'hex',
-                decision: 'text',
-                input: 'json',
-                input_sha256: 'hex',
-            },
-        },
-    },
-};
+/**
+ * 一次性亂數（裁決 D68）：瀏覽器用它和畫面上的內容自己算挑戰值再簽（web/lib/signing.js），後端不給可以直接簽的值。
+ * input：決定的輸入整理後的樣子（縮小後核准要給簽核人看縮小後的內容）。
+ */
+const nonce: Shape = { object: { challenge_id: 'uuid', nonce: 'b64url', expires_at: 'timestamp' } };
+const challenge: Shape = { object: { challenge_id: 'uuid', nonce: 'b64url', input: 'json', expires_at: 'timestamp' } };
+
+/** 待核准的通行金鑰登記（短碼由畫面從指紋自己算）。 */
+const enrollmentFields = {
+    enrollment_id: 'uuid',
+    person_id: 'uuid',
+    person_name: 'text',
+    credential_id: 'b64url',
+    public_key_sha256: 'hex',
+    status: 'text',
+    requested_at: 'timestamp',
+    actions: { array: 'text' },
+} as const satisfies Record<string, Shape>;
+const enrollment: Shape = { object: enrollmentFields };
 
 const auditCase: Shape = {
     object: {
@@ -170,6 +171,7 @@ const chainEvent: Shape = {
 const roleChange: Shape = {
     object: {
         request_id: 'uuid',
+        holder_id: 'uuid',
         holder_name: 'text',
         role_code: 'text',
         role_name: 'text',
@@ -177,12 +179,14 @@ const roleChange: Shape = {
         /** grant（授予）或 revoke（撤除） */
         change: 'text',
         reason: 'text',
-        /** pending 或 approved */
+        /** pending、approved、cooling（治理類角色核准後的冷卻期）、blocked（冷卻期內被擋下） */
         status: 'text',
         proposed_by_name: 'text',
         proposed_at: 'timestamp',
         approved_by_name: { nullable: 'text' },
         approved_at: { nullable: 'timestamp' },
+        effective_at: { nullable: 'timestamp' },
+        blocked_by_name: { nullable: 'text' },
         actions: { array: 'text' },
     },
 };
@@ -191,12 +195,23 @@ const roleChange: Shape = {
  * 畫面呼叫的核心路由：POST /api/<fn>。每個使用者動作一個。
  * 決定（核准、縮小後核准、退回、駁回、撤回、執行完成）都是 challenge_issue → case_decide_passkey 兩步；
  * challenge_issue 的 input：退回、駁回、撤回 {reason}；縮小後核准 {content, terms}；其他 {}。
+ * 第一步只回一次性亂數；瀏覽器從畫面上的單號、內容版本、決定種類與輸入自己算出挑戰值再簽（裁決 D68）。
  */
 export const routes = [
     {
         fn: 'me',
         params: ['session'],
-        returns: { object: { person_id: 'uuid', name: 'text', passkeys: 'int', capabilities: { array: 'text' } } },
+        returns: {
+            object: {
+                person_id: 'uuid',
+                name: 'text',
+                /** 可以簽章的通行金鑰數（已核准、已過冷卻期） */
+                passkeys: 'int',
+                passkey_cooling_until: { nullable: 'timestamp' },
+                passkey_pending: { array: enrollment },
+                capabilities: { array: 'text' },
+            },
+        },
     },
     {
         fn: 'process_type_list',
@@ -229,6 +244,14 @@ export const routes = [
         returns: caseSummary,
     },
     { fn: 'passkey_register_begin', params: ['session'], returns: { object: { challenge_id: 'uuid', challenge: 'b64url' } } },
+    // 通行金鑰登記的核准（裁決 D65）：本人用舊金鑰，或主管、登記人背書
+    { fn: 'passkey_enrollment_list', params: ['session'], returns: { array: enrollment } },
+    { fn: 'passkey_endorse_challenge', params: ['session', 'enrollment_id'], returns: nonce },
+    {
+        fn: 'passkey_endorse_passkey',
+        params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
+        returns: { object: { ...enrollmentFields, usable_from: 'timestamp' } },
+    },
     { fn: 'audit_case', params: ['session', 'case_no'], returns: auditCase },
     { fn: 'audit_chain', params: ['session', 'after_seq', 'limit'], returns: { array: chainEvent } },
     { fn: 'audit_code_fingerprint', params: ['session'], returns: { object: { code_fingerprint: 'hex' } } },
@@ -239,7 +262,7 @@ export const routes = [
             array: { object: { id: 'int', rule_code: 'text', case_no: { nullable: 'int' }, opened_at: 'timestamp', event_seq: 'int' } },
         },
     },
-    // 角色指派變更（控制、平台、治理類角色只能走這裡）：提出 → 另一位有權的人以通行金鑰核准
+    // 角色指派變更（控制、平台、治理類角色只能走這裡）：提出與決定都要通行金鑰（裁決 D68、D69）
     {
         fn: 'role_change_options',
         params: ['session'],
@@ -247,23 +270,26 @@ export const routes = [
             object: {
                 roles: { array: { object: { code: 'text', name: 'text', category: 'text' } } },
                 people: { array: { object: { person_id: 'uuid', name: 'text' } } },
+                scopes: { array: { object: { scope_ref: 'text', label: 'text' } } },
             },
         },
     },
     { fn: 'role_change_list', params: ['session'], returns: { array: roleChange } },
     {
-        fn: 'role_change_propose',
+        fn: 'role_change_propose_challenge',
         params: ['session', 'holder_id', 'role_code', 'scope_ref', 'change', 'reason'],
+        returns: nonce,
+    },
+    {
+        fn: 'role_change_propose_passkey',
+        params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
         returns: roleChange,
     },
+    /** decision：approve（核准）或 block（冷卻期內擋下） */
+    { fn: 'role_change_challenge', params: ['session', 'request_id', 'decision'], returns: nonce },
     {
-        fn: 'role_change_challenge',
-        params: ['session', 'request_id'],
-        returns: { object: { challenge_id: 'uuid', challenge: 'b64url', binding: 'json' } },
-    },
-    {
-        fn: 'role_change_approve_passkey',
-        params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
+        fn: 'role_change_decide_passkey',
+        params: ['challenge_id', 'decision', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
         returns: roleChange,
     },
 ] as const satisfies readonly Call[];
@@ -312,11 +338,14 @@ export const backendCalls = {
         returns: { object: { session_token: 'b64url', person_id: 'uuid' } },
     },
     sessionClose: { fn: 'session_close', params: ['session'], returns: { object: { closed: 'bool' } } },
+    /** 身分提供者再驗證之後只建立待核准的登記（裁決 D65） */
     passkeyRegister: {
         fn: 'passkey_register',
         params: ['challenge_id', 'id_token', 'credential_id', 'public_key_spki'],
-        returns: { object: { credential_id: 'b64url' } },
+        returns: { object: { credential_id: 'b64url', enrollment_id: 'uuid', status: 'text', public_key_sha256: 'hex' } },
     },
+    /** 入口的參數（每個來源每分鐘的登入次數），後端啟動時讀一次 */
+    frontdoorPolicy: { fn: 'frontdoor_policy', params: [], returns: { object: { login_attempts_per_minute: 'int' } } },
     errorCatalog: {
         fn: 'error_catalog',
         params: [],
@@ -341,4 +370,6 @@ export const jobCalls = {
     eventsAfter: { fn: 'events_after', params: ['after_seq', 'limit'] },
     codeFingerprint: { fn: 'code_fingerprint', params: [] },
     directorySettle: { fn: 'directory_settle', params: [] },
+    authChallengePurge: { fn: 'auth_challenge_purge', params: [] },
+    anchorPolicy: { fn: 'anchor_policy', params: [] },
 } as const satisfies Record<string, Grant>;

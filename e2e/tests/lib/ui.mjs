@@ -1,11 +1,18 @@
 // 端對端共用：每個人一個手機尺寸的瀏覽器環境（各自帶虛擬通行金鑰驗證器）、真的 Dex 登入、
 // 走畫面填申請、走畫面做決定、版面自動檢查（ux-acceptance 第 3 節：390px 沒有水平捲動、觸控目標 44px）。
+import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
+import { call, closePools, endorse, pool, registrar, settlePasskey } from '../../../db/tests/kernel/lib/harness.mjs';
 import { loadConfig } from '../../../db/tools/lib/env.mjs';
+import { shortCode } from '../../../web/lib/signing.js';
 
 const config = loadConfig();
-export const ORIGIN = config.db.SGN_RP_ORIGIN;
+/** 頁面的來源（瀏覽器開的網址）；後端在另一個來源，只回 JSON（裁決 D68）。 */
+export const ORIGIN = config.db.SGN_WEB_ORIGIN;
+export const API = config.db.SGN_RP_ORIGIN;
 const PASSWORD = config.ldap.SIM_LDAP_USER_PASSWORD;
+// 登記人的背書走資料庫（測試扮演登記人的瀏覽器；harness 的 registrar），端對端只在專門的測試裡走畫面背書
+const app = pool('APP');
 
 let browser;
 const people = {};
@@ -15,7 +22,10 @@ export async function startBrowser() {
     return browser;
 }
 
-export const stopBrowser = () => browser?.close();
+export async function stopBrowser() {
+    await browser?.close();
+    await closePools();
+}
 export const theBrowser = () => browser;
 
 /** 營業日期（Asia/Taipei），YYYY-MM-DD；可加減月數與天數。 */
@@ -78,15 +88,26 @@ export async function home(p) {
     await waitPage(p.page);
 }
 
-/** 在頁面裡直接打後端（模擬「拿到工作階段的人」繞過畫面）。 */
+/** 在頁面裡直接打後端（模擬「拿到工作階段的人」繞過畫面）。後端在另一個來源，帶 cookie。 */
 export async function callApi(page, path, body = {}) {
     return page.evaluate(
-        async ({ path, body }) => {
-            const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        async ({ url, body }) => {
+            const r = await fetch(url, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
             return { status: r.status, ...(await r.json()) };
         },
-        { path, body },
+        { url: `${API}${path}`, body },
     );
+}
+
+/** 這個人在瀏覽器裡的工作階段代碼（cookie）；測試用它在資料庫那一側扮演同一個人。 */
+export async function sessionOf(p) {
+    const sid = (await p.page.context().cookies(API)).find((c) => c.name === 'sid');
+    return { session: sid.value, uid: p.uid };
 }
 
 /** 手機版面的自動檢查：沒有水平捲動、可點擊元素至少 44×44。 */
@@ -104,13 +125,29 @@ export async function layoutProblems(page, label) {
     return problems.map((p) => `${label}: ${p}`);
 }
 
-/** 第一次要做決定的人：瀏覽器建立金鑰 → Dex 再驗證一次 → 資料庫登記。畫面有提示才做。 */
+/** 在畫面上登記通行金鑰：瀏覽器建立金鑰 → Dex 再驗證一次 → 資料庫建立待核准的登記；回傳畫面上顯示的短碼。 */
+export async function requestPasskeyInUi(p) {
+    await p.page.locator('[data-testid=passkey-missing] button').first().click();
+    await dexLogin(p.page, p.uid);
+    await p.page.waitForSelector('#flash.ok');
+    await waitPage(p.page);
+    return (await p.page.textContent('[data-testid=passkey-pending] [data-testid=short-code]')).trim();
+}
+
+/**
+ * 第一次要做決定的人：畫面上登記（待核准）→ 登記人背書（D65；兩邊的短碼一致）→ 模擬冷卻期已過 → 重新整理。
+ * 畫面有提示才做。
+ */
 export async function ensurePasskey(p) {
     const notice = p.page.locator('[data-testid=passkey-missing] button');
     if ((await notice.count()) === 0) return false;
-    await notice.first().click();
-    await dexLogin(p.page, p.uid);
-    await p.page.waitForSelector('#flash.ok');
+    const code = await requestPasskeyInUi(p);
+    const me = await call(app, 'me', (await sessionOf(p)).session);
+    const [pending] = me.passkey_pending;
+    assert.equal(shortCode(pending.public_key_sha256), code, '登記人畫面上的短碼和本人的一樣');
+    await endorse(app, await registrar(app), pending.enrollment_id);
+    await settlePasskey(app, { credentialId: Buffer.from(pending.credential_id, 'base64url') });
+    await p.page.reload();
     await waitPage(p.page);
     return true;
 }

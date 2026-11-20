@@ -215,7 +215,7 @@ test('K-CHANGE-REDUCE 資料擁有者縮小後核准：產生新版本、不用�
     reduced.scope[1].fields = ['order_no', 'amount'];
     const shorter = { ...terms(P['業務分析部'], 4), valid_to: addMonths(today(), 3) };
     const ch = await issueChallenge(app, users.p11, c.case_id, 'approve_reduced', { content: reduced, terms: shorter });
-    assert.equal(ch.binding.input.tier, 'L3');
+    assert.equal(ch.input.tier, 'L3');
     await decidePasskey(app, ch.challenge_id, 'approve_reduced', users.p11.key.assert(ch.challenge));
     const v = await view('p04', c.case_id);
     assert.equal(v.version, 2);

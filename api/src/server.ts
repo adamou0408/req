@@ -1,12 +1,13 @@
-// 最薄的後端：node:http，沒有框架。不做任何業務判斷：
+// 最薄的後端：node:http，沒有框架。不做任何業務判斷，只回 JSON（頁面由另一個來源的靜態伺服器提供，web/server.mjs；裁決 D68）：
 //   /api/*    路由表（packages/contract）裡的資料庫 function，參數照名稱從 JSON 取，session 從 cookie 取
 //   /auth/*   OIDC 登入、通行金鑰登記時的再驗證、登出（SSO adapter），拿到原始 ID token 交給資料庫
 //   /anchors  資料庫以外的錨點檔（唯讀轉送；正式環境應由稽核人員直接向獨立存放處取得）
-//   其他      web/ 的靜態檔
+//   /errors   錯誤目錄的訊息（登入頁只收錯誤代碼，文字從這裡取；裁決 D71）
+//   /         導回頁面的來源，只帶錯誤目錄裡有的代碼
+// 跨來源：CORS 只開給頁面的來源（帶 cookie）；會改狀態的請求帶了別的 Origin 一律拒絕。
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
-import { extname, join, normalize } from 'node:path';
 import { backendCalls, packRoutes, routes, type Call } from '@sgn/contract';
 import { config } from './config.ts';
 import { ApiError, Db } from './db.ts';
@@ -16,11 +17,9 @@ const SESSION_COOKIE = 'sid';
 const FLOW_COOKIE = 'flow';
 const FLOW_TTL_MS = 10 * 60 * 1000;
 const MAX_BODY_BYTES = 256 * 1024;
-const CONTENT_TYPES: Record<string, string> = {
-    '.html': 'text/html; charset=utf-8',
-    '.js': 'text/javascript; charset=utf-8',
-    '.css': 'text/css; charset=utf-8',
-};
+const LOGIN_WINDOW_MS = 60 * 1000;
+/** 後端自己的流程帶回頁面的提示代碼（不是錯誤，不在錯誤目錄裡）。 */
+const NOTICES = new Set(['PASSKEY_REGISTERED']);
 
 /** 進行中的 OIDC 往返：登入，或登記通行金鑰前的再驗證。只存在記憶體，十分鐘失效。 */
 type Flow =
@@ -30,6 +29,9 @@ type Flow =
 const db = new Db(config.dbUrl);
 const oidc = new OidcClient(config.oidc);
 const flows = new Map<string, Flow>();
+/** 每個來源最近一分鐘開始登入的時間（D71：登入入口的速率限制；上限來自 sgn.setting，啟動時讀一次）。 */
+const loginAttempts = new Map<string, number[]>();
+let loginLimit = 0;
 // 核心路由與各流程包的路由一律依路由表註冊；後端不知道任何流程包的內容
 const apiRoutes: ReadonlyMap<string, Call> = new Map(
     [...routes, ...Object.values(packRoutes).flat()].map((r): [string, Call] => [`/api/${r.fn}`, r]),
@@ -49,11 +51,23 @@ function cookies(req: IncomingMessage): Map<string, string> {
 // maxAgeSeconds 為 null 時是瀏覽器工作階段 cookie；工作階段真正的效期由資料庫（session.ttl_seconds）決定。
 function setCookie(name: string, value: string, maxAgeSeconds: number | null, sameSite: 'Strict' | 'Lax'): string {
     const age = maxAgeSeconds === null ? '' : `; Max-Age=${maxAgeSeconds}`;
-    return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=${sameSite}${age}`;
+    return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=${sameSite}${age}${secure}`;
+}
+
+// 開發環境是 http://localhost；正式環境（https）加上 Secure。
+const secure = config.origin.protocol === 'https:' ? '; Secure' : '';
+
+function corsHeaders(): Record<string, string> {
+    return { 'access-control-allow-origin': config.webOrigin, 'access-control-allow-credentials': 'true', vary: 'Origin' };
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown, setCookies: string[] = []): void {
-    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'set-cookie': setCookies });
+    res.writeHead(status, {
+        ...corsHeaders(),
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+        'set-cookie': setCookies,
+    });
     res.end(JSON.stringify(body));
 }
 
@@ -101,7 +115,21 @@ async function startFlow(res: ServerResponse, nonce: string, make: (verifier: st
     return url;
 }
 
-async function handleLogin(res: ServerResponse): Promise<void> {
+/** 同一個來源一分鐘內開始登入的次數超過上限就拒絕（在進資料庫之前）。 */
+function loginAllowed(req: IncomingMessage): boolean {
+    const client = req.socket.remoteAddress ?? '';
+    const now = Date.now();
+    const recent = (loginAttempts.get(client) ?? []).filter((t) => t > now - LOGIN_WINDOW_MS);
+    if (recent.length >= loginLimit) {
+        loginAttempts.set(client, recent);
+        return false;
+    }
+    loginAttempts.set(client, [...recent, now]);
+    return true;
+}
+
+async function handleLogin(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    if (!loginAllowed(req)) return sendError(res, db.error('AUTH_RATE_LIMITED'));
     const begin = (await db.callApi(backendCalls.sessionBegin, [])) as { challenge_id: string; nonce: string };
     const url = await startFlow(res, begin.nonce, (verifier) => ({
         kind: 'login',
@@ -144,7 +172,8 @@ async function handleCallback(req: IncomingMessage, res: ServerResponse, url: UR
     const flow = flows.get(state);
     flows.delete(state);
     const clearFlow = setCookie(FLOW_COOKIE, '', 0, 'Lax');
-    const fail = (err: ApiError) => redirect(res, `/?error=${encodeURIComponent(err.message)}`, [clearFlow]);
+    // 只帶錯誤代碼回去；頁面從錯誤目錄取文字（D71：網址上的文字不能被拿來放釣魚話術）
+    const fail = (err: ApiError) => redirect(res, `/?error=${encodeURIComponent(err.code)}`, [clearFlow]);
     if (!flow || flow.expires < Date.now() || cookies(req).get(FLOW_COOKIE) !== state) return fail(db.error('LOGIN_FLOW_INVALID'));
     const code = url.searchParams.get('code');
     if (!code) return fail(db.error('LOGIN_INCOMPLETE'));
@@ -163,39 +192,54 @@ async function handleLogout(req: IncomingMessage, res: ServerResponse): Promise<
     sendJson(res, 200, { result }, [setCookie(SESSION_COOKIE, '', 0, 'Strict')]);
 }
 
-async function serveStatic(res: ServerResponse, path: string): Promise<void> {
-    const file = normalize(path === '/' ? '/index.html' : path);
-    const type = CONTENT_TYPES[extname(file)];
-    if (!type || file.includes('..')) return sendError(res, db.error('NOT_FOUND'));
-    try {
-        const content = await readFile(join(config.webDir, file));
-        res.writeHead(200, {
-            'content-type': type,
-            'cache-control': 'no-store',
-            'content-security-policy': "default-src 'self'; frame-ancestors 'none'",
-        });
-        res.end(content);
-    } catch {
-        sendError(res, db.error('NOT_FOUND'));
-    }
+/** 導回頁面的來源（登入往返、舊網址）。只帶錯誤目錄裡有的錯誤代碼、後端自己的提示代碼，其他一律丟掉。 */
+function toWeb(res: ServerResponse, url: URL): void {
+    const target = new URL('/', config.webOrigin);
+    const error = url.searchParams.get('error') ?? '';
+    const notice = url.searchParams.get('notice') ?? '';
+    if (db.hasCode(error)) target.searchParams.set('error', error);
+    if (NOTICES.has(notice)) target.searchParams.set('notice', notice);
+    redirect(res, target.toString());
+}
+
+function serveErrors(res: ServerResponse): void {
+    sendJson(res, 200, { result: db.messages() });
 }
 
 async function serveAnchors(res: ServerResponse): Promise<void> {
     const text = await readFile(config.anchorFile, 'utf8').catch(() => '');
-    res.writeHead(200, { 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
+    res.writeHead(200, { ...corsHeaders(), 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
     res.end(text);
+}
+
+/** 預檢：只回答頁面的來源。 */
+function preflight(req: IncomingMessage, res: ServerResponse): void {
+    if (req.headers.origin !== config.webOrigin) return sendError(res, db.error('FORBIDDEN'));
+    res.writeHead(204, {
+        ...corsHeaders(),
+        'access-control-allow-methods': 'GET, POST',
+        'access-control-allow-headers': 'content-type',
+        'access-control-max-age': '600',
+    });
+    res.end();
 }
 
 async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = new URL(req.url ?? '/', config.origin);
     const path = url.pathname;
+    if (req.method === 'OPTIONS') return preflight(req, res);
+    // 會改狀態的請求：瀏覽器帶來的 Origin 必須是頁面的來源（沒有 Origin 的是瀏覽器以外的程式，cookie 仍是 SameSite=Strict）
+    if (req.method === 'POST' && req.headers.origin !== undefined && req.headers.origin !== config.webOrigin) {
+        return sendError(res, db.error('FORBIDDEN'));
+    }
     if (path.startsWith('/api/')) return handleApi(req, res, path);
-    if (path === '/auth/login' && req.method === 'GET') return handleLogin(res);
+    if (path === '/auth/login' && req.method === 'GET') return handleLogin(req, res);
     if (path === '/auth/oidc/callback' && req.method === 'GET') return handleCallback(req, res, url);
     if (path === '/auth/passkey' && req.method === 'POST') return handlePasskeyStart(req, res);
     if (path === '/auth/logout' && req.method === 'POST') return handleLogout(req, res);
     if (path === '/anchors' && req.method === 'GET') return serveAnchors(res);
-    if (req.method === 'GET') return serveStatic(res, path);
+    if (path === '/errors' && req.method === 'GET') return serveErrors(res);
+    if (path === '/' && req.method === 'GET') return toWeb(res, url);
     sendError(res, db.error('NOT_FOUND'));
 }
 
@@ -216,9 +260,11 @@ const server = createServer((req, res) => {
 setInterval(() => {
     const now = Date.now();
     for (const [state, flow] of flows) if (flow.expires < now) flows.delete(state);
+    for (const [client, times] of loginAttempts) if (times.every((t) => t <= now - LOGIN_WINDOW_MS)) loginAttempts.delete(client);
 }, 60_000).unref();
 
 await db.loadErrorCatalog();
+loginLimit = ((await db.callApi(backendCalls.frontdoorPolicy, [])) as { login_attempts_per_minute: number }).login_attempts_per_minute;
 server.listen(config.listenPort, config.listenHost, () => {
     console.log(`sgn api listening on ${config.origin.origin}`);
 });

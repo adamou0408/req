@@ -6,6 +6,7 @@
 //      簽的是鏈上記下的那一版內容，公鑰對得到鏈上的登記事件，決定者是那一關開始時指派或認領的人（撤回是申請人）
 // 限制：這支程式本身由後端送來；正式環境的稽核工具要從獨立管道取得（見 docs/handoff/probe-path-findings.md）。
 import { canonicalize } from './lib/jcs.js';
+import { signingChallenge, toB64url } from './lib/signing.js';
 import { unb64url } from './webauthn.js';
 
 const PAGE = 5000;
@@ -140,6 +141,9 @@ async function verifyDecisions(audit, events, ownEvents) {
     for (const e of ownEvents.filter((x) => DECISIONS.includes(x.parsed.type))) {
         const d = e.parsed.data;
         if (hashes.get(d.version) !== d.content_sha256) problems.push(`第 ${e.seq} 筆決定簽的內容和鏈上第 ${d.version} 版的指紋不符`);
+        // 挑戰值是由「簽了什麼」（用途、單號、內容、決定種類）與 nonce 算出來的（D68）：自己重算一次
+        if (d.signed && toB64url(await signingChallenge({ ...d.signed, nonce: d.nonce })) !== d.challenge)
+            problems.push(`第 ${e.seq} 筆決定記下的挑戰值和它簽的內容對不上`);
         const proof = audit.proofs.find((p) => p.challenge === d.challenge);
         if (!proof || proof.kind !== 'passkey') problems.push(`第 ${e.seq} 筆決定沒有可重驗的通行金鑰證明`);
         else problems.push(...(await verifyPasskeyProof(proof, e, events)));

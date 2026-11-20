@@ -4,7 +4,19 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { readDirectory, syncDirectory } from '../../tools/directory-sync.mjs';
-import { call, closePools, config, login, one, pool, rejectsWith, settleManagerChange, settleSyncChanges } from './lib/harness.mjs';
+import {
+    call,
+    closePools,
+    config,
+    createSubmittedCase,
+    login,
+    one,
+    pool,
+    rejectsWith,
+    setSetting,
+    settleManagerChange,
+    settleSyncChanges,
+} from './lib/harness.mjs';
 
 const app = pool('APP');
 const admin = pool('ADMIN');
@@ -31,6 +43,14 @@ const lastEvent = async (type) =>
         )
     ).data;
 const activeCount = async () => (await one(admin, 'select count(*)::int as n from sgn.person where active')).n;
+const settle = async () => (await job.query('select api_job.directory_settle() as r')).rows[0].r;
+/** 模擬冷卻期已過，再由排程套用（恢復在職、改名等延後的異動）。 */
+const settleNow = async (...uids) => {
+    for (const uid of uids) await settleSyncChanges(admin, ids[uid]);
+    return settle();
+};
+// 停用門檻在時間窗內累計（D70）：前面的測試停用過的人也算。要測「單人立即生效」時把時間窗設成 0，測完設回預設。
+const windowHours = (hours) => setSetting(admin, 'directory.deactivation_window_hours', hours);
 
 before(async () => {
     snapshot = await readDirectory(config);
@@ -86,26 +106,107 @@ test('K-HR-SYNC 增量同步只動有列到的人：主管不在同一批也對�
     assert.equal(await managerOf('p04'), ids.p03);
 });
 
-test('K-HR-SYNC 改 email、姓名逐筆進鏈', async () => {
-    await sync('incremental', [entryOf('p06', { email: 'attacker@evil.example' })]);
-    assert.equal((await person('p06')).email, 'attacker@evil.example');
-    const event = await lastEvent('directory.person_changed');
-    assert.equal(event.person, ids.p06);
-    assert.deepEqual(event.changes, { email: { from: entryOf('p06').email, to: 'attacker@evil.example' } });
-    await sync('incremental', [entryOf('p06')]);
-    assert.equal((await person('p06')).email, entryOf('p06').email);
+test('K-HR-SYNC 紅隊第二輪 高-1 回歸：同步改主管後再停用原主管，主管關不會交給還沒生效的新主管，改由原主管的上一層', async () => {
+    await windowHours(0);
+    try {
+        await sync('incremental', [entryOf('p04', { manager_external_id: 'p05' })]);
+        await sync('incremental', [entryOf('p03', { active: false })]);
+        assert.equal((await person('p03')).active, false);
+        const p04 = await login(app, 'p04');
+        const caseId = await createSubmittedCase(app, p04);
+        const view = await call(app, 'case_get', p04.session, caseId);
+        assert.deepEqual(view.waiting_on, [entryOf('p02').display_name], '原主管 p03 的主管（p02），不是剛改上去的 p05');
+        // 沒有任何已生效關係的人（不是基準之後才到職）：不用未生效的關係
+        const line = await one(admin, 'select (sgn_internal.resolve_manager($1)).manager_person_id as m', [ids.p04]);
+        assert.equal(line.m, ids.p02);
+    } finally {
+        await sync('incremental', [entryOf('p03'), entryOf('p04')]);
+        await settleNow('p03');
+        await settleManagerChange(admin, ids.p04);
+    }
+    assert.equal((await person('p03')).active, true);
+    assert.equal(await managerOf('p04'), ids.p03);
 });
 
-test('K-HR-SYNC 停用一個沒有控制類角色的人：立即生效並進鏈；目錄又說在職就恢復', async () => {
-    const p06 = await login(app, 'p06');
-    const result = await sync('incremental', [entryOf('p06', { active: false })]);
-    assert.deepEqual([result.deactivated, result.deactivations_deferred, result.exceptions], [1, 0, []]);
-    assert.equal((await person('p06')).active, false);
-    await rejectsWith(call(app, 'me', p06.session), 'SESSION_INVALID');
-    assert.equal((await lastEvent('directory.person_deactivated')).person, ids.p06);
-    const back = await sync('incremental', [entryOf('p06')]);
-    assert.equal(back.reactivated, 1);
-    assert.equal((await lastEvent('directory.person_reactivated')).person, ids.p06);
+test('K-HR-SYNC 改 email、姓名進冷卻期並開例外：期間內維持原值，目錄改回就取消；過了冷卻期才套用並進鏈', async () => {
+    const changed = await sync('incremental', [entryOf('p06', { email: 'attacker@evil.example' })]);
+    assert.equal(changed.person_changes_deferred, 1);
+    assert.equal((await exceptionOf(changed.exceptions[0])).detail.kind, 'person_change_deferred');
+    assert.equal((await person('p06')).email, entryOf('p06').email, '冷卻期內維持原值');
+    const deferred = await lastEvent('directory.person_change_deferred');
+    assert.deepEqual([deferred.person, deferred.field, deferred.to], [ids.p06, 'email', 'attacker@evil.example']);
+    // 目錄改回原值：取消，到期也不會套用
+    await sync('incremental', [entryOf('p06')]);
+    assert.deepEqual(await settleNow('p06'), { deactivations_applied: 0, person_changes_applied: 0 });
+    assert.equal((await person('p06')).email, entryOf('p06').email);
+    // 真的改了：過了冷卻期才套用並進鏈
+    await sync('incremental', [entryOf('p06', { display_name: '蔡佩珊（新）' })]);
+    assert.deepEqual(await settleNow('p06'), { deactivations_applied: 0, person_changes_applied: 1 });
+    assert.equal((await person('p06')).display_name, '蔡佩珊（新）');
+    assert.deepEqual((await lastEvent('directory.person_changed')).changes, {
+        display_name: { from: entryOf('p06').display_name, to: '蔡佩珊（新）' },
+    });
+    await sync('incremental', [entryOf('p06')]);
+    await settleNow('p06');
+    assert.equal((await person('p06')).display_name, entryOf('p06').display_name);
+});
+
+test('K-HR-SYNC 紅隊第二輪 中-1 回歸：把姓名改成別人的名字不會立即生效；同名的人在畫面上加上 email', async () => {
+    const p03name = entryOf('p03').display_name;
+    await sync('incremental', [entryOf('p05', { display_name: p03name })]);
+    assert.equal((await person('p05')).display_name, entryOf('p05').display_name);
+    // 冷卻期過了才是同名：畫面上的名字（person_name 是唯一入口）加上 email，看得出是哪一位
+    await settleNow('p05');
+    const p04 = await login(app, 'p04');
+    const caseId = await createSubmittedCase(app, p04);
+    const view = await call(app, 'case_get', p04.session, caseId);
+    assert.deepEqual(view.waiting_on, [`${p03name}（${entryOf('p03').email}）`]);
+    await sync('incremental', [entryOf('p05')]);
+    await settleNow('p05');
+    assert.equal((await person('p05')).display_name, entryOf('p05').display_name);
+});
+
+test('K-HR-SYNC 停用一個沒有控制類角色的人：立即生效並進鏈；恢復在職進冷卻期並開例外', async () => {
+    await windowHours(0);
+    try {
+        const p06 = await login(app, 'p06');
+        const result = await sync('incremental', [entryOf('p06', { active: false })]);
+        assert.deepEqual([result.deactivated, result.deactivations_deferred, result.exceptions], [1, 0, []]);
+        assert.equal((await person('p06')).active, false);
+        await rejectsWith(call(app, 'me', p06.session), 'SESSION_INVALID');
+        assert.equal((await lastEvent('directory.person_deactivated')).person, ids.p06);
+        const back = await sync('incremental', [entryOf('p06')]);
+        assert.deepEqual([back.reactivated, back.reactivations_deferred], [0, 1]);
+        assert.equal((await exceptionOf(back.exceptions[0])).detail.kind, 'person_change_deferred');
+        assert.equal((await person('p06')).active, false, '冷卻期內仍是停用');
+        assert.deepEqual(await settleNow('p06'), { deactivations_applied: 0, person_changes_applied: 1 });
+        assert.equal((await person('p06')).active, true);
+        assert.equal((await lastEvent('directory.person_reactivated')).person, ids.p06);
+    } finally {
+        await windowHours(24);
+    }
+});
+
+test('K-HR-SYNC 紅隊第二輪 中-1 回歸：停用的門檻在時間窗內累計，拆成多次增量同步也會延後並開例外', async () => {
+    await windowHours(0);
+    const first = await sync('incremental', [entryOf('p06', { active: false })]);
+    assert.deepEqual([first.deactivated, first.deactivations_deferred], [1, 0], '時間窗內第一位：立即');
+    await windowHours(24);
+    try {
+        const second = await sync('incremental', [entryOf('p07', { active: false })]);
+        assert.deepEqual([second.deactivated, second.deactivations_deferred], [0, 1], '時間窗內累計超過門檻：延後');
+        const exception = await exceptionOf(second.exceptions[0]);
+        assert.equal(exception.detail.bulk, true);
+        assert.ok(exception.detail.recent_in_window >= 1);
+        assert.equal(exception.detail.window_hours, 24);
+        assert.equal((await person('p07')).active, true);
+        assert.equal((await lastEvent('directory.synced')).settings['directory.deactivation_window_hours'], 24);
+    } finally {
+        await sync('incremental', [entryOf('p06'), entryOf('p07')]);
+        await settleNow('p06', 'p07');
+    }
+    assert.equal((await person('p06')).active, true);
+    assert.equal((await person('p07')).active, true);
 });
 
 test('K-HR-SYNC 停用持有控制類角色的人：進冷卻期並開例外，期間內仍在職；過了冷卻期由排程套用', async () => {
@@ -117,11 +218,13 @@ test('K-HR-SYNC 停用持有控制類角色的人：進冷卻期並開例外，�
     assert.deepEqual(exception.detail.persons, [ids.p20]);
     assert.equal((await person('p20')).active, true);
     // 冷卻期內排程不會套用
-    assert.deepEqual((await job.query('select api_job.directory_settle() as r')).rows[0].r, { deactivations_applied: 0 });
+    assert.deepEqual(await settle(), { deactivations_applied: 0, person_changes_applied: 0 });
     await settleSyncChanges(admin, ids.p20);
-    assert.deepEqual((await job.query('select api_job.directory_settle() as r')).rows[0].r, { deactivations_applied: 1 });
+    assert.deepEqual(await settle(), { deactivations_applied: 1, person_changes_applied: 0 });
     assert.equal((await person('p20')).active, false);
-    assert.equal((await sync('incremental', [entryOf('p20')])).reactivated, 1);
+    assert.equal((await sync('incremental', [entryOf('p20')])).reactivations_deferred, 1);
+    await settleNow('p20');
+    assert.equal((await person('p20')).active, true);
 });
 
 test('K-HR-SYNC 一次停用多人：全部延後到冷卻期之後並開例外；目錄又說在職就取消', async () => {
@@ -134,18 +237,68 @@ test('K-HR-SYNC 一次停用多人：全部延後到冷卻期之後並開例外�
     await sync('incremental', [entryOf('p06'), entryOf('p07')]);
     await settleSyncChanges(admin, ids.p06);
     await settleSyncChanges(admin, ids.p07);
-    assert.deepEqual((await job.query('select api_job.directory_settle() as r')).rows[0].r, { deactivations_applied: 0 });
+    assert.deepEqual(await settle(), { deactivations_applied: 0, person_changes_applied: 0 });
     assert.equal((await person('p07')).active, true);
 });
 
 test('K-HR-SYNC 完整快照（差異在門檻內）：沒列到的人視為離職，逐筆進鏈', async () => {
-    const result = await sync(
-        'full',
-        snapshot.filter((e) => e.external_id !== 'p08'),
-    );
+    await windowHours(0);
+    try {
+        const result = await sync(
+            'full',
+            snapshot.filter((e) => e.external_id !== 'p08'),
+        );
+        assert.equal(result.rejected, false);
+        assert.equal(result.deactivated, 1);
+        assert.equal((await person('p08')).active, false);
+        assert.equal((await sync('full', snapshot)).reactivations_deferred, 1);
+        await settleNow('p08');
+        assert.equal((await person('p08')).active, true);
+    } finally {
+        await windowHours(24);
+    }
+});
+
+test('K-HR-SYNC 紅隊第二輪 低-2 回歸：同步新增的人寫進鏈（姓名、email、在職狀態、外部帳號）', async () => {
+    const result = await sync('incremental', [
+        {
+            external_id: 'rt-ghost-79',
+            display_name: '賴政達',
+            email: 'p19@sim.example',
+            active: true,
+            manager_external_id: null,
+            roles: [],
+        },
+    ]);
     assert.equal(result.rejected, false);
-    assert.equal(result.deactivated, 1);
-    assert.equal((await person('p08')).active, false);
-    assert.equal((await sync('full', snapshot)).reactivated, 1);
-    assert.equal((await person('p08')).active, true);
+    const added = await lastEvent('directory.person_added');
+    assert.deepEqual(
+        [added.external_id, added.display_name, added.email, added.active, added.baseline],
+        ['rt-ghost-79', '賴政達', 'p19@sim.example', true, false],
+    );
+    // 收尾：停用這個人（單人、時間窗設成 0，立即）
+    await windowHours(0);
+    try {
+        await sync('incremental', [
+            {
+                external_id: 'rt-ghost-79',
+                display_name: '賴政達',
+                email: 'p19@sim.example',
+                active: false,
+                manager_external_id: null,
+                roles: [],
+            },
+        ]);
+    } finally {
+        await windowHours(24);
+    }
+    assert.equal(
+        (
+            await one(
+                admin,
+                `select p.active from sgn.person p join sgn.person_identity i on i.person_id = p.id where i.external_id = 'rt-ghost-79'`,
+            )
+        ).active,
+        false,
+    );
 });

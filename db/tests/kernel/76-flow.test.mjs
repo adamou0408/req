@@ -86,7 +86,7 @@ test('K-FULFIL 核准完成才進入執行；執行人以決定證明標記完�
     assert.match(pending.fulfilment.payload_sha256, /^[0-9a-f]{64}$/);
     await call(app, 'task_claim', users.p17.session, c.case_id);
     const ch = await issueChallenge(app, users.p17, c.case_id, 'fulfil');
-    assert.equal(ch.binding.input.payload_sha256, pending.fulfilment.payload_sha256);
+    assert.equal(ch.input.payload_sha256, pending.fulfilment.payload_sha256);
     assert.equal(await decidePasskey(app, ch.challenge_id, 'fulfil', users.p17.key.assert(ch.challenge)), 'active');
     const done = await call(app, 'case_get', users.p04.session, c.case_id);
     assert.equal(done.grant.status, 'active');

@@ -38,6 +38,15 @@ export class Db {
         }
     }
 
+    hasCode(code: string): boolean {
+        return this.#catalog.has(code);
+    }
+
+    /** 錯誤代碼 → 訊息（登入頁只收代碼，文字從這裡取）。 */
+    messages(): Record<string, string> {
+        return Object.fromEntries([...this.#catalog].map(([code, entry]) => [code, entry.message]));
+    }
+
     /** 以錯誤目錄的代碼建立錯誤；訊息與 HTTP 狀態都來自 sgn.error_catalog。 */
     error(code: string): ApiError {
         const entry = this.#catalog.get(code);

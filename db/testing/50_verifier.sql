@@ -13,13 +13,13 @@ stable
 security definer
 set search_path = pg_catalog, pg_temp
 as $$
-    select sgn_internal.b64url_encode(c.challenge), c.binding
+    select sgn_internal.b64url_encode(sgn_internal.decision_signed_challenge(c)), c.binding
     from sgn.auth_challenge c
-    where c.id = p_challenge_id and c.purpose = 'decision'
+    where c.id = p_challenge_id and c.purpose = 'case.decision'
 $$;
 
 comment on function api_verified.challenge_get(uuid) is
-    '驗證服務取挑戰值原文，用來比對 clientDataJSON。呼叫者：sgn_test_verifier。';
+    '驗證服務取金鑰應該簽的挑戰值（由紀錄重算，與 (a) 同一個公式），用來比對 clientDataJSON。呼叫者：sgn_test_verifier。';
 
 create function api_verified.passkey_get(p_credential_id text, out public_key text, out sign_count bigint)
 language sql

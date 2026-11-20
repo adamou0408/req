@@ -62,14 +62,28 @@ export function checkEvent(row, expectedSeq, prevHash) {
 }
 
 /**
- * 全量驗證：從創世重算整條鏈，比對鏈頭，並比對資料庫以外的錨點檔。
- * 回傳 { ok, problems, count, head }。
+ * 最後一個錨點之後的紀錄（裁決 D71）：幾筆、最舊一筆是多久以前。超過門檻（api_job.anchor_policy，來源是 sgn.setting）
+ * 就是問題 ANCHOR_LAG——錨定程式停擺時，之後的紀錄只靠資料庫保護，驗證工具不能說「正常」。完全沒有錨點也算。
+ */
+function anchorLag({ lastSeq, lastAnchorSeq, anchorCount, occurredAt, policy, now = Date.now() }) {
+    const events = lastSeq - lastAnchorSeq;
+    const oldest = events > 0 ? occurredAt.get(lastAnchorSeq + 1) : null;
+    const seconds = oldest ? Math.max(0, Math.round((now - new Date(oldest).getTime()) / 1000)) : 0;
+    const unanchored = { events, oldest_at: oldest, seconds, max_events: policy.max_lag_events, max_seconds: policy.max_lag_seconds };
+    const late = events > policy.max_lag_events || seconds > policy.max_lag_seconds || (anchorCount === 0 && events > 0);
+    return { unanchored, problem: late ? { type: 'ANCHOR_LAG', after_anchor_seq: lastAnchorSeq, ...unanchored } : null };
+}
+
+/**
+ * 全量驗證：從創世重算整條鏈，比對鏈頭，並比對資料庫以外的錨點檔，回報最後一個錨點之後的落後。
+ * 回傳 { ok, problems, count, anchors, head, unanchored }。
  */
 export async function verifyChain({ dbUrl, anchorFile }) {
     const db = new pg.Client({ connectionString: dbUrl });
     await db.connect();
     const problems = [];
     const computedBySeq = new Map();
+    const occurredAt = new Map();
     let prev = GENESIS;
     let expected = 1;
     try {
@@ -77,6 +91,7 @@ export async function verifyChain({ dbUrl, anchorFile }) {
             const { computed, problems: found } = checkEvent(row, expected, prev);
             problems.push(...found);
             computedBySeq.set(Number(row.seq), computed.toString('hex'));
+            occurredAt.set(Number(row.seq), row.occurred_at);
             prev = computed;
             expected = Number(row.seq) + 1;
         }
@@ -102,7 +117,19 @@ export async function verifyChain({ dbUrl, anchorFile }) {
                 problems.push({ type: 'ANCHOR_MISMATCH', anchor_seq: anchor.seq });
             }
         }
-        return { ok: problems.length === 0, problems, count: lastSeq, anchors: anchors.length, head };
+        const {
+            rows: [{ policy }],
+        } = await db.query('select api_job.anchor_policy() as policy');
+        const lag = anchorLag({
+            lastSeq,
+            lastAnchorSeq: Math.min(lastAnchor?.seq ?? 0, lastSeq),
+            anchorCount: anchors.length,
+            occurredAt,
+            policy,
+        });
+        // 沒有給錨點檔＝呼叫者只要驗鏈本身（測試裡的內部檢查）；給了錨點檔（就算是空的）就要判斷落後
+        if (anchorFile && lag.problem) problems.push(lag.problem);
+        return { ok: problems.length === 0, problems, count: lastSeq, anchors: anchors.length, head, unanchored: lag.unanchored };
     } finally {
         await db.end();
     }

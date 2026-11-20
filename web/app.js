@@ -6,6 +6,7 @@ import { renderApply } from './pages/apply.js';
 import { renderAudit } from './pages/audit.js';
 import { renderCase } from './pages/case.js';
 import { renderHome } from './pages/home.js';
+import { renderPasskeys } from './pages/passkeys.js';
 import { renderRoles } from './pages/roles.js';
 import { el, explain, flash, loading, takePendingFlash } from './ui.js';
 
@@ -18,6 +19,7 @@ const pages = [
     [/^#case\/([0-9a-f-]{36})$/, (m) => renderCase(ctx, m[1])],
     [/^#audit\/(\d+)$/, (m) => renderAudit(ctx, Number(m[1]))],
     [/^#roles$/, () => renderRoles(ctx)],
+    [/^#passkeys$/, () => renderPasskeys(ctx)],
 ];
 
 let rendering = 0;
@@ -48,7 +50,7 @@ async function render() {
 function renderLogin() {
     main.replaceChildren(
         el('p', {}, t.loginHint),
-        el('button', { class: 'primary', 'data-testid': 'login', onclick: () => (location.href = '/auth/login') }, t.login),
+        el('button', { class: 'primary', 'data-testid': 'login', onclick: () => (location.href = api.loginUrl()) }, t.login),
     );
 }
 
@@ -62,11 +64,20 @@ function restoreAfterPasskey() {
     }
 }
 
+/** 網址上的錯誤只收錯誤代碼，文字從錯誤目錄取；不是代碼、目錄裡沒有的一律不顯示（D71：不讓網址放任意文字）。 */
+async function loginErrorText(code) {
+    if (!/^[A-Z][A-Z0-9_]*$/.test(code ?? '')) return null;
+    try {
+        return (await api.messages())[code] ?? null;
+    } catch {
+        return null;
+    }
+}
+
 async function boot() {
     const params = new URLSearchParams(location.search);
     const registered = params.get('notice') === 'PASSKEY_REGISTERED';
-    // 登入往返失敗時，後端把錯誤目錄的訊息放在網址上帶回來，直接顯示
-    const loginError = params.get('error');
+    const loginError = await loginErrorText(params.get('error'));
     if (params.size) history.replaceState(null, '', `/${registered ? restoreAfterPasskey() : location.hash}`);
     try {
         ctx.me = await api.call('me');

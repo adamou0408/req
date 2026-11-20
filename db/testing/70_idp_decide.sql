@@ -15,7 +15,7 @@ declare
 begin
     return sgn_internal.decision_commit(
         v_challenge,
-        sgn_internal.idp_token_verify(p_id_token, sgn_internal.b64url_encode(v_challenge.challenge)),
+        sgn_internal.idp_token_verify(p_id_token, sgn_internal.b64url_encode(sgn_internal.decision_signed_challenge(v_challenge))),
         'idp_stepup',
         jsonb_build_object('id_token', p_id_token)
     );
@@ -23,7 +23,7 @@ end;
 $$;
 
 comment on function api_verified.case_decide_idp(uuid, text, text) is
-    '比較用：以身分提供者再驗證的 ID token（nonce＝挑戰值）做決定。誰做的決定由資料庫驗章後從 token 得出。'
+    '比較用：以身分提供者再驗證的 ID token（nonce＝瀏覽器算出的挑戰值，與 (a) 同一個公式）做決定。誰做的決定由資料庫驗章後從 token 得出。'
     '只裝在資料庫測試用的資料庫。呼叫者：sgn_test_verifier。規則：K-DECISION-PROOF、K-DECISION-ELIGIBLE、K-SOD-APPLICANT';
 
 revoke all on function api_verified.case_decide_idp(uuid, text, text) from public;

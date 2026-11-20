@@ -5,22 +5,27 @@ import assert from 'node:assert/strict';
 import { execSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { after, before, test } from 'node:test';
+import { lowS } from '../../../web/lib/signing.js';
 import {
     call,
     closePools,
     config,
     createSubmittedCase,
     decidePasskey,
+    endorse,
     idToken,
     issueChallenge,
     login,
     pool,
+    registrar,
     registrationNonce,
+    settlePasskey,
 } from './lib/harness.mjs';
 
 const { chromium } = await import(`${execSync('npm root -g').toString().trim()}/playwright/index.mjs`);
 const app = pool('APP');
-const origin = new URL(config.db.SGN_RP_ORIGIN);
+// 頁面的 origin（WebAuthn 的 origin；頁面與後端分開來源，D68）
+const origin = new URL(config.db.SGN_WEB_ORIGIN);
 let server;
 let browser;
 let page;
@@ -70,7 +75,15 @@ test('K-DECISION-PROOF (a) 真的瀏覽器：Chromium 登記通行金鑰、簽�
 
     const begin = await call(app, 'passkey_register_begin', manager.session);
     const token = await idToken('p03', registrationNonce(begin.challenge, Buffer.from(created.spki, 'base64url')));
-    await app.query('select api.passkey_register($1, $2, $3, $4)', [begin.challenge_id, token, created.id, created.spki]);
+    const { rows } = await app.query('select api.passkey_register($1, $2, $3, $4) as r', [
+        begin.challenge_id,
+        token,
+        created.id,
+        created.spki,
+    ]);
+    // 待核准 → 登記人背書（D65）→ 模擬冷卻期已過
+    await endorse(app, await registrar(app), rows[0].r.enrollment_id);
+    await settlePasskey(app, { credentialId: Buffer.from(created.id, 'base64url') });
 
     const caseId = await createSubmittedCase(app, applicant, { dataset: 'browser', rows: 1 });
     const ch = await issueChallenge(app, manager, caseId);
@@ -99,5 +112,7 @@ test('K-DECISION-PROOF (a) 真的瀏覽器：Chromium 登記通行金鑰、簽�
         },
         { challenge: ch.challenge, id: created.id, rpId: config.db.SGN_RP_ID },
     );
-    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', assertion), 'completed');
+    // 瀏覽器的簽章 s 是隨機的；畫面送出前換成 low-s（web/webauthn.js），資料庫只收 low-s（D71）
+    const signature = Buffer.from(lowS(new Uint8Array(Buffer.from(assertion.signature, 'base64url')))).toString('base64url');
+    assert.equal(await decidePasskey(app, ch.challenge_id, 'approve', { ...assertion, signature }), 'completed');
 });

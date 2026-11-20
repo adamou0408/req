@@ -1,7 +1,7 @@
 // 申請單詳情（申請人、簽核人、系統管理人共用）。最上面是做決定需要的事實，完整內容在下方；
 // 按鈕只依資料庫回傳的 actions：核准、退回、認領、標記已套用固定在底部，縮小後核准、駁回、撤回、修改在內文。
 import { api } from '../api.js';
-import { confirmDecision, passkeyNotice } from '../decide.js';
+import { confirmDecision, confirmReduced, passkeyNotice } from '../decide.js';
 import { t } from '../i18n.js';
 import { packOf } from '../packs/index.js';
 import { actionBar, dateText, el, explain, facts, flash, go, section, sheet, stateBadge, tierBadge } from '../ui.js';
@@ -115,7 +115,23 @@ function reduceSheet(ctx, c, pack, cat) {
                             valid_to: to.value || null,
                         };
                         panel.remove();
-                        decide(ctx, c, 'approve_reduced', { content: editor.value(), terms });
+                        // 先請資料庫整理縮小後的內容，確認面板顯示整理後的那一份（簽的就是它）
+                        void confirmReduced(
+                            c,
+                            { content: editor.value(), terms },
+                            {
+                                consequence: t.consequence.approve_reduced(c, nextStageName(c)),
+                                view: (prepared) =>
+                                    el(
+                                        'div',
+                                        { class: 'card', 'data-testid': 'reduced-shown' },
+                                        el('h3', {}, t.reducedShown),
+                                        pack.scopeView(cat, prepared.content),
+                                        el('p', {}, `${t.validity}：${t.validRange(prepared.terms.valid_from, prepared.terms.valid_to)}`),
+                                    ),
+                                done: (r) => afterDecision(c, 'approve_reduced', r),
+                            },
+                        );
                     },
                 },
                 t.reduceSubmit,

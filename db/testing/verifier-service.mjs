@@ -57,7 +57,7 @@ async function verifyAssertion(db, settings, body) {
 
 export function startVerifierService({ port, config = loadConfig() } = {}) {
     const db = new pg.Pool({ connectionString: roleUrl(config, 'TEST_VERIFIER'), max: 10 });
-    const settings = { origin: config.db.SGN_RP_ORIGIN, rpId: config.db.SGN_RP_ID };
+    const settings = { origin: config.db.SGN_WEB_ORIGIN, rpId: config.db.SGN_RP_ID };
     const server = createServer(async (req, res) => {
         const reply = (status, payload) => {
             res.writeHead(status, { 'content-type': 'application/json' });
