@@ -72,9 +72,9 @@ export function salesOrderContent(year, fields = ['amount', 'order_date', 'order
 
 /**
  * 林怡君（p04）替自己負責的 sales-report-bot 申請（不加負責人確認），主管、資料擁有者、MIS 簽完，
- * 交付程式配模擬的外部系統送到生效。回傳 case_id。
+ * 交付程式配模擬的外部系統送到自動驗證通過、等申請人確認（K-CONFIRM）。回傳 case_id。
  */
-export async function activeSalesOrderCase(app, admin, applicant, year) {
+export async function confirmableSalesOrderCase(app, admin, applicant, year) {
     const signers = {};
     for (const uid of ['p03', 'p11', 'p17']) {
         signers[uid] = await login(app, uid);
@@ -95,6 +95,16 @@ export async function activeSalesOrderCase(app, admin, applicant, year) {
         await delivery.end();
     }
     return c.case_id;
+}
+
+/** 申請人確認驗證結果（K-CONFIRM），授權才生效。回傳申請單詳情。 */
+export const confirmVerification = (app, applicant, caseId) => call(app, 'case_confirm_verification', applicant.session, caseId);
+
+/** 同 confirmableSalesOrderCase，再由申請人確認驗證結果，到生效。回傳 case_id。 */
+export async function activeSalesOrderCase(app, admin, applicant, year) {
+    const caseId = await confirmableSalesOrderCase(app, admin, applicant, year);
+    await confirmVerification(app, applicant, caseId);
+    return caseId;
 }
 
 /** 這張單的交付（依建立順序）。 */

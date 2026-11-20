@@ -1,6 +1,8 @@
 // 申請單詳情（申請人、簽核人、系統管理人共用）。最上面是做決定需要的事實，完整內容在下方；
-// 按鈕只依資料庫回傳的 actions：核准、退回、認領、標記已套用固定在底部，縮小後核准、駁回、撤回、修改、撤銷在內文。
+// 按鈕只依資料庫回傳的 actions：核准、退回、認領、標記已套用、確認驗證結果固定在底部，
+// 縮小後核准、駁回、撤回、修改、撤銷、縮小、驗證結果不對在內文。
 // 標記已套用（人工退路）只在執行關有人工工作時出現；系統對系統的交付與驗證顯示在「交付與驗證」。
+// 等申請人確認驗證結果（K-CONFIRM）時，每項自動驗證的結果與剩餘工作天放在最上面（T7）；剩幾天由資料庫算。
 // 決定畫面的判斷內容（級別、例外、誰申請、給誰、哪些資料、多久、差異、重疊、使用情境、下一關）一律只從資料庫產生的
 // 顯示摘要 c.display 畫出（裁決 D75），簽的也是它；不拿資料目錄或 case_get 的其他欄位來畫。
 import { api } from '../api.js';
@@ -10,11 +12,15 @@ import { packOf } from '../packs/index.js';
 import { actionBar, dateText, el, explain, facts, flash, go, section, sheet, stateBadge, tierBadge } from '../ui.js';
 import { versionDiff } from './diff.js';
 
-const BAR_ACTIONS = ['claim', 'fulfil', 'return', 'approve'];
-const BODY_ACTIONS = ['approve_reduced', 'reject', 'recall', 'revise', 'revoke'];
-/** 不需要通行金鑰的動作（撤銷不用簽核，但要原因；裁決 D63 的撤銷自動送到外部系統） */
-const NO_PROOF_ACTIONS = ['claim', 'revise', 'submit', 'revoke', 'reduce'];
+const BAR_ACTIONS = ['claim', 'fulfil', 'return', 'approve', 'confirm_verification'];
+const BODY_ACTIONS = ['approve_reduced', 'reject', 'recall', 'revise', 'reduce', 'dispute_verification', 'revoke'];
+/**
+ * 不需要通行金鑰的動作：撤銷、縮小不用簽核，但要原因（裁決 D63，自動送到外部系統）；
+ * 確認驗證結果不是簽核決定（K-CONFIRM），回報不對要原因。
+ */
+const NO_PROOF_ACTIONS = ['claim', 'revise', 'submit', 'revoke', 'reduce', 'confirm_verification', 'dispute_verification'];
 const REASON_ACTIONS = new Set(['return', 'reject', 'recall']);
+const PRIMARY_ACTIONS = new Set(['approve', 'fulfil', 'claim', 'confirm_verification']);
 
 function waitingText(c) {
     const stage = c.current_stage;
@@ -88,20 +94,34 @@ async function claim(c) {
     }
 }
 
-function reduceSheet(ctx, c, pack, cat) {
+/** 縮小的輸入（授權起迄、只列目前已有的資料範圍）：簽核人的縮小後核准與生效後的縮小共用。 */
+function reduceInputs(c, pack, cat) {
     const editor = pack.scopeEditor('r', cat, c.content, { limitTo: c.content });
     const from = el('input', { id: 'r-valid-from', type: 'date', value: c.terms.valid_from ?? '' });
     const to = el('input', { id: 'r-valid-to', type: 'date', value: c.terms.valid_to ?? '', 'data-testid': 'reduce-valid-to' });
+    return {
+        nodes: [
+            el(
+                'div',
+                { class: 'pair' },
+                el('div', {}, el('label', { for: 'r-valid-from' }, t.validFrom), from),
+                el('div', {}, el('label', { for: 'r-valid-to' }, t.validTo), to),
+            ),
+            editor.node,
+        ],
+        value: () => ({
+            content: editor.value(),
+            terms: { principal_id: c.terms.principal?.principal_id ?? null, valid_from: from.value || null, valid_to: to.value || null },
+        }),
+    };
+}
+
+function reduceSheet(ctx, c, pack, cat) {
+    const inputs = reduceInputs(c, pack, cat);
     const panel = sheet(
         t.reduceTitle,
         el('p', {}, t.reduceHint),
-        el(
-            'div',
-            { class: 'pair' },
-            el('div', {}, el('label', { for: 'r-valid-from' }, t.validFrom), from),
-            el('div', {}, el('label', { for: 'r-valid-to' }, t.validTo), to),
-        ),
-        editor.node,
+        inputs.nodes,
         el(
             'div',
             { class: 'row sheet-buttons' },
@@ -112,29 +132,21 @@ function reduceSheet(ctx, c, pack, cat) {
                     class: 'primary',
                     'data-testid': 'reduce-submit',
                     onclick: () => {
-                        const terms = {
-                            principal_id: c.terms.principal?.principal_id ?? null,
-                            valid_from: from.value || null,
-                            valid_to: to.value || null,
-                        };
+                        const reduced = inputs.value();
                         panel.remove();
                         // 先請資料庫整理縮小後的內容，確認面板顯示整理後的那一份（簽的就是它）
-                        void confirmReduced(
-                            c,
-                            { content: editor.value(), terms },
-                            {
-                                consequence: consequenceOf(c, 'approve_reduced'),
-                                view: (shown) =>
-                                    el(
-                                        'div',
-                                        { class: 'card', 'data-testid': 'reduced-shown' },
-                                        el('h3', {}, t.reducedShown),
-                                        pack.scopeView(shown.content),
-                                        el('p', {}, `${t.validity}：${t.validRange(shown.validity.from, shown.validity.to)}`),
-                                    ),
-                                done: (r) => afterDecision(c, 'approve_reduced', r),
-                            },
-                        );
+                        void confirmReduced(c, reduced, {
+                            consequence: consequenceOf(c, 'approve_reduced'),
+                            view: (shown) =>
+                                el(
+                                    'div',
+                                    { class: 'card', 'data-testid': 'reduced-shown' },
+                                    el('h3', {}, t.reducedShown),
+                                    pack.scopeView(shown.content),
+                                    el('p', {}, `${t.validity}：${t.validRange(shown.validity.from, shown.validity.to)}`),
+                                ),
+                            done: (r) => afterDecision(c, 'approve_reduced', r),
+                        });
                     },
                 },
                 t.reduceSubmit,
@@ -169,26 +181,124 @@ function revokeSheet(c) {
     );
 }
 
+/** 生效中的授權只做縮小（不用簽核、要原因）：能不能縮小、是不是真的縮小，都由資料庫判斷。 */
+function reduceActiveSheet(c, pack, cat) {
+    const inputs = reduceInputs(c, pack, cat);
+    const reason = el('textarea', { id: 'reduce-reason', rows: 2, 'data-testid': 'reduce-reason' });
+    const submit = async () => {
+        try {
+            await api.call('case_reduce', { case_id: c.case_id, ...inputs.value(), reason: reason.value });
+            panel.remove();
+            go(`#case/${c.case_id}`, { text: t.reduceActive.done(c.case_no), ok: true });
+        } catch (err) {
+            flash(explain(err));
+        }
+    };
+    const panel = sheet(
+        t.reduceActive.title,
+        el('p', {}, t.reduceActive.hint),
+        inputs.nodes,
+        el('label', { for: 'reduce-reason' }, t.reasonLabel),
+        reason,
+        el(
+            'div',
+            { class: 'row sheet-buttons' },
+            el('button', { onclick: () => panel.remove() }, t.cancel),
+            el('button', { class: 'primary', 'data-testid': 'reduce-active-submit', onclick: submit }, t.action.reduce),
+        ),
+    );
+}
+
+/** 確認驗證結果（K-CONFIRM）：說明後果再確認一次；不是簽核決定，不用通行金鑰。 */
+function confirmSheet(c) {
+    const submit = async () => {
+        try {
+            await api.call('case_confirm_verification', { case_id: c.case_id });
+            panel.remove();
+            go(`#case/${c.case_id}`, { text: t.confirmation.confirmed(c.case_no), ok: true });
+        } catch (err) {
+            flash(explain(err));
+        }
+    };
+    const panel = sheet(
+        t.confirmation.confirmTitle,
+        el('p', {}, t.confirmation.confirmHint),
+        el(
+            'div',
+            { class: 'row sheet-buttons' },
+            el('button', { onclick: () => panel.remove() }, t.cancel),
+            el('button', { class: 'primary', 'data-testid': 'confirm-verification-submit', onclick: submit }, t.confirmation.confirmSubmit),
+        ),
+    );
+}
+
+/** 驗證結果不對（K-CONFIRM-DISPUTE）：要寫哪裡不對；不生效、撤回、開例外並通知。 */
+function disputeSheet(c) {
+    const reason = el('textarea', { id: 'dispute-reason', rows: 3, 'data-testid': 'dispute-reason' });
+    const submit = async () => {
+        try {
+            await api.call('case_dispute_verification', { case_id: c.case_id, reason: reason.value });
+            panel.remove();
+            go(`#case/${c.case_id}`, { text: t.confirmation.disputed(c.case_no), ok: true });
+        } catch (err) {
+            flash(explain(err));
+        }
+    };
+    const panel = sheet(
+        t.confirmation.disputeTitle,
+        el('p', {}, t.confirmation.disputeHint),
+        el('label', { for: 'dispute-reason' }, t.confirmation.disputeReason),
+        reason,
+        el(
+            'div',
+            { class: 'row sheet-buttons' },
+            el('button', { onclick: () => panel.remove() }, t.cancel),
+            el('button', { class: 'primary', 'data-testid': 'dispute-submit', onclick: submit }, t.action.dispute_verification),
+        ),
+    );
+}
+
 const caseMark = (x) => (x.match === null ? '…' : x.match ? '✓' : '✗');
+
+const verificationItem = (x) =>
+    el(
+        'li',
+        { 'data-code': x.code, 'data-match': String(x.match) },
+        el('span', { class: x.match === false ? 'bad-text' : 'ok-text' }, caseMark(x)),
+        ` ${x.description}`,
+        el('div', { class: 'muted' }, t.verificationCase(x.expected, x.actual)),
+    );
+
+/**
+ * 等申請人確認驗證結果（T7：第一個畫面就看到每項測試的結果與剩餘天數）。只畫資料庫回傳的確認與這一版通過的驗證；
+ * 確認結束之後只留一行結果。
+ */
+function confirmationPanel(c) {
+    const conf = c.confirmation;
+    if (!conf) return null;
+    if (conf.status !== 'pending')
+        return el(
+            'p',
+            { class: 'muted', 'data-testid': 'confirmation', 'data-status': conf.status },
+            t.confirmation.closed[conf.status](conf),
+        );
+    const cases = c.delivery.verifications.filter((r) => r.version === conf.version && r.status === 'passed').flatMap((r) => r.cases);
+    return el(
+        'div',
+        { class: 'card', 'data-testid': 'confirmation', 'data-status': conf.status },
+        el('h3', {}, t.confirmation.title),
+        el('p', { class: 'warn-text', 'data-testid': 'confirmation-due' }, t.confirmation.left(conf.workdays_left, conf.due_text)),
+        el('ul', { class: 'delivery-list', 'data-testid': 'confirmation-cases' }, cases.map(verificationItem)),
+        el('p', { class: 'muted' }, t.confirmation.hint),
+    );
+}
 
 function verificationView(r) {
     return el(
         'div',
         { 'data-testid': 'verification', 'data-status': r.status },
         el('h3', {}, t.verificationHead(r.version, t.verificationStatus[r.status] ?? r.status)),
-        el(
-            'ul',
-            { class: 'delivery-list' },
-            r.cases.map((x) =>
-                el(
-                    'li',
-                    { 'data-code': x.code, 'data-match': String(x.match) },
-                    el('span', { class: x.match === false ? 'bad-text' : 'ok-text' }, caseMark(x)),
-                    ` ${x.description}`,
-                    el('div', { class: 'muted' }, t.verificationCase(x.expected, x.actual)),
-                ),
-            ),
-        ),
+        el('ul', { class: 'delivery-list' }, r.cases.map(verificationItem)),
     );
 }
 
@@ -227,13 +337,12 @@ function actionButton(ctx, c, pack, cat, action) {
         revise: () => go(`#edit/${c.case_id}`),
         approve_reduced: () => reduceSheet(ctx, c, pack, cat),
         revoke: () => revokeSheet(c),
+        reduce: () => reduceActiveSheet(c, pack, cat),
+        confirm_verification: () => confirmSheet(c),
+        dispute_verification: () => disputeSheet(c),
     };
     const onclick = handlers[action] ?? (() => decide(ctx, c, pack, action));
-    return el(
-        'button',
-        { class: action === 'approve' || action === 'fulfil' || action === 'claim' ? 'primary' : '', 'data-action': action, onclick },
-        t.action[action],
-    );
+    return el('button', { class: PRIMARY_ACTIONS.has(action) ? 'primary' : '', 'data-action': action, onclick }, t.action[action]);
 }
 
 function stagesView(c) {
@@ -337,6 +446,7 @@ export async function renderCase(ctx, caseId) {
             : null,
         duplicatesNotice(c),
         needsProof ? passkeyNotice(ctx.me) : null,
+        confirmationPanel(c),
         decisionFacts(d, pack),
         waitingText(c) ? el('p', { class: 'muted', 'data-testid': 'progress' }, `${t.progress}：`, waitingText(c)) : null,
         deliveryView(c),

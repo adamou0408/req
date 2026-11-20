@@ -211,6 +211,28 @@ export const caseDetail: Shape = {
                 },
             },
         },
+        /**
+         * 申請人確認驗證結果（K-CONFIRM）：最近一筆確認。status：pending（等申請人確認）、confirmed、disputed（回報不對）、
+         * expired（逾期自動撤銷）、cancelled（等確認時被撤銷）。workdays_left 只在 pending 時有值（資料庫依營業日算）。沒有確認為 null。
+         */
+        confirmation: {
+            nullable: {
+                object: {
+                    status: 'text',
+                    version: 'int',
+                    opened_at: 'timestamp',
+                    due_at: 'timestamp',
+                    /** 期限的當地時間（YYYY-MM-DD HH:MM） */
+                    due_text: 'text',
+                    workdays_left: { nullable: 'int' },
+                    /** 開確認時用的參數值 confirmation.due_workdays */
+                    due_workdays: 'int',
+                    decided_at: { nullable: 'timestamp' },
+                    decided_by: { nullable: personRef },
+                    reason: { nullable: 'text' },
+                },
+            },
+        },
     },
 };
 
@@ -380,6 +402,10 @@ export const routes = [
     { fn: 'case_revoke', params: ['session', 'case_id', 'reason'], returns: caseDetail },
     /** 生效中的授權只做縮小（不用重簽）；新的一版自動送出並重新驗證 */
     { fn: 'case_reduce', params: ['session', 'case_id', 'content', 'terms', 'reason'], returns: caseDetail },
+    /** 申請人確認驗證結果正確，授權才生效（K-CONFIRM；不是簽核決定，不用通行金鑰） */
+    { fn: 'case_confirm_verification', params: ['session', 'case_id'], returns: caseDetail },
+    /** 申請人回報驗證結果不對：不生效、撤回、開例外並通知（K-CONFIRM-DISPUTE） */
+    { fn: 'case_dispute_verification', params: ['session', 'case_id', 'reason'], returns: caseDetail },
     {
         fn: 'case_decide_passkey',
         params: ['challenge_id', 'decision', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
@@ -548,6 +574,8 @@ export const jobCalls = {
     deliveryStuckCheck: { fn: 'delivery_stuck_check', params: [] },
     /** 授權迄日已過的授權結束並排清除 */
     grantExpireDue: { fn: 'grant_expire_due', params: [] },
+    /** 確認期限已過還沒確認的單自動撤銷並撤回（K-CONFIRM-TIMEOUT；交付程式的領取也會檢查） */
+    confirmationExpireDue: { fn: 'confirmation_expire_due', params: [] },
     /** 對帳（api/src/reconciler.ts）：外部系統簽過的對帳回報交給資料庫驗證與比對 */
     reconciliationSubmit: { fn: 'reconciliation_submit', params: ['channel', 'report'] },
     /** 超過時間沒有有效的對帳回報時開例外 K-RECON-OVERDUE（裁決 D81 (3)） */

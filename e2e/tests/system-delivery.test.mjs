@@ -1,7 +1,7 @@
 // 端對端：核准之後的系統對系統交付（裁決 D63），對著真的 sim/dc（把規則套用成真正資料庫權限的 DC 模擬器）。
-// 申請 → 各關核准（畫面、通行金鑰）→ 交付程式（api/src/delivery.ts，背景每秒一輪）自動套用 → 自動驗證 → 生效，沒有人工執行；
-// 撤銷 → 外部系統裡的權限消失；後門多給權限 → 對帳（api/src/reconciler.ts）開例外；外部系統停掉 → 重送，恢復後送達；
-// 交付內容被竄改 → 外部系統拒絕、平台開例外。
+// 申請 → 各關核准（畫面、通行金鑰）→ 交付程式（api/src/delivery.ts，背景每秒一輪）自動套用 → 自動驗證 → 申請人確認（K-CONFIRM）
+// → 生效，沒有人工執行；撤銷 → 外部系統裡的權限消失；後門多給權限 → 對帳（api/src/reconciler.ts）開例外；外部系統停掉 → 重送，
+// 恢復後送達；交付內容被竄改 → 外部系統拒絕、平台開例外；逾期沒確認 → 自動撤銷、權限消失；回報不對 → 撤回；生效後在畫面上縮小。
 // 前提：tools/run-all.sh 啟動的後端、頁面、交付程式（.run/delivery.pid）、sim/dc（db/build.sh 啟動並信任這個資料庫的公鑰）。
 // 排在 path.test.mjs 之後（檔名排序）：那個檔案把資料中心設定為人工（測人工退路），這裡設回系統對系統。
 import assert from 'node:assert/strict';
@@ -117,12 +117,46 @@ const inScope = (year) => ({
 
 let revokeCaseNo;
 
-test('K-DELIVERY-AUTO 端對端（真的 sim/dc）：申請 → 各關核准 → 自動交付 → 自動驗證 → 生效，全程沒有人工執行步驟；外部系統上範圍內查得到、範圍外查不到', async () => {
+const pendingConfirmation = (x) => x.state === 'verifying' && x.confirmation?.status === 'pending';
+/** 申請人確認驗證結果（K-CONFIRM）：不是這個測試要看的步驟時，直接打後端（同一個工作階段）。 */
+async function confirmByApi(p, caseNo) {
+    const c = await waitCase(p, caseNo, pendingConfirmation, '等申請人確認');
+    const r = await callApi(p.page, '/api/case_confirm_verification', { case_id: c.case_id });
+    assert.equal(r.result?.state, 'active', JSON.stringify(r));
+    return r.result;
+}
+
+test('K-DELIVERY-AUTO K-CONFIRM 端對端（真的 sim/dc）：申請 → 各關核准 → 自動交付 → 自動驗證 → 申請人在手機上確認（T7 步數）→ 生效，全程沒有人工執行步驟；外部系統上範圍內查得到、範圍外查不到', async () => {
     const { caseNo } = await apply('p04', spec(2024));
     revokeCaseNo = caseNo;
     await approveAll(caseNo);
     const applicant = await loggedIn('p04');
+    const waiting = await waitCase(applicant, caseNo, pendingConfirmation, '等申請人確認');
+    assert.equal(waiting.grant, null, '確認前沒有授權');
+    // 申請人：從首頁開始數步數（T7 上限 3）；第一個畫面就看到每項測試的結果與剩餘天數
+    const steps = [];
+    await home(applicant);
+    await applicant.page.click(`[data-testid=confirm-item][data-case-no="${caseNo}"]`);
+    steps.push('打開等你確認的單');
+    await applicant.page.waitForSelector('[data-testid=confirmation][data-status=pending]');
+    const shown = waiting.delivery.verifications.flatMap((r) => r.cases);
+    assert.equal(await applicant.page.locator('[data-testid=confirmation-cases] li[data-match=true]').count(), shown.length);
+    assert.match(await applicant.page.textContent('[data-testid=confirmation-due]'), /還有 5 個工作天/);
+    for (const x of shown) assert.match(await applicant.page.textContent('[data-testid=confirmation-cases]'), new RegExp(x.description));
+    const panelBox = await applicant.page.locator('[data-testid=confirmation-cases]').boundingBox();
+    const barBox = await applicant.page.locator('[data-testid=action-bar]').boundingBox();
+    assert.ok(panelBox.y + panelBox.height <= barBox.y, '結果不用捲動就看得到，確認按鈕固定在底部');
+    assert.deepEqual(await layoutProblems(applicant.page, '確認驗證結果'), []);
+    await applicant.page.click('[data-action=confirm_verification]');
+    steps.push('結果正確，確認生效');
+    assert.deepEqual(await layoutProblems(applicant.page, '確認面板'), []);
+    await applicant.page.click('[data-testid=confirm-verification-submit]');
+    steps.push('確認生效');
+    await applicant.page.waitForSelector('#flash.ok:not([hidden])');
+    assert.ok(steps.length <= 3, `步數 ${steps.length} 超過 T7 上限 3`);
+    console.log(`T7 確認驗證結果：${steps.length} 步（${steps.join(' → ')}）`);
     const c = await waitCase(applicant, caseNo, (x) => x.state === 'active', '生效');
+    assert.equal(c.confirmation.status, 'confirmed');
     assert.deepEqual(c.stages.find((s) => s.code === 'fulfil').tasks, [], '執行關沒有人工工作');
     assert.deepEqual(
         c.delivery.ops.map((o) => [o.kind, o.status]),
@@ -183,7 +217,7 @@ test('K-RECON-EXTRA 端對端：用 sim/dc 的後門多給一個欄位 → 對�
     const { caseNo } = await apply('p04', spec(2025));
     await approveAll(caseNo);
     const applicant = await loggedIn('p04');
-    const c = await waitCase(applicant, caseNo, (x) => x.state === 'active', '生效');
+    const c = await confirmByApi(applicant, caseNo);
     const res = await fetch(`${dcBase}/admin/grant_column`, {
         method: 'POST',
         headers: dcAdmin,
@@ -232,7 +266,7 @@ test('K-DELIVERY-RETRY 端對端：外部系統停掉 → 交付以退避重送�
         execFileSync(join(REPO_DIR, 'sim/dc/start.sh'), { stdio: 'pipe' });
     }
     const applicant = await loggedIn('p04');
-    const c = await waitCase(applicant, caseNo, (x) => x.state === 'active', '恢復後生效');
+    const c = await confirmByApi(applicant, caseNo);
     assert.ok(c.delivery.ops[0].attempts >= 2);
     assert.equal(await dcQuery(c.terms.principal.principal_id, inScope(2026)), 'allow');
 });
@@ -270,4 +304,105 @@ test('K-DELIVERY-REJECTED 端對端：被拿走的交付程式竄改交付內容
     await applicant.page.waitForSelector('[data-testid=delivery] li[data-kind=apply][data-status=rejected]');
     assert.match(await applicant.page.textContent('[data-testid=case-exceptions]'), /外部系統拒絕了交付/);
     assert.equal(await applicant.page.getAttribute('[data-testid=state]', 'data-state'), 'fulfilment_failed');
+});
+
+/** 讀稽核事件（管理者連線，不是測試的步驟）。 */
+const caseEvent = async (caseId, type) =>
+    (
+        await admin.query(
+            `select convert_from(body, 'UTF8')::jsonb -> 'data' as data from sgn.audit_event where case_id = $1 and event_type = $2`,
+            [caseId, type],
+        )
+    ).rows[0]?.data;
+
+test('K-CONFIRM-TIMEOUT 端對端：等確認的期間外部系統上已經查得到；逾期沒確認 → 系統自動撤銷 → 外部系統上的權限消失，事件寫明規則與參數值', async () => {
+    const { caseNo } = await apply('p04', spec(2028));
+    await approveAll(caseNo);
+    const applicant = await loggedIn('p04');
+    const c = await waitCase(applicant, caseNo, pendingConfirmation, '等申請人確認');
+    const principalId = c.terms.principal.principal_id;
+    assert.equal(await dcQuery(principalId, inScope(2028)), 'allow', '自動驗證要對真的權限查：等確認時規則已在外部系統上');
+    // 模擬時間過去（資料庫擁有者，不是攻擊步驟）：確認期限改到現在之前；排程或交付程式（背景每秒）自動撤銷
+    await admin.query(`update sgn.case_confirmation set due_at = clock_timestamp() - interval '1 second' where case_id = $1`, [c.case_id]);
+    const done = await waitCase(
+        applicant,
+        caseNo,
+        (x) => x.state === 'revoked' && x.delivery.ops.at(-1).kind === 'withdraw' && x.delivery.ops.at(-1).status === 'done',
+        '逾期撤銷並撤回',
+    );
+    assert.equal(done.confirmation.status, 'expired');
+    assert.equal(done.grant, null);
+    assert.equal(await dcQuery(principalId, inScope(2028)), 'deny');
+    assert.equal((await (await fetch(`${dcBase}/rule-sets/${caseNo}`, { headers: dcAdmin })).json()).status, 'withdrawn');
+    const ev = await caseEvent(c.case_id, 'case.confirmation_expired');
+    assert.deepEqual(ev.rules, ['K-CONFIRM-TIMEOUT', 'K-DELIVERY-AUTO']);
+    assert.deepEqual(ev.settings, { 'confirmation.due_workdays': 5 });
+    await applicant.page.goto(`${ORIGIN}/#case/${c.case_id}`);
+    await applicant.page.reload();
+    await applicant.page.waitForSelector('[data-testid=confirmation][data-status=expired]');
+    assert.equal(await applicant.page.locator('[data-action=confirm_verification]').count(), 0);
+});
+
+test('K-CONFIRM-DISPUTE 端對端：申請人在畫面上按「結果不對」並寫原因 → 不生效、自動撤回 → 外部系統上的權限消失；例外看得到', async () => {
+    const { caseNo } = await apply('p04', spec(2029));
+    await approveAll(caseNo);
+    const applicant = await loggedIn('p04');
+    const c = await waitCase(applicant, caseNo, pendingConfirmation, '等申請人確認');
+    await applicant.page.goto(`${ORIGIN}/#case/${c.case_id}`);
+    await applicant.page.reload();
+    await applicant.page.click('[data-action=dispute_verification]');
+    assert.deepEqual(await layoutProblems(applicant.page, '結果不對'), []);
+    await applicant.page.fill('[data-testid=dispute-reason]', '查得到的欄位比我要的多');
+    await applicant.page.click('[data-testid=dispute-submit]');
+    await applicant.page.waitForSelector('#flash.ok:not([hidden])');
+    const done = await waitCase(
+        applicant,
+        caseNo,
+        (x) => x.state === 'fulfilment_failed' && x.delivery.ops.at(-1).kind === 'withdraw' && x.delivery.ops.at(-1).status === 'done',
+        '回報不對之後撤回',
+    );
+    assert.equal(done.grant, null);
+    assert.ok(done.exceptions.some((x) => x.rule_code === 'K-CONFIRM-DISPUTE'));
+    assert.equal(await dcQuery(c.terms.principal.principal_id, inScope(2029)), 'deny');
+    await applicant.page.reload();
+    await applicant.page.waitForSelector('[data-testid=case-exceptions]');
+    assert.match(await applicant.page.textContent('[data-testid=case-exceptions]'), /申請人回報外部系統上的實際權限和申請的不一樣/);
+    assert.match(await applicant.page.textContent('[data-testid=confirmation]'), /查得到的欄位比我要的多/);
+});
+
+test('K-GRANT-REDUCE 端對端：申請人在詳情頁縮小（拿掉一個欄位，不用簽核）→ 新的一版自動送出並重新驗證 → 外部系統上那個欄位查不到；擴大被資料庫擋下', async () => {
+    const { caseNo } = await apply('p04', spec(2030));
+    await approveAll(caseNo);
+    const applicant = await loggedIn('p04');
+    const c = await confirmByApi(applicant, caseNo);
+    const principalId = c.terms.principal.principal_id;
+    assert.equal(await dcQuery(principalId, { ...inScope(2030), fields: ['amount'] }), 'allow');
+    await applicant.page.goto(`${ORIGIN}/#case/${c.case_id}`);
+    await applicant.page.reload();
+    await applicant.page.click('[data-action=reduce]');
+    await applicant.page.waitForSelector('[data-testid=r-editor] fieldset.package[data-package=sales_order]');
+    assert.deepEqual(await layoutProblems(applicant.page, '縮小'), []);
+    await applicant.page.locator('label[for=r-sales_order-f-amount]').click();
+    await applicant.page.fill('[data-testid=reduce-reason]', '報表不再需要金額');
+    await applicant.page.click('[data-testid=reduce-active-submit]');
+    await applicant.page.waitForSelector('#flash.ok:not([hidden])');
+    const done = await waitCase(
+        applicant,
+        caseNo,
+        (x) => x.version === 2 && x.delivery.verifications.some((r) => r.version === 2 && r.status === 'passed'),
+        '縮小後重新驗證',
+    );
+    assert.equal(done.state, 'active');
+    assert.equal(done.versions.at(-1).change_kind, 'reduce');
+    assert.deepEqual(done.content.scope[0].fields.map((f) => f.code).toSorted(), ['order_date', 'order_no']);
+    assert.equal(await dcQuery(principalId, { ...inScope(2030), fields: ['amount'] }), 'deny');
+    assert.equal(await dcQuery(principalId, { ...inScope(2030), fields: ['order_no'] }), 'allow');
+    // 繞過畫面「縮小」時加回欄位：資料庫判斷這不是縮小
+    const expand = await callApi(applicant.page, '/api/case_reduce', {
+        case_id: c.case_id,
+        content: { ...done.content, scope: [{ ...done.content.scope[0], fields: ['amount', 'gross_margin', 'order_date', 'order_no'] }] },
+        terms: null,
+        reason: '多要',
+    });
+    assert.equal(expand.error?.code, 'CHANGE_NOT_REDUCE', JSON.stringify(expand));
 });

@@ -44,14 +44,19 @@ async function fillInbox(ctx) {
     return out;
 }
 
+/** 我的申請；等我確認驗證結果的單（依資料庫回傳的 actions）另外列在最上面（T7 從首頁算步數）。 */
 async function fillMine() {
     const list = await api.call('case_list_mine');
-    return section(
-        'mine',
-        t.mine,
-        el('button', { class: 'primary wide', 'data-testid': 'new-case', onclick: () => go('#new') }, t.applyStart),
-        list.length ? await Promise.all(list.map((c) => caseCard(c, 'mine-item'))) : empty(t.mineEmpty),
-    );
+    const confirms = list.filter((c) => c.actions.includes('confirm_verification'));
+    return [
+        confirms.length ? section('confirm', t.confirmInbox, await Promise.all(confirms.map((c) => caseCard(c, 'confirm-item')))) : null,
+        section(
+            'mine',
+            t.mine,
+            el('button', { class: 'primary wide', 'data-testid': 'new-case', onclick: () => go('#new') }, t.applyStart),
+            list.length ? await Promise.all(list.map((c) => caseCard(c, 'mine-item'))) : empty(t.mineEmpty),
+        ),
+    ];
 }
 
 function auditSearch() {

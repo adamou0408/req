@@ -14,7 +14,7 @@ import {
     shapeProblems,
     syncCalls,
 } from '../../../packages/contract/src/routes.ts';
-import { activeSalesOrderCase, salesOrderContent } from '../packs/data_access/delivery-lib.mjs';
+import { activeSalesOrderCase, confirmableSalesOrderCase, salesOrderContent } from '../packs/data_access/delivery-lib.mjs';
 import {
     call,
     challengeFor,
@@ -182,6 +182,8 @@ const TRANSITION_WITHOUT_AUTHORIZE = {
     'sgn_internal.fulfilment_progress': '執行關的進度：只由關卡收尾與交付回報（api_delivery，系統）呼叫，執行的是 system 動作',
     'sgn_internal.fulfilment_fail': '交付或驗證失敗：只由交付回報（api_delivery，系統）呼叫，執行的是 system 動作或系統撤銷',
     'sgn_internal.grant_end': '授權結束：撤銷由 api.case_revoke 先授權；到期與驗證失敗是排程與交付回報的 system 動作',
+    'sgn_internal.confirmation_expire_due':
+        '確認逾期自動撤銷：只由排程（api_job）與交付程式的領取（api_delivery）呼叫，執行的是 system 動作',
 };
 
 test('架構：會改狀態或讀稽核資料的 function 都經過授權入口', async () => {
@@ -347,6 +349,14 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     const active = await activeSalesOrderCase(app, admin, applicant, 2008);
     await check('case_reduce', applicant.session, active, salesOrderContent(2008, ['amount', 'order_no']), null, '契約測試：縮小');
     await check('case_revoke', applicant.session, active, '契約測試：撤銷');
+    // 申請人確認驗證結果、回報不對（K-CONFIRM）：自動驗證通過、等確認的單
+    await check('case_confirm_verification', applicant.session, await confirmableSalesOrderCase(app, admin, applicant, 2006));
+    await check(
+        'case_dispute_verification',
+        applicant.session,
+        await confirmableSalesOrderCase(app, admin, applicant, 2007),
+        '契約測試：結果不對',
+    );
     // 登出
     await check('session_close', opened.session_token);
 

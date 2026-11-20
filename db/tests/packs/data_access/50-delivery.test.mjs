@@ -14,7 +14,17 @@ import {
     rejectsWith,
     setSetting,
 } from '../../kernel/lib/harness.mjs';
-import { CHANNEL, CONTEXT, deliveryPool, drain, mockDc, ops, salesOrderContent, systemDelivery } from './delivery-lib.mjs';
+import {
+    CHANNEL,
+    CONTEXT,
+    confirmVerification,
+    deliveryPool,
+    drain,
+    mockDc,
+    ops,
+    salesOrderContent,
+    systemDelivery,
+} from './delivery-lib.mjs';
 import { DA, decide, principals, today } from './lib.mjs';
 
 const app = pool('APP');
@@ -52,10 +62,15 @@ async function approved(year, content = so(year)) {
     await decide(app, users.p17, c.case_id);
     return c.case_id;
 }
+/** 自動驗證通過後等申請人確認（K-CONFIRM）：申請人確認之後才生效。回傳確認後的狀態。 */
+async function confirmed(caseId) {
+    assert.equal((await view(caseId)).confirmation?.status, 'pending');
+    return (await confirmVerification(app, users.p04, caseId)).state;
+}
 async function active(year, content) {
     const caseId = await approved(year, content);
     await drain(delivery, dc);
-    assert.equal((await view(caseId)).state, 'active');
+    assert.equal(await confirmed(caseId), 'active');
     return caseId;
 }
 const events = async (caseId) =>
@@ -84,6 +99,11 @@ test('K-DELIVERY-AUTO 系統對系統：核准完成後執行關不開人工工�
     assert.equal(v.state, 'verifying');
     await drain(delivery, dc);
     v = await view(caseId);
+    // 自動驗證通過不等於生效：等申請人確認（K-CONFIRM），確認後才有授權
+    assert.equal(v.state, 'verifying');
+    assert.equal(v.confirmation.status, 'pending');
+    assert.equal(v.grant, null);
+    v = await confirmVerification(app, users.p04, caseId);
     assert.equal(v.state, 'active');
     assert.equal(v.grant.status, 'active');
     assert.deepEqual(
@@ -101,6 +121,8 @@ test('K-DELIVERY-AUTO 系統對系統：核准完成後執行關不開人工工�
         'case.delivery_applied',
         'verification.started',
         'verification.passed',
+        'confirmation.opened',
+        'confirmation.confirmed',
         'grant.activated',
     ]) {
         assert.ok(ev.includes(e), e);
@@ -188,7 +210,7 @@ test('K-DELIVERY-SIGNED 簽章由資料庫以資料庫內的金鑰做：外部�
     }
     await one(delivery, 'select api_delivery.delivery_report($1, $2, $3)', [item.op_id, item.lease_token, await dc.send(item)]);
     await drain(delivery, dc);
-    assert.equal((await view(caseId)).state, 'active');
+    assert.equal(await confirmed(caseId), 'active');
 });
 
 test('K-DELIVERY-REJECTED 交付內容被竄改（交付程式改了本文）：外部系統以簽章拒絕，平台開例外、不生效、撤回已送出的部分並通知升級對象', async () => {
@@ -293,7 +315,7 @@ test('K-DELIVERY-RETRY 外部系統停掉：連不上、5xx 以退避重送（�
         'DELIVERY_LEASE',
     );
     await drain(delivery, dc);
-    assert.equal((await view(caseId)).state, 'active');
+    assert.equal(await confirmed(caseId), 'active');
     // 外部系統（帶證明）的各種回覆怎麼分類：4xx 拒絕、429 重送、2xx 但狀態不對拒絕、撤回時 404 算達成、撤回被拒重送
     const expect = {
         method: item.method,
@@ -333,7 +355,7 @@ test('K-DELIVERY-STUCK 持續送不到：超過參數時間開例外（每筆一
     assert.ok(notified.rows[0].n >= 2);
     await setSetting(admin, 'delivery.stuck_alert_seconds', 3600, `channel:${CHANNEL}`);
     await drain(delivery, dc);
-    assert.equal((await view(caseId)).state, 'active');
+    assert.equal(await confirmed(caseId), 'active');
     assert.equal((await exceptionCodes(caseId)).filter((c) => c === 'K-DELIVERY-STUCK').length, 1);
 });
 
@@ -428,6 +450,14 @@ test('K-GRANT-REDUCE 生效後只做縮小：不用重簽，新的一版自動�
     );
     assert.deepEqual(dc.store.get(String(v.case_no)).set.rules[0].fields, ['amount', 'order_no']);
     assert.ok((await events(caseId)).includes('grant.reduced'));
+    // 新的一版的內容指紋進鏈（稽核頁驗「目前的內容就是鏈上記下的最新一版」靠它）
+    const recorded = await one(
+        admin,
+        `select convert_from(body, 'UTF8')::jsonb -> 'data' as data from sgn.audit_event where case_id = $1 and event_type = 'case.reduced'`,
+        [caseId],
+    );
+    assert.equal(recorded.data.version, 2);
+    assert.equal(recorded.data.content_sha256, v.content_sha256);
 });
 
 test('K-GRANT-EXPIRE 授權迄日過了：排程結束授權並排清除（到期的權限從外部系統的目錄上拿掉）', async () => {
