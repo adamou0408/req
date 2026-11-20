@@ -6,11 +6,14 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { after, before, test } from 'node:test';
 import {
+    anchorCalls,
     backendCalls,
     deliveryCalls,
-    jobCalls,
+    mailerCalls,
     packRoutes,
+    reconcilerCalls,
     routes,
+    schedulerCalls,
     shapeProblems,
     syncCalls,
 } from '../../../packages/contract/src/routes.ts';
@@ -75,10 +78,10 @@ test('契約：每個 api function 都有歸屬（路由或後端流程），沒
     assert.deepEqual(orphans, []);
 });
 
-test('契約：人員同步、排程與交付程式的允許清單（syncCalls、jobCalls、deliveryCalls）引用的 function 都存在、參數名稱與順序相符，且沒有清單外的 function', async () => {
+test('契約：人員同步、排程與交付程式的允許清單（syncCalls、排程／對帳／錨定／寄信四張表合起來、deliveryCalls）引用的 function 都存在、參數名稱與順序相符，且沒有清單外的 function', async () => {
     for (const [schema, calls] of [
         ['api_sync', Object.values(syncCalls)],
-        ['api_job', Object.values(jobCalls)],
+        ['api_job', [anchorCalls, mailerCalls, reconcilerCalls, schedulerCalls].flatMap((calls) => Object.values(calls))],
         ['api_delivery', Object.values(deliveryCalls)],
     ]) {
         const { rows } = await admin.query(

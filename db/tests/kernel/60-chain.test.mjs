@@ -50,11 +50,11 @@ async function copyOfMain(name) {
     copies.push(db);
     await adminQuery('postgres', `drop database if exists "${db}"`);
     await adminQuery('postgres', `create database "${db}" template "${mainDb}"`);
-    await adminQuery(db, `grant connect on database "${db}" to "${config.db.SGN_ROLE_JOB}"`);
+    await adminQuery(db, `grant connect on database "${db}" to "${config.db.SGN_ROLE_ANCHOR}"`);
     return db;
 }
 
-const verifyDb = (db) => verifyChain({ dbUrl: roleUrl(config, 'JOB', db), anchorFile });
+const verifyDb = (db) => verifyChain({ dbUrl: roleUrl(config, 'ANCHOR', db), anchorFile });
 const problemTypes = (result) => [...new Set(result.problems.map((p) => p.type))].sort();
 
 // 以 superuser 停用 trigger 後重算從 p_from 開始的整條鏈與鏈頭：攻擊者「整條重算」的手法。
@@ -124,7 +124,7 @@ test('K-AUDIT-APPEND 20 個連線同時寫入：序號連續、沒有分叉、�
     assert.equal(stats.hi - stats.lo + 1, stats.n, '序號有缺口');
     assert.equal(stats.prevs, stats.n, '有兩筆接在同一個前一筆之後（分叉）');
     // 先錨定再全量驗證：完全沒有錨點的鏈，驗證工具判為落後（D71，K-ANCHOR-LAG）。錨定本身也從創世增量重算過一次。
-    const anchored = await anchorOnce({ dbUrl: roleUrl(config, 'JOB'), anchorFile });
+    const anchored = await anchorOnce({ dbUrl: roleUrl(config, 'ANCHOR'), anchorFile });
     assert.equal(anchored.ok, true);
     anchoredSeq = anchored.anchor.seq;
     const result = await verifyDb(mainDb);
@@ -165,7 +165,7 @@ test('竄改 2b：錨定工具從上一個錨點增量驗證，被整條重算�
     const db = await copyOfMain('recompute2');
     await tamper(db, [replaceBody(10), RECOMPUTE.replaceAll('%FROM%', '10')]);
     const anchorsBefore = readAnchors(anchorFile).length;
-    const result = await anchorOnce({ dbUrl: roleUrl(config, 'JOB', db), anchorFile });
+    const result = await anchorOnce({ dbUrl: roleUrl(config, 'ANCHOR', db), anchorFile });
     assert.equal(result.ok, false);
     assert.equal(result.problems[0].type, 'ANCHOR_MISMATCH');
     assert.equal(readAnchors(anchorFile).length, anchorsBefore, '不一致時不得寫入新錨點');
@@ -203,7 +203,7 @@ test('竄改 6：從舊備份還原（pg_dump → pg_restore）→ ANCHOR_BEYOND
     await adminQuery('postgres', `drop database if exists "${db}"`);
     await adminQuery('postgres', `create database "${db}" owner "${config.db.SGN_ROLE_OWNER}"`);
     execFileSync('pg_restore', ['--dbname', adminUrl(config, db), backupFile]);
-    await adminQuery(db, `grant connect on database "${db}" to "${config.db.SGN_ROLE_JOB}"`);
+    await adminQuery(db, `grant connect on database "${db}" to "${config.db.SGN_ROLE_ANCHOR}"`);
     const result = await verifyDb(db);
     assert.deepEqual(problemTypes(result), ['ANCHOR_BEYOND_HEAD']);
     assert.ok(result.count < anchoredSeq);

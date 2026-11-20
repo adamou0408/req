@@ -1,5 +1,5 @@
 // 通知真的寄出（裁決 D76）：mail port 的 SMTP adapter 的合約測試，對著 sim/mail 的 Mailpit（真的 SMTP 伺服器）跑。
-// 待寄送佇列 → 寄送程式（api/src/notify.ts，以 sgn_job 連線）→ SMTP → 信箱裡看得到；失敗會放回佇列、超過次數標為失敗。
+// 待寄送佇列 → 寄送程式（api/src/notify.ts，以寄信角色 sgn_mailer 連線）→ SMTP → 信箱裡看得到；失敗會放回佇列、超過次數標為失敗。
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import pg from 'pg';
@@ -10,19 +10,19 @@ import { closePools, config, login, newAuthenticator, one, pool, requestPasskey,
 
 const app = pool('APP');
 const admin = pool('ADMIN');
-const job = new pg.Pool({ connectionString: roleUrl(config, 'JOB'), max: 2 });
+const mailer = new pg.Pool({ connectionString: roleUrl(config, 'MAILER'), max: 2 });
 const smtp = { host: config.mail.SIM_MAIL_SMTP_HOST, port: Number(config.mail.SIM_MAIL_SMTP_PORT) };
 const mailbox = `http://${config.mail.SIM_MAIL_HTTP_HOST}:${config.mail.SIM_MAIL_HTTP_PORT}/api/v1`;
 const FROM = config.db.SGN_MAIL_FROM;
 
 after(async () => {
-    await job.end();
+    await mailer.end();
     await closePools();
 });
 
 /** 把佇列裡別的測試留下的通知先寄掉，這裡只看自己的。 */
 before(async () => {
-    while ((await deliverPending(job, smtpMailer(smtp), FROM)).sent > 0);
+    while ((await deliverPending(mailer, smtpMailer(smtp), FROM)).sent > 0);
 });
 
 async function messagesTo(address, subjectPart) {
@@ -40,7 +40,7 @@ test('K-NOTIFY-DELIVERED 新金鑰登記的通知經 SMTP 寄給本人與主管�
         [p07.personId],
     );
     await requestPasskey(app, p07, newAuthenticator());
-    const result = await deliverPending(job, smtpMailer(smtp), FROM);
+    const result = await deliverPending(mailer, smtpMailer(smtp), FROM);
     assert.ok(result.sent >= 2, JSON.stringify(result));
     const subject = `${me.display_name} 登記了一把新的通行金鑰`;
     for (const address of [me.email, manager.email]) {
@@ -64,7 +64,7 @@ test('K-NOTIFY-DELIVERED SMTP 連不上：通知放回佇列並記下錯誤，�
     const down = smtpMailer({ host: '127.0.0.1', port: 1 });
     await setSetting(admin, 'notification.max_attempts', 2);
     try {
-        await deliverPending(job, down, FROM);
+        await deliverPending(mailer, down, FROM);
         let row = await one(
             admin,
             `select status, attempts, last_error from sgn.notification_outbox where person_id = $1 order by id desc limit 1`,
@@ -72,7 +72,7 @@ test('K-NOTIFY-DELIVERED SMTP 連不上：通知放回佇列並記下錯誤，�
         );
         assert.deepEqual([row.status, row.attempts], ['pending', 1]);
         assert.ok(row.last_error);
-        await deliverPending(job, down, FROM);
+        await deliverPending(mailer, down, FROM);
         row = await one(admin, `select status, attempts from sgn.notification_outbox where person_id = $1 order by id desc limit 1`, [
             p08.personId,
         ]);

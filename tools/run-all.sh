@@ -92,7 +92,7 @@ start_program anchor "$repo/db/tools/anchor.mjs" --every 2
 log "5/6 排程（每 60 秒）、通知寄送（每 5 秒，寄到 sim/mail）、交付（每秒，送到 sim/dc）、對帳（每 30 秒）、身分提供者金鑰（每 60 秒）、後端（連 $SGN_DB_E2E）、頁面"
 start_program jobs "$repo/db/tools/jobs.mjs" --every 60
 start_program mailer "$repo/api/src/mailer.ts" --every 5
-# 交付程式（sgn_delivery，每秒一輪，送到 sim/dc）與對帳程式（sgn_job＋唯讀稽核金鑰，每 30 秒）：裁決 D63
+# 交付程式（sgn_delivery，每秒一輪，送到 sim/dc）與對帳程式（sgn_reconciler＋唯讀稽核金鑰，每 30 秒）：裁決 D63
 start_program delivery "$repo/api/src/delivery.ts" --every 1
 start_program reconciler "$repo/api/src/reconciler.ts" --every 30
 start_program idp-keys "$repo/db/tools/idp-keys.mjs" --every 60

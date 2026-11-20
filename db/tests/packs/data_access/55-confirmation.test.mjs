@@ -9,7 +9,7 @@ import { DA, decide, principals, today } from './lib.mjs';
 
 const app = pool('APP');
 const admin = pool('ADMIN');
-const job = pool('JOB');
+const scheduler = pool('SCHEDULER');
 const delivery = deliveryPool();
 const users = {};
 let P;
@@ -174,7 +174,7 @@ test('K-CONFIRM-TIMEOUT 逾期沒確認：不能再確認；排程自動撤銷�
     assert.deepEqual(v.actions, ['dispute_verification', 'revoke'], '逾期後沒有確認的按鈕');
     // 列 5：逾期之後確認（排程還沒跑）
     await rejectsWith(confirmVerification(app, users.p04, caseId), 'CONFIRMATION_OVERDUE');
-    assert.ok((await one(job, 'select api_job.confirmation_expire_due() as r')).r.expired >= 1);
+    assert.ok((await one(scheduler, 'select api_job.confirmation_expire_due() as r')).r.expired >= 1);
     v = await view(caseId);
     assert.equal(v.state, 'revoked');
     assert.equal(v.grant, null);
@@ -190,7 +190,7 @@ test('K-CONFIRM-TIMEOUT 逾期沒確認：不能再確認；排程自動撤銷�
     assert.equal(v.delivery.ops.at(-1).kind, 'withdraw');
     await drain(delivery, dc);
     assert.equal(dc.store.get(String(v.case_no)).withdrawn, true);
-    assert.equal((await one(job, 'select api_job.confirmation_expire_due() as r')).r.expired, 0, '同一張不重複撤銷');
+    assert.equal((await one(scheduler, 'select api_job.confirmation_expire_due() as r')).r.expired, 0, '同一張不重複撤銷');
 });
 
 test('K-CONFIRM-TIMEOUT 排程停擺也擋不住：交付程式的領取先處理逾期的確認', async () => {
@@ -288,7 +288,7 @@ test('K-CONFIRM-REMIND 期限前逐日提醒（進鏈、不重複）；最後一
     assert.equal(mine.confirm_due.reminding, true, '站內待辦標出快到期（不只靠郵件）');
     assert.ok(mine.confirm_due.due_text);
     const before = (await notified(caseId, 'confirmation.reminder')).length;
-    assert.ok((await one(job, 'select api_job.confirmation_remind_due() as r')).r.reminded >= 1);
+    assert.ok((await one(scheduler, 'select api_job.confirmation_remind_due() as r')).r.reminded >= 1);
     const to = await notified(caseId, 'confirmation.reminder');
     assert.equal(to.length - before, 3, '最後一個工作天：申請人、他的主管、被授權者負責人');
     for (const who of ['p05', 'p04', 'p03']) assert.ok(to.includes(users[who].personId), who);
@@ -296,13 +296,13 @@ test('K-CONFIRM-REMIND 期限前逐日提醒（進鏈、不重複）；最後一
     assert.equal(ev.data.workdays_left, 1);
     assert.deepEqual(ev.data.rules, ['K-CONFIRM-REMIND']);
     assert.deepEqual(ev.data.settings, { 'confirmation.remind_workdays_before': 2 });
-    await one(job, 'select api_job.confirmation_remind_due() as r');
+    await one(scheduler, 'select api_job.confirmation_remind_due() as r');
     assert.equal((await notified(caseId, 'confirmation.reminder')).length, to.length, '同一天不重複提醒');
     // 期限還遠的單：不在提醒期間，也不提醒
     const far = await awaiting(2077);
     const farMine = (await call(app, 'case_list_mine', users.p04.session)).find((c) => c.case_id === far);
     assert.equal(farMine.confirm_due.reminding, false);
-    await one(job, 'select api_job.confirmation_remind_due() as r');
+    await one(scheduler, 'select api_job.confirmation_remind_due() as r');
     assert.deepEqual(await notified(far, 'confirmation.reminder'), []);
     for (const id of [caseId, far]) await call(app, 'case_revoke', users.p04.session, id, '還原');
     await drain(delivery, dc);

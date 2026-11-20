@@ -49,15 +49,27 @@ test('架構：每個執行期帳號（sgn_app、sgn_sync、排程、對帳、�
             const expected = [...new Set(fns.map((fn) => `${schema}.${fn}`))].sort();
             assert.deepEqual(await executable(db, role), expected, `${database}：${role}`);
         }
-        // 合併角色 sgn_job（只給操作者）：自己沒有授權，經由成員關係正好是四個程式的聯集
-        const union = ['SCHEDULER', 'RECONCILER', 'ANCHOR', 'MAILER'].flatMap((key) => allowlist[key].fns.map((fn) => `api_job.${fn}`));
-        assert.deepEqual(await executable(db, config.db.SGN_ROLE_JOB), [...new Set(union)].sort(), `${database}：sgn_job`);
-        const direct = await db.query(
-            `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace, aclexplode(p.proacl) a
-             where n.nspname = 'api_job' and a.grantee = $1::regrole`,
-            [config.db.SGN_ROLE_JOB],
+    }
+});
+
+test('架構（裁決 D86 (4)）：合併角色 sgn_job 不存在；沒有任何角色是執行期帳號的成員（拿不到兩個程式合起來的入口）；註解不再指名它', async () => {
+    const retired = await admin.query(`select rolname from pg_roles where rolname = 'sgn_job'`);
+    assert.deepEqual(retired.rows, [], 'sgn_job 已移除');
+    const programRoles = Object.keys(allowlist).map((key) => config.db[`SGN_ROLE_${key}`]);
+    const members = await admin.query(
+        `select r.rolname as role, m.rolname as member from pg_auth_members a
+         join pg_roles r on r.oid = a.roleid join pg_roles m on m.oid = a.member
+         where r.rolname = any ($1::text[]) order by 1, 2`,
+        [programRoles],
+    );
+    assert.deepEqual(members.rows, [], `執行期帳號有成員：${members.rows.map((r) => `${r.member}→${r.role}`).join(', ')}`);
+    // function 的註解不再指名已移除的角色（db/kernel/505_retire_job_role.sql）
+    for (const [database, db] of Object.entries(databases)) {
+        const stale = await db.query(
+            `select p.oid::regprocedure::text as fn from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname not like 'pg\\_%' and obj_description(p.oid, 'pg_proc') like '%sgn\\_job%'`,
         );
-        assert.deepEqual(direct.rows, [], `${database}：sgn_job 不得有直接授權`);
+        assert.deepEqual(stale.rows, [], `${database}：註解還寫著 sgn_job`);
     }
 });
 
@@ -116,11 +128,12 @@ test('架構：非系統 schema 的 function 都不對 PUBLIC 開放；owner 之
             await owner.query(`set local role ${config.db.SGN_ROLE_OWNER}`);
             await owner.query(`create function api.grants_probe() returns int language sql as 'select 1'`);
             await owner.query(`create function api_sync.grants_probe() returns int language sql as 'select 1'`);
+            await owner.query(`create function api_job.grants_probe() returns int language sql as 'select 1'`);
             const { rows } = await owner.query(
                 `select r.rolname, n.nspname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-                 cross join (select unnest(array['public', $1, $2, $3]) as rolname) r
+                 cross join (select unnest($1::text[]) as rolname) r
                  where p.proname = 'grants_probe' and has_function_privilege(r.rolname, p.oid, 'execute')`,
-                [config.db.SGN_ROLE_APP, config.db.SGN_ROLE_SYNC, config.db.SGN_ROLE_JOB],
+                [['public', ...Object.keys(allowlist).map((key) => config.db[`SGN_ROLE_${key}`])]],
             );
             assert.deepEqual(
                 rows,

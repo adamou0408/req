@@ -29,7 +29,8 @@ import { DA, decide, principals, today } from './lib.mjs';
 
 const app = pool('APP');
 const admin = pool('ADMIN');
-const job = pool('JOB');
+const scheduler = pool('SCHEDULER');
+const reconciler = pool('RECONCILER');
 const delivery = deliveryPool();
 const users = {};
 let P;
@@ -348,7 +349,7 @@ test('K-DELIVERY-STUCK 持續送不到：超過參數時間開例外（每筆一
     const down = wrap(() => Promise.resolve({ http_status: null, response: null, error: 'timeout' }));
     await (await import('../../../../api/src/delivery.ts')).deliverChannel(delivery, CHANNEL, down);
     assert.ok((await exceptionCodes(caseId)).includes('K-DELIVERY-STUCK'));
-    assert.equal((await one(job, 'select api_job.delivery_stuck_check() as r')).r.opened, 0, '同一筆不重複開');
+    assert.equal((await one(scheduler, 'select api_job.delivery_stuck_check() as r')).r.opened, 0, '同一筆不重複開');
     const notified = await admin.query(
         `select count(*)::int as n from sgn.notification_outbox where case_id = $1 and event_code = 'delivery.stuck'`,
         [caseId],
@@ -487,7 +488,7 @@ test('K-GRANT-EXPIRE 授權迄日過了：排程結束授權並排清除（到�
     // 年份和其他測試不相鄰：到期只改了平台的授權迄日，模擬的外部系統上這份規則的有效迄日沒變（聯集仍放行）
     const caseId = await active(2050);
     await admin.query(`update sgn.grant_record set valid_to = current_date - 1 where case_id = $1`, [caseId]);
-    assert.ok((await one(job, 'select api_job.grant_expire_due() as r')).r.expired >= 1);
+    assert.ok((await one(scheduler, 'select api_job.grant_expire_due() as r')).r.expired >= 1);
     const v = await view(caseId);
     assert.equal(v.state, 'expired');
     assert.equal(v.grant.status, 'expired');
@@ -590,7 +591,7 @@ const report = (items) => ({
 const reconCodes = async (caseId) => (await exceptionCodes(caseId)).filter((c) => c.startsWith('K-RECON'));
 /** 交一份由模擬外部系統簽過的對帳回報（對帳程式交上來的就是外部系統的回應原樣）。 */
 const submit = async (items) =>
-    (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, dc.reconciliation(report(items))])).r;
+    (await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, dc.reconciliation(report(items))])).r;
 /** 發現要連續幾輪沒看到才結案（參數 reconciliation.resolve_after_rounds；裁決 D84 (5)）。 */
 const ROUNDS = 3;
 /** 交 ROUNDS 輪同樣的回報，回傳最後一輪的結果。 */
@@ -654,7 +655,7 @@ test('K-RECON-DIFFERENT 對帳：兩邊都有但列條件、資料期間或有�
     assert.deepEqual(await reconCodes(caseId), ['K-RECON-DIFFERENT']);
     const runs = await one(admin, `select count(*)::int as n from sgn.audit_event where event_type = 'reconciliation.completed'`);
     assert.ok(runs.n >= 1, '每一輪對帳進鏈');
-    const bad = await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: 'x' }]);
+    const bad = await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: 'x' }]);
     assert.deepEqual([bad.r.status, bad.r.reason], ['rejected', 'unverified'], '沒有外部系統證明的回報不收');
 });
 
@@ -706,26 +707,29 @@ test('K-RECON-UNVERIFIED 對帳程式改不了回報：只採信外部系統簽�
     // 外部系統簽的回報裡有後門；對帳程式（D）把它從可讀副本拿掉再交 → 資料庫看的是簽過的那一份，照樣抓到
     const signed = dc.reconciliation(report([...items, backdoor]));
     const hidden = { ...signed, items: signed.items.filter((i) => i.item_key !== 'bd') };
-    const r = (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, hidden])).r;
+    const r = (await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, hidden])).r;
     assert.equal(r.status, 'accepted');
     assert.equal(r.new_findings, 1);
     assert.deepEqual(await reconCodes(caseId), ['K-RECON-EXTRA']);
     // 同一份再交一次（重送）：不收
-    const again = (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, signed])).r;
+    const again = (await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, signed])).r;
     assert.deepEqual([again.status, again.reason], ['rejected', 'replay']);
     // 證明被改（把後門從被簽的內容裡拿掉）：不收；限速：同一通道在新鮮度的時間內只開一筆例外
     const att = signed.attestation;
     const forged = { ...signed, attestation: { ...att, payload: att.payload.replace('sales_order.gross_margin', 'sales_order.amount') } };
     const before = (await channelExceptions('K-RECON-UNVERIFIED')).length;
-    assert.equal((await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, forged])).r.reason, 'unverified');
-    assert.equal((await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: [] }])).r.reason, 'unverified');
+    assert.equal((await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, forged])).r.reason, 'unverified');
+    assert.equal(
+        (await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: [] }])).r.reason,
+        'unverified',
+    );
     assert.ok((await channelExceptions('K-RECON-UNVERIFIED')).length <= before + 1, '壞回報灌不爆例外');
     assert.ok((await channelExceptions('K-RECON-UNVERIFIED')).length >= 1);
     // 過期：外部系統簽發的時間離現在超過參數
     await setSetting(admin, 'reconciliation.max_report_age_seconds', 1, `channel:${CHANNEL}`);
     const old = dc.reconciliation(report(items));
     await new Promise((resolve) => setTimeout(resolve, 2100));
-    assert.equal((await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, old])).r.reason, 'stale');
+    assert.equal((await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, old])).r.reason, 'stale');
     await setSetting(admin, 'reconciliation.max_report_age_seconds', 120, `channel:${CHANNEL}`);
     // 沒通過的回報不會讓發現結案；有效的回報沒看到後門才結案，而且結案進鏈
     const open = await one(
@@ -776,7 +780,7 @@ test('K-RECON-RESOLVED 發現要連續數輪（參數）有效的回報都沒看
     const items = await expectedItems();
     await submit(items.filter((i) => !(i.properties.case_no === caseNo && i.resource.id === 'sales_order.amount')));
     assert.deepEqual(await reconCodes(caseId), ['K-RECON-MISSING']);
-    const bad = (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, report(items)])).r;
+    const bad = (await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, report(items)])).r;
     assert.equal(bad.status, 'rejected');
     assert.equal(
         (
@@ -812,7 +816,7 @@ test('K-RECON-UNVERIFIED 紅隊第五輪 中-2：比較舊、但還在新鮮度�
     };
     const r1 = await submit([...items, backdoor]);
     assert.equal(r1.new_findings, 1);
-    const stale = (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, r0])).r;
+    const stale = (await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, r0])).r;
     assert.deepEqual([stale.status, stale.reason], ['rejected', 'not_newer']);
     assert.equal(
         (await admin.query(`select 1 from sgn.reconciliation_finding where case_id = $1 and resolved_run_id is null`, [caseId])).rowCount,
@@ -851,14 +855,14 @@ test('K-RECON-LIMIT 單輪上限：項目超過上限整份不收；新發現超
 test('K-RECON-OVERDUE 超過參數的時間沒有有效的對帳回報：由資料庫開例外並升級，每段逾期一筆；有效的回報之後重新計算', async () => {
     await setSetting(admin, 'reconciliation.max_interval_seconds', 0, `channel:${CHANNEL}`);
     await new Promise((resolve) => setTimeout(resolve, 1100));
-    assert.equal((await one(job, 'select api_job.reconciliation_overdue_check() as n')).n, 1);
-    assert.equal((await one(job, 'select api_job.reconciliation_overdue_check() as n')).n, 0, '同一段逾期不重複開');
+    assert.equal((await one(scheduler, 'select api_job.reconciliation_overdue_check() as n')).n, 1);
+    assert.equal((await one(scheduler, 'select api_job.reconciliation_overdue_check() as n')).n, 0, '同一段逾期不重複開');
     // 壞的回報不算
-    await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: [] }]);
-    assert.equal((await one(job, 'select api_job.reconciliation_overdue_check() as n')).n, 0);
+    await one(reconciler, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: [] }]);
+    assert.equal((await one(scheduler, 'select api_job.reconciliation_overdue_check() as n')).n, 0);
     await submit(await expectedItems());
     await new Promise((resolve) => setTimeout(resolve, 1100));
-    assert.equal((await one(job, 'select api_job.reconciliation_overdue_check() as n')).n, 1, '有效的回報之後又逾期');
+    assert.equal((await one(scheduler, 'select api_job.reconciliation_overdue_check() as n')).n, 1, '有效的回報之後又逾期');
     await setSetting(admin, 'reconciliation.max_interval_seconds', 300, `channel:${CHANNEL}`);
     const notified = await admin.query(`select 1 from sgn.notification_outbox where event_code = 'reconciliation.overdue'`);
     assert.ok(notified.rowCount >= 2, '通知升級對象');
@@ -894,5 +898,6 @@ test('架構：被入侵的後端（sgn_app）不能領取交付、不能謊報�
     await rejectsPermission(app.query(`select api_job.reconciliation_submit('dc', '{}')`));
     await rejectsPermission(delivery.query(`select api.case_revoke('x', gen_random_uuid(), 'r')`));
     await rejectsPermission(delivery.query(`select api_job.reconciliation_submit('dc', '{}')`));
-    await rejectsPermission(job.query(`select api_delivery.delivery_claim('dc', 1)`));
+    await rejectsPermission(scheduler.query(`select api_delivery.delivery_claim('dc', 1)`));
+    await rejectsPermission(reconciler.query(`select api_delivery.delivery_claim('dc', 1)`));
 });

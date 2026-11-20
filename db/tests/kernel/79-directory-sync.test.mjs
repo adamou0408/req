@@ -21,7 +21,7 @@ import {
 const app = pool('APP');
 const admin = pool('ADMIN');
 const syncDb = pool('SYNC');
-const job = pool('JOB');
+const scheduler = pool('SCHEDULER');
 let snapshot;
 const ids = {};
 
@@ -43,7 +43,7 @@ const lastEvent = async (type) =>
         )
     ).data;
 const activeCount = async () => (await one(admin, 'select count(*)::int as n from sgn.person where active')).n;
-const settle = async () => (await job.query('select api_job.directory_settle() as r')).rows[0].r;
+const settle = async () => (await scheduler.query('select api_job.directory_settle() as r')).rows[0].r;
 /** 模擬冷卻期已過，再由排程套用（恢復在職、改名等延後的異動）。 */
 const settleNow = async (...uids) => {
     for (const uid of uids) await settleSyncChanges(admin, ids[uid]);

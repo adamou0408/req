@@ -198,7 +198,7 @@ test('K-ROLE-SOURCE 控制類角色只能在平台內指派：一人提出、另
     const revoke = await propose('p16', users.p05, 'security_responder', 'revoke');
     await approve('p23', revoke.request_id);
     assert.equal(await hasRole(users.p05.personId, 'security_responder'), false);
-    const chain = await verifyChain({ dbUrl: roleUrl(config, 'JOB') });
+    const chain = await verifyChain({ dbUrl: roleUrl(config, 'ANCHOR') });
     assert.equal(chain.ok, true, JSON.stringify(chain.problems.slice(0, 3)));
 });
 

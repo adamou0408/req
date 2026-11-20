@@ -194,7 +194,7 @@ test('K-AUDIT-APPEND 一張單從建立到核准，每一步都在鏈上，且�
         events.rows.map((r) => r.event_type),
         ['case.created', 'case.submitted', 'case.stage_opened', 'case.approve', 'case.completed'],
     );
-    const result = await verifyChain({ dbUrl: roleUrl(config, 'JOB') });
+    const result = await verifyChain({ dbUrl: roleUrl(config, 'ANCHOR') });
     assert.equal(result.ok, true, JSON.stringify(result.problems.slice(0, 3)));
 });
 

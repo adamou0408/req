@@ -9,7 +9,7 @@ import { call, closePools, config, one, pool, rejectsWith, setSetting } from './
 
 const app = pool('APP');
 const admin = pool('ADMIN');
-const job = pool('JOB');
+const scheduler = pool('SCHEDULER');
 after(closePools);
 
 const pendingFrom = async (source) =>
@@ -60,7 +60,7 @@ test('K-LOGIN-THROTTLE 過期的挑戰值由排程清除：登入挑戰值一過
         [begin.challenge_id],
     );
     const referenced = await one(admin, 'select count(*)::int as n from sgn.decision_proof');
-    const purged = (await job.query('select api_job.auth_challenge_purge() as r')).rows[0].r;
+    const purged = (await scheduler.query('select api_job.auth_challenge_purge() as r')).rows[0].r;
     assert.ok(purged.purged >= 1);
     assert.equal((await one(admin, 'select count(*)::int as n from sgn.auth_challenge where id = $1', [begin.challenge_id])).n, 0);
     assert.equal((await one(admin, 'select count(*)::int as n from sgn.auth_challenge where id = $1', [expired.challenge_id])).n, 0);
@@ -73,7 +73,7 @@ test('K-ANCHOR-LAG 離線驗證工具回報最後一個錨點之後有幾筆、�
     mkdirSync(RUN_DIR, { recursive: true });
     const none = join(RUN_DIR, 'test-anchors-none.jsonl');
     writeFileSync(none, '');
-    const dbUrl = roleUrl(config, 'JOB');
+    const dbUrl = roleUrl(config, 'ANCHOR');
     const empty = await verifyChain({ dbUrl, anchorFile: none });
     assert.equal(empty.ok, false);
     assert.ok(empty.problems.some((p) => p.type === 'ANCHOR_LAG'));

@@ -1,5 +1,5 @@
 // 通知卡住要開例外（K-NOTIFY-STUCK）。威脅表見 docs/handoff/leftovers-1.md 第 5 節，每一列對應這裡的一個斷言。
-// 攻擊者模型：拿到排程帳號 sgn_job（寄送程式用它），可以不寄、不跑排程。
+// 攻擊者模型：拿到寄信角色 sgn_mailer 可以不寄；拿到排程角色 sgn_scheduler 可以不跑排程。
 import assert from 'node:assert/strict';
 import { after, test } from 'node:test';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -9,10 +9,10 @@ import { PROBE, call, closePools, config, login, one, pool, setSetting } from '.
 
 const app = pool('APP');
 const admin = pool('ADMIN');
-const job = new pg.Pool({ connectionString: roleUrl(config, 'JOB'), max: 2 });
+const scheduler = new pg.Pool({ connectionString: roleUrl(config, 'SCHEDULER'), max: 2 });
 
 after(async () => {
-    await job.end();
+    await scheduler.end();
     await closePools();
 });
 
@@ -37,7 +37,7 @@ test('K-NOTIFY-STUCK 通知超過參數時間沒寄出：排程開例外，每�
     const applicant = await login(app, 'p25');
     try {
         await setSetting(admin, 'notification.stuck_alert_seconds', 1);
-        // 列 1：寄送程式沒有在跑（或拿到 sgn_job 的人不寄）
+        // 列 1：寄送程式沒有在跑（或拿到 sgn_mailer 的人不寄）
         const caseId = (await call(app, 'case_submit_new', applicant.session, PROBE, { dataset: 'stuck', n: Math.random() }, {}, null))
             .case_id;
         const ids = await notificationsOf(caseId);
@@ -50,7 +50,7 @@ test('K-NOTIFY-STUCK 通知超過參數時間沒寄出：排程開例外，每�
             sentIds,
         ]);
         await sleep(1100);
-        const r = (await job.query('select api_job.notification_stuck_check() as r')).rows[0].r;
+        const r = (await scheduler.query('select api_job.notification_stuck_check() as r')).rows[0].r;
         assert.ok(r.opened >= ids.length);
         const opened = await exceptionsFor(ids);
         assert.deepEqual(
@@ -64,7 +64,7 @@ test('K-NOTIFY-STUCK 通知超過參數時間沒寄出：排程開例外，每�
         );
         assert.deepEqual(await exceptionsFor(sentIds), []);
         // 每則只開一次
-        await job.query('select api_job.notification_stuck_check()');
+        await scheduler.query('select api_job.notification_stuck_check()');
         assert.equal((await exceptionsFor(ids)).length, ids.length);
         // 申請單的例外（決定畫面）不受影響
         assert.deepEqual((await call(app, 'case_get', applicant.session, caseId)).exceptions, []);
@@ -73,11 +73,11 @@ test('K-NOTIFY-STUCK 通知超過參數時間沒寄出：排程開例外，每�
     }
 });
 
-test('K-NOTIFY-STUCK 排程也停了：下一個寫入通知的使用者動作就開例外（不只靠 sgn_job）', async () => {
+test('K-NOTIFY-STUCK 排程也停了：下一個寫入通知的使用者動作就開例外（不只靠排程）', async () => {
     const applicant = await login(app, 'p26');
     try {
         await setSetting(admin, 'notification.stuck_alert_seconds', 1);
-        // 列 2：sgn_job 完全停擺（不寄、不跑排程）
+        // 列 2：寄信與排程完全停擺（不寄、不跑排程）
         const first = (await call(app, 'case_submit_new', applicant.session, PROBE, { dataset: 'stuck-2', n: Math.random() }, {}, null))
             .case_id;
         const ids = await notificationsOf(first);

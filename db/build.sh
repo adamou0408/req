@@ -32,9 +32,9 @@ psql_admin() { local db="$1"; shift; psql -X -q -v ON_ERROR_STOP=1 "$(admin_url_
 
 # 登入角色（sgn.env 的鍵名後綴）。每次建置每個角色一組新的隨機密碼（裁決 D81 (1)），寫在只有 root 讀得到的 .run/secrets/roles.env；
 # 各程式只拿到自己那一份（db/tools/provision-secrets.mjs）。
-login_keys=(APP SYNC JOB SCHEDULER RECONCILER ANCHOR MAILER DELIVERY IDP_KEYS TEST_VERIFIER)
-# 合併角色 JOB（操作者用）是這幾個角色的成員
-job_members=(SCHEDULER RECONCILER ANCHOR MAILER)
+login_keys=(APP SYNC SCHEDULER RECONCILER ANCHOR MAILER DELIVERY IDP_KEYS TEST_VERIFIER)
+# 已移除的合併角色（裁決 D86 (4)）：舊建置留下的一併刪掉，之後不再建立（架構測試 12 斷言它不存在）
+retired_roles=(sgn_job)
 secrets_dir="$repo/.run/secrets"
 
 role_of() { local var="SGN_ROLE_$1"; printf '%s' "${!var}"; }
@@ -47,6 +47,9 @@ recreate_roles() {
     for key in "${login_keys[@]}" OWNER; do
         psql_admin postgres -c "drop role if exists \"$(role_of "$key")\""
     done
+    for key in "${retired_roles[@]}"; do
+        psql_admin postgres -c "drop role if exists \"$key\""
+    done
     psql_admin postgres -c "create role \"$SGN_ROLE_OWNER\" nologin"
     rm -rf "$secrets_dir"
     mkdir -p "$secrets_dir"
@@ -58,16 +61,13 @@ recreate_roles() {
         psql_admin postgres -c "create role \"$(role_of "$key")\" login password '$password'"
         printf 'SGN_ROLE_PASSWORD_%s=%s\n' "$key" "$password" >>"$roles_file"
     done
-    for key in "${job_members[@]}"; do
-        psql_admin postgres -c "grant \"$(role_of "$key")\" to \"$(role_of JOB)\""
-    done
 }
 
 # 建一個資料庫的 schema：核心 migration（依版本序）→ 各流程包（依版本序）→ 測試資料庫另加 db/testing/ → 權限
 # （90_grants.sql，再由 db/tools/grants-sql.mjs 收斂成路由表的允許清單）→ 環境設定。新建的 function 預設不對 PUBLIC 開放。
 # 套用順序依骨幹第 1.1 節：核心全部 → 各流程包。90_grants.sql 帶變數，最後單獨套用。
 build_schema() {
-    local db="$1" with_testing="$2" connect="$SGN_ROLE_APP\", \"$SGN_ROLE_SYNC\", \"$SGN_ROLE_JOB\", \"$SGN_ROLE_SCHEDULER\", \"$SGN_ROLE_RECONCILER\", \"$SGN_ROLE_ANCHOR\", \"$SGN_ROLE_MAILER\", \"$SGN_ROLE_DELIVERY\", \"$SGN_ROLE_IDP_KEYS"
+    local db="$1" with_testing="$2" connect="$SGN_ROLE_APP\", \"$SGN_ROLE_SYNC\", \"$SGN_ROLE_SCHEDULER\", \"$SGN_ROLE_RECONCILER\", \"$SGN_ROLE_ANCHOR\", \"$SGN_ROLE_MAILER\", \"$SGN_ROLE_DELIVERY\", \"$SGN_ROLE_IDP_KEYS"
     (( with_testing )) && connect="$connect\", \"$SGN_ROLE_TEST_VERIFIER"
     psql_admin postgres -c "create database \"$db\" owner \"$SGN_ROLE_OWNER\""
     psql_admin "$db" -c "revoke all on database \"$db\" from public" -c "grant connect on database \"$db\" to \"$connect\"" \
@@ -84,7 +84,9 @@ build_schema() {
             args+=(-v verifier="$SGN_ROLE_TEST_VERIFIER" -f "$file")
         done
     fi
-    args+=(-c "reset role" -v owner="$SGN_ROLE_OWNER" -v app="$SGN_ROLE_APP" -v sync="$SGN_ROLE_SYNC" -v job="$SGN_ROLE_JOB" -f "$here/kernel/90_grants.sql")
+    # 90_grants.sql 的 :"job" 原本是合併角色；它已移除（D86 (4)），這裡傳排程角色。api_job 的執行權限隨即由 grants-sql.mjs
+    # 全部撤掉、再依四張允許清單逐一授權（12 檢查完全相等），所以這一步多給的不會留下。
+    args+=(-c "reset role" -v owner="$SGN_ROLE_OWNER" -v app="$SGN_ROLE_APP" -v sync="$SGN_ROLE_SYNC" -v job="$SGN_ROLE_SCHEDULER" -f "$here/kernel/90_grants.sql")
     psql_admin "$db" "${args[@]}" >/dev/null
     # 執行權限的允許清單（來源是路由表）：取代 90_grants.sql 的「整個 schema 授權」（紅隊 高-2）
     node "$here/tools/grants-sql.mjs" | psql_admin "$db" -f - >/dev/null

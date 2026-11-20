@@ -34,8 +34,8 @@ const ident = (name) => `"${name.replaceAll('"', '""')}"`;
 const literal = (text) => `'${text.replaceAll("'", "''")}'`;
 
 export function grantsSql(config = loadConfig()) {
-    // 合併角色 sgn_job（操作者用）自己沒有任何授權：90_grants.sql 給它的一併撤掉，它只經由成員關係拿到四個程式的
-    const roles = [...Object.keys(allowlist), 'JOB'].map((key) => config.db[`SGN_ROLE_${key}`]);
+    // 90_grants.sql 以整個 schema 授權給排程角色的 api_job 也在這裡撤掉，再依允許清單逐一授權
+    const roles = Object.keys(allowlist).map((key) => config.db[`SGN_ROLE_${key}`]);
     const lines = [
         '-- 自動產生（db/tools/grants-sql.mjs），請勿手動修改。來源：packages/contract/src/routes.ts',
         `select format('revoke all on all functions in schema %I from public, ${roles.map(ident).join(', ')}', n.nspname)`,

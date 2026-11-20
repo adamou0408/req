@@ -125,7 +125,7 @@ test('K-DETECT-MANAGER-FLIP 攻擊：同步帳號把指定的人設成主管 →
         );
 
         // 6. 整條鏈仍然一致（例外與異動是正常事件，不是竄改）
-        const chain = await verifyChain({ dbUrl: roleUrl(config, 'JOB') });
+        const chain = await verifyChain({ dbUrl: roleUrl(config, 'ANCHOR') });
         assert.equal(chain.ok, true, JSON.stringify(chain.problems.slice(0, 3)));
     } finally {
         await syncDirectory(config);

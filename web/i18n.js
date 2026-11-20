@@ -321,6 +321,7 @@ export const t = {
         'K-IDP-KEY-RETIRE': '身分提供者例外：有金鑰不再公布（冷卻期滿才退役，不會退役到零把）。',
         'K-IDP-KEY-LIMIT': '身分提供者例外：時間窗內新增的金鑰超過上限，沒有信任。',
         'K-GOVERNANCE-KEY': '治理例外：治理角色的持有人沒有可用的通行金鑰（停用或沒有登記）。',
+        'K-PASSKEY-SUSPEND-HOLDER': '控制例外：持有控制類或治理類角色的人只憑登入停用了自己的通行金鑰，請確認是本人所為。',
     },
     exceptionScope: {
         'K-DELIVERY-STUCK': '外部系統',
@@ -331,6 +332,7 @@ export const t = {
         'K-IDP-KEY-RETIRE': '身分提供者',
         'K-IDP-KEY-LIMIT': '身分提供者',
         'K-GOVERNANCE-KEY': '治理角色',
+        'K-PASSKEY-SUSPEND-HOLDER': '控制與治理角色',
     },
     exceptionUnknown: '例外：請查看稽核紀錄。',
     exceptionNoCase: '人員與角色',

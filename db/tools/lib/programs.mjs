@@ -3,7 +3,7 @@
 //   - tools/run-all.sh 以該帳號啟動程式（tools/lib/as-program.sh）
 //   - db/tests/kernel/95-program-secrets.test.mjs 檢查每個檔案只有這裡列的鍵、別的程式讀不到、程式的記憶體裡沒有別人的密鑰
 // roleKey：連資料庫用的登入角色（sgn.env 的 SGN_ROLE_<鍵>），null＝不連資料庫。密鑰檔的 SGN_DB_PASSWORD 是那個角色的密碼。
-// 排程、對帳、錨點、寄信各用各的角色（裁決 D84 (6)）；合併角色 sgn_job 只給操作者，沒有任何程式拿得到。
+// 排程、對帳、錨點、寄信各用各的角色（裁決 D84 (6)）；沒有合併角色（裁決 D86 (4)：sgn_job 已移除，架構測試 12 斷言它不存在）。
 export const PROGRAMS = {
     /** 後端（api/src/server.ts）：sgn_app、身分提供者的 client secret */
     api: { roleKey: 'APP', secrets: ['SGN_IDP_CLIENT_SECRET'], entry: 'api/src/server.ts' },

@@ -94,7 +94,7 @@ function pgUrl(d, role, password, database) {
     return `postgres://${role}:${encodeURIComponent(password)}@${d.SGN_PG_HOST}:${d.SGN_PG_PORT}/${database}`;
 }
 
-/** 以指定角色連線的 URL（操作者用）。roleKey 是 sgn.env 的鍵名後綴：APP、SYNC、JOB、DELIVERY、IDP_KEYS、TEST_VERIFIER。 */
+/** 以指定角色連線的 URL（操作者用）。roleKey 是 sgn.env 的鍵名後綴：APP、SYNC、SCHEDULER、RECONCILER、ANCHOR、MAILER、DELIVERY、IDP_KEYS、TEST_VERIFIER。 */
 export function roleUrl(config, roleKey, database = config.database) {
     const password = config.secrets[`SGN_ROLE_PASSWORD_${roleKey}`];
     if (!password) throw new Error(`沒有 ${roleKey} 的密碼（.run/secrets/roles.env）：先執行 db/build.sh`);

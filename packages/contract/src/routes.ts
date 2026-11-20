@@ -649,9 +649,6 @@ export const schedulerCalls = {
     anchorLagCheck: { fn: 'anchor_lag_check', params: [] },
 } as const satisfies Record<string, Grant>;
 
-/** 四個程式的 api_job function 合起來（只給操作者的合併角色 sgn_job 與型別檢查用；權限依上面四張表分開授權）。 */
-export const jobCalls = { ...anchorCalls, ...mailerCalls, ...reconcilerCalls, ...schedulerCalls } as const;
-
 /** 身分提供者的金鑰更新程序（db/tools/idp-keys.mjs，帳號 sgn_idp_keys；裁決 D81 (5)）能執行的 api_idp function。 */
 export const idpCalls = {
     idpKeysSync: { fn: 'idp_keys_sync', params: ['issuer', 'jwks'] },
@@ -659,7 +656,7 @@ export const idpCalls = {
 
 /**
  * 交付程式（api/src/delivery.ts，帳號 sgn_delivery）能執行的 api_delivery function。
- * 和後端（sgn_app）、排程（sgn_job）分開：被入侵的後端不能領取交付，也不能謊報外部系統的結果。
+ * 和後端（sgn_app）、排程（sgn_scheduler）分開：被入侵的後端不能領取交付，也不能謊報外部系統的結果。
  */
 export const deliveryCalls = {
     deliveryClaim: { fn: 'delivery_claim', params: ['channel', 'limit'] },

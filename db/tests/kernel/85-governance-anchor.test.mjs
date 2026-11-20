@@ -20,7 +20,7 @@ import {
 
 const app = pool('APP');
 const admin = pool('ADMIN');
-const job = pool('JOB');
+const scheduler = pool('SCHEDULER');
 const users = {};
 
 before(async () => {
@@ -50,7 +50,7 @@ test('K-GOVERNANCE-ANCHOR 架構：角色之間「誰核准誰」是有向無環
     for (const r of anchors)
         assert.deepEqual([r.assignment_source_policy, r.required, r.change_approver_role], ['ceremony', true, null], r.code);
     // 儀式的 function 不授權給任何執行期帳號
-    for (const role of [config.db.SGN_ROLE_APP, config.db.SGN_ROLE_SYNC, config.db.SGN_ROLE_JOB]) {
+    for (const role of ['APP', 'SYNC', 'SCHEDULER', 'RECONCILER', 'ANCHOR', 'MAILER'].map((key) => config.db[`SGN_ROLE_${key}`])) {
         const priv = await one(
             admin,
             `select has_function_privilege($1, 'sgn_internal.governance_anchor_install(text, uuid, text)', 'execute') as ok`,
@@ -147,8 +147,8 @@ test('K-GOVERNANCE-KEY 治理類角色的持有人沒有可用的通行金鑰：
     const before = (
         await admin.query(`select detail ->> 'person' as person from sgn.exception_record where rule_code = 'K-GOVERNANCE-KEY'`)
     ).rows.map((r) => r.person);
-    await job.query('select api_job.governance_check()');
-    await job.query('select api_job.governance_check()');
+    await scheduler.query('select api_job.governance_check()');
+    await scheduler.query('select api_job.governance_check()');
     const after = (
         await admin.query(`select detail ->> 'person' as person from sgn.exception_record where rule_code = 'K-GOVERNANCE-KEY'`)
     ).rows.map((r) => r.person);

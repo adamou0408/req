@@ -14,7 +14,6 @@ const roles = {
     RECONCILER: config.db.SGN_ROLE_RECONCILER,
     ANCHOR: config.db.SGN_ROLE_ANCHOR,
     MAILER: config.db.SGN_ROLE_MAILER,
-    JOB: config.db.SGN_ROLE_JOB,
 };
 const allowedSchema = {
     APP: 'api',
@@ -24,7 +23,6 @@ const allowedSchema = {
     RECONCILER: 'api_job',
     ANCHOR: 'api_job',
     MAILER: 'api_job',
-    JOB: 'api_job',
 };
 
 after(closePools);

@@ -213,3 +213,91 @@ test('K-PASSKEY-REVOKE 誰不能撤：沒有關係的人、主管鏈上更高的
     assert.deepEqual(fn.args, ['p_session', 'p_reason']);
     assert.equal((await call(app, 'me', target.session)).passkeys, 1, '都沒有撤成');
 });
+
+// 裁決 D86 (3)：只憑登入停用時，持有控制類或治理類角色的人就當場開例外並通知（500 只看治理類）。
+// 角色依 sgn.role 的類別挑（不寫死角色名）；指派以管理者連線暫時加上，結束後收掉（同上一個測試的稽核角色）。
+const roleOf = (category) =>
+    one(admin, 'select code from sgn.role where category = $1 order by code limit 1', [category]).then((r) => r.code);
+const holderExceptions = (rule, personId) =>
+    admin
+        .query(`select detail from sgn.exception_record where rule_code = $1 and detail ->> 'person' = $2::text order by id`, [
+            rule,
+            personId,
+        ])
+        .then((r) => r.rows.map((x) => x.detail));
+const notifyPeople = () =>
+    one(
+        admin,
+        `select coalesce(array_agg(distinct h order by h), '{}') as people
+         from jsonb_array_elements_text(sgn_internal.setting('passkey.suspend_exception_notify_roles')) as n (code)
+         cross join lateral unnest(sgn_internal.role_holders(n.code)) as h`,
+    ).then((r) => r.people);
+
+async function suspendHolding(user, roleCode) {
+    await admin.query(
+        `insert into sgn.role_assignment (person_id, role_code, valid_from, source) values ($1, $2, clock_timestamp(), 'manual')`,
+        [user.personId, roleCode],
+    );
+    try {
+        return await call(app, 'passkey_revoke_self', user.session, '手機遺失');
+    } finally {
+        await admin.query(
+            `update sgn.role_assignment set valid_to = clock_timestamp() where person_id = $1 and role_code = $2 and valid_to is null`,
+            [user.personId, roleCode],
+        );
+    }
+}
+
+test('K-PASSKEY-SUSPEND-HOLDER 只憑登入停用時，當事人持有控制類角色（例如登記人、資安長）就當場開例外並通知；治理類另開 K-GOVERNANCE-KEY；業務類與平台類不開', async () => {
+    const control = await roleOf('control');
+    const governance = await roleOf('governance');
+    const people = (await notifyPeople()).filter((id) => id !== users.p34.personId);
+    assert.ok(people.length >= 1, '參數的通知對象至少有一人');
+    const before = await Promise.all(people.map((id) => notified('passkey.holder_suspended', id)));
+    // 控制類（拿掉 D86 (3) 的修法、只看治理類時，這裡沒有例外）
+    assert.equal((await suspendHolding(users.p34, control)).suspended, 1);
+    const [flagged] = await holderExceptions('K-PASSKEY-SUSPEND-HOLDER', users.p34.personId);
+    assert.deepEqual(flagged.roles, [{ code: control, category: 'control' }]);
+    assert.deepEqual(flagged.settings['passkey.suspend_exception_categories'], ['control', 'governance']);
+    assert.deepEqual(await holderExceptions('K-GOVERNANCE-KEY', users.p34.personId), [], '控制類不是治理類的例外');
+    for (const [i, id] of people.entries()) assert.equal(await notified('passkey.holder_suspended', id), before[i] + 1, `通知 ${id}`);
+    assert.equal(await notified('passkey.holder_suspended', users.p34.personId), 0, '不通知當事人（他收到 passkey.suspended）');
+    const event = await one(
+        admin,
+        `select convert_from(body, 'UTF8')::jsonb as body from sgn.audit_event where event_type = 'passkey.suspended' and actor_person_id = $1 order by seq desc limit 1`,
+        [users.p34.personId],
+    );
+    assert.deepEqual(event.body.data.flagged_roles, [{ code: control, category: 'control' }]);
+    // 治理類：兩個例外都開
+    assert.equal((await suspendHolding(users.p31, governance)).suspended, 1);
+    assert.deepEqual(
+        (await holderExceptions('K-PASSKEY-SUSPEND-HOLDER', users.p31.personId)).map((d) => d.roles),
+        [[{ code: governance, category: 'governance' }]],
+    );
+    assert.deepEqual(
+        (await holderExceptions('K-GOVERNANCE-KEY', users.p31.personId)).map((d) => d.roles),
+        [[governance]],
+    );
+    // 種子資料裡本來就持有控制類角色的人（第一個測試停用的 p35）也開了，列的正是他持有的那些
+    const held = await admin.query(
+        `select distinct r.code, r.category from sgn.role_assignment a join sgn.role r on r.code = a.role_code
+         where a.person_id = $1 and a.valid_to is null and r.category in ('control', 'governance') order by r.code`,
+        [users.p35.personId],
+    );
+    assert.deepEqual(
+        (await holderExceptions('K-PASSKEY-SUSPEND-HOLDER', users.p35.personId)).map((d) => d.roles),
+        [held.rows],
+    );
+    // 只持有平台類角色的人（p32）：不開，也不通知
+    const platform = await one(
+        admin,
+        `select count(*)::int as n from sgn.role_assignment a join sgn.role r on r.code = a.role_code
+         where a.person_id = $1 and a.valid_to is null and r.category not in ('business', 'platform')`,
+        [users.p32.personId],
+    );
+    assert.equal(platform.n, 0, 'p32 只持有業務類或平台類角色');
+    const quiet = await Promise.all(people.map((id) => notified('passkey.holder_suspended', id)));
+    assert.equal((await call(app, 'passkey_revoke_self', users.p32.session, '手機遺失')).suspended, 1);
+    assert.deepEqual(await holderExceptions('K-PASSKEY-SUSPEND-HOLDER', users.p32.personId), []);
+    assert.deepEqual(await Promise.all(people.map((id) => notified('passkey.holder_suspended', id))), quiet);
+});
