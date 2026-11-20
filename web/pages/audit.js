@@ -3,6 +3,7 @@
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { verifyCase } from '../verify.js';
+import { programHealth } from './home.js';
 import { dateText, el, explain, facts, go, stateBadge, tierBadge } from '../ui.js';
 
 async function stageNames() {
@@ -74,6 +75,9 @@ export async function renderAudit(ctx, caseNo) {
                         [t.validity, t.validRange(c.terms.valid_from, c.terms.valid_to)],
                     ]),
                 ),
+                c.overdue
+                    ? el('div', { class: 'result bad', 'data-testid': 'overdue', 'data-kind': c.overdue.kind }, t.overdue.box(c.overdue))
+                    : null,
                 c.exceptions.length
                     ? el(
                           'div',
@@ -95,5 +99,12 @@ export async function renderAudit(ctx, caseNo) {
         }
     };
     await fill();
-    return [el('button', { onclick: () => go('#') }, `← ${t.home}`), el('h2', {}, `${t.caseNo} ${caseNo}`), result, body];
+    // 背景程式的存活：稽核頁打開就檢查一次（裁決 D88 (3)：不只靠被檢查的程式）
+    return [
+        el('button', { onclick: () => go('#') }, `← ${t.home}`),
+        await programHealth(),
+        el('h2', {}, `${t.caseNo} ${caseNo}`),
+        result,
+        body,
+    ];
 }

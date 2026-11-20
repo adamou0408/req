@@ -18,6 +18,10 @@ import {
     registerPasskey,
     rejectsWith,
     requestPasskey,
+    approveEnrollment,
+    registrar,
+    settlePasskey,
+    shownOn,
 } from './lib/harness.mjs';
 
 const app = pool('APP');
@@ -93,7 +97,8 @@ test('K-PASSKEY-SUSPEND 本人只憑登入只能「停用」全部金鑰（裁�
         [me.personId],
     );
     assert.equal(event.body.data.credentials.length, 1);
-    assert.deepEqual(event.body.data.rules, ['K-PASSKEY-SUSPEND']);
+    // 裁決 D88 (2)：每次停用都檢查全公司的上限，事件也列出這條規則與它的參數
+    assert.deepEqual(event.body.data.rules, ['K-PASSKEY-SUSPEND', 'K-PASSKEY-SUSPEND-FLOOD']);
     assert.ok(!JSON.stringify(event.body).includes('遺失'));
     assert.equal(await notified('passkey.suspended', me.personId), 1);
     assert.equal(await notified('passkey.suspended', users.p32.personId), 1);
@@ -179,8 +184,14 @@ test('K-PASSKEY-REVOKE 主管替部屬撤銷：一律用自己的通行金鑰簽
         call(app, 'case_decide_passkey', ch.challenge_id, 'approve', ...raw(target.key.assert(ch.challenge))),
         'PASSKEY_REVOKED',
     );
-    // 重新登記：第一把金鑰的背書（本人不能自己核准）；過冷卻期後繼續處理同一件工作
-    target.key = await registerPasskey(app, target, newAuthenticator(), { endorser: users.p31 });
+    // 重新登記：第一把金鑰的背書（本人不能自己核准）；過冷卻期後繼續處理同一件工作。
+    // 裁決 D88 (1)：撤銷的主管不能背書替換的金鑰，改由登記人背書
+    const replacement = newAuthenticator();
+    const pending = await requestPasskey(app, target, replacement);
+    await rejectsWith(call(app, 'passkey_endorse_challenge', users.p31.session, pending.enrollment_id, 'qr'), 'PASSKEY_ENDORSER_REVOKER');
+    await approveEnrollment(app, target, pending.enrollment_id, await shownOn(replacement), await registrar(app));
+    await settlePasskey(app, replacement);
+    target.key = replacement;
     const again = await issueChallenge(app, target, caseId);
     assert.equal(await decidePasskey(app, again.challenge_id, 'approve', target.key.assert(again.challenge)), 'completed');
 });

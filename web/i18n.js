@@ -287,6 +287,19 @@ export const t = {
         endorseRestoreConsequence: (name) => `請先確認是 ${name} 本人申請的。背書後 ${name} 停用的金鑰就能再用來簽章。`,
         restoreRequested: '已申請恢復，等主管或登記人背書。',
         restored: '已背書，金鑰恢復可用。',
+        notMeOpen: '這把新金鑰不是我登記的',
+        notMeTitle: '冷卻期內的新金鑰',
+        notMeHint:
+            '這些新金鑰是別人背書的，還在冷卻期，還不能用來簽。不是你自己登記的，請按「不是我登記的」：金鑰會立即撤銷，並通知你的主管與資安。',
+        endorsedBy: '背書的人',
+        endorsedAt: '背書時間',
+        usableFrom: '可以簽章的時間',
+        notMe: '不是我登記的',
+        notMeConfirmTitle: '回報不是我登記的',
+        notMeConsequence: (name) =>
+            `這把金鑰（${name} 背書）會立即撤銷，你的主管、${name} 與資安都會收到通知。之後要重新登記，只能當面請主管或登記人掃 QR 碼核對。`,
+        notMeConfirm: '確認撤銷這把金鑰',
+        notMeDone: '已回報，這把金鑰已經撤銷。',
     },
     passkeyCancelled: '沒有完成通行金鑰驗證，所以沒有送出決定。可以再按一次重試。',
 
@@ -322,6 +335,11 @@ export const t = {
         'K-IDP-KEY-LIMIT': '身分提供者例外：時間窗內新增的金鑰超過上限，沒有信任。',
         'K-GOVERNANCE-KEY': '治理例外：治理角色的持有人沒有可用的通行金鑰（停用或沒有登記）。',
         'K-PASSKEY-SUSPEND-HOLDER': '控制例外：持有控制類或治理類角色的人只憑登入停用了自己的通行金鑰，請確認是本人所為。',
+        'K-PASSKEY-RECOVERY': '控制例外：有人的通行金鑰被別人撤銷之後，又登記了一把新的金鑰（冷卻期加長）。請確認是本人登記的。',
+        'K-PASSKEY-NOT-ME': '控制例外：本人回報一把別人背書的新通行金鑰不是自己登記的，已撤銷。請檢查登入來源與背書的經過。',
+        'K-REGISTRAR-MIN': '控制例外：可用的通行金鑰登記人少於下限，第一把金鑰與恢復的背書少了人。',
+        'K-PASSKEY-SUSPEND-FLOOD': '控制例外：全公司只憑登入停用通行金鑰的次數超過上限，之後的停用被拒絕。可能有人冒用登入。',
+        'K-PROGRAM-STALLED': '系統例外：背景程式沒有按時回報，或逾期的工作沒有人處理（到期、確認逾期、交付可能卡住）。',
     },
     exceptionScope: {
         'K-DELIVERY-STUCK': '外部系統',
@@ -333,6 +351,31 @@ export const t = {
         'K-IDP-KEY-LIMIT': '身分提供者',
         'K-GOVERNANCE-KEY': '治理角色',
         'K-PASSKEY-SUSPEND-HOLDER': '控制與治理角色',
+        'K-PASSKEY-RECOVERY': '通行金鑰',
+        'K-PASSKEY-NOT-ME': '通行金鑰',
+        'K-REGISTRAR-MIN': '通行金鑰登記人',
+        'K-PASSKEY-SUSPEND-FLOOD': '通行金鑰',
+        'K-PROGRAM-STALLED': '背景程式',
+    },
+    exceptionClosed: (at) => `・已結案（${dateText(at)}）`,
+    /** 逾期還沒被處理的單（資料庫的 overdue；K-PROGRAM-STALLED） */
+    overdue: {
+        line: (o) => `警示：${t.overdue.kind[o.kind] ?? o.kind}（${dateText(o.since)} 起）`,
+        box: (o) =>
+            `警示：${t.overdue.kind[o.kind] ?? o.kind}，從 ${dateText(o.since)} 起還沒有被處理。排程或交付程式可能沒有在執行，外部系統上的權限可能還沒收回；系統已通知負責的人。`,
+        kind: {
+            grant_expiry: '授權迄日已過，還沒有轉為到期',
+            confirmation_expiry: '確認期限已過，還沒有自動撤銷',
+            delivery: '送到外部系統超過時限還沒有結果',
+        },
+    },
+    programHealth: {
+        ok: '背景程式：都有按時回報，沒有逾期沒處理的工作。',
+        bad: '警示：有背景程式沒有按時回報，或有逾期的工作沒有人處理。系統已開例外並通知負責的人。',
+        program: (p) =>
+            `${p.name}：${p.last_seen ? `最後一次回報 ${dateText(p.last_seen)}` : '從來沒有回報'}（超過 ${p.max_seconds} 秒算停擺）`,
+        work: (o) =>
+            `${t.overdue.kind[o.kind] ?? o.kind}：${o.count} 筆，最舊的${o.oldest_case_no ? `是單號 ${o.oldest_case_no}，` : ''}從 ${dateText(o.oldest_since)} 起`,
     },
     exceptionUnknown: '例外：請查看稽核紀錄。',
     exceptionNoCase: '人員與角色',
@@ -372,6 +415,8 @@ export const t = {
         'passkey.revoked': '撤銷通行金鑰',
         'passkey.bootstrapped': '安裝時建立第一位登記人',
         'exception.opened': '開立例外',
+        'exception.closed': '例外結案',
+        'passkey.disowned': '本人回報不是自己登記的金鑰（已撤銷）',
         'directory.manager_changed': '人員同步：主管異動',
     },
     proofKind: { passkey: '通行金鑰簽章', idp_stepup: '身分提供者再驗證' },

@@ -39,6 +39,7 @@ import {
     stopBrowser,
     submitForm,
     theBrowser,
+    useInstalledRegistrarKey,
     waitPage,
 } from './lib/ui.mjs';
 
@@ -576,6 +577,43 @@ test('K-RECALL 申請人在生效前撤回：要填原因並用通行金鑰確�
     results.tests.recall = { case_no: caseNo, state: c.state, actions: c.actions };
 });
 
+test('K-PROGRAM-STALLED 排程停擺期間授權迄日過了：申請人的首頁與單的頁面顯示警示（資料庫算的 overdue），稽核首頁有背景程式的狀態', async () => {
+    const admin = dbPool('ADMIN');
+    const { rows } = await admin.query(
+        `select g.case_id, c.case_no, g.valid_to::text as valid_to from sgn.grant_record g
+         join sgn.request_case c on c.id = g.case_id join sgn.person_identity i on i.person_id = c.applicant_person_id
+         where g.status = 'active' and i.external_id = 'p04' order by c.case_no limit 1`,
+    );
+    assert.equal(rows.length, 1, '前面的測試留下一張生效中的單');
+    const [grant] = rows;
+    const jobsPid = Number(readFileSync(join(RUN_DIR, 'jobs.pid'), 'utf8'));
+    process.kill(jobsPid, 'SIGSTOP');
+    try {
+        // 測試準備：模擬「排程停擺期間過了迄日」
+        await admin.query('update sgn.grant_record set valid_to = current_date - 1 where case_id = $1', [grant.case_id]);
+        const applicant = await loggedIn('p04');
+        await home(applicant);
+        const card = applicant.page.locator(`[data-testid=mine-item][data-case-no="${grant.case_no}"] [data-testid=overdue]`);
+        await card.waitFor();
+        assert.equal(await card.getAttribute('data-kind'), 'grant_expiry');
+        assert.match(await card.textContent(), /警示/);
+        await applicant.page.goto(`${ORIGIN}/#case/${grant.case_id}`);
+        await applicant.page.reload();
+        await applicant.page.waitForSelector('[data-testid=overdue][data-kind=grant_expiry]');
+        assert.match(await applicant.page.textContent('main [data-testid=overdue]'), /沒有在執行/);
+        const layout = await layoutProblems(applicant.page, '逾期警示');
+        const auditor = await loggedIn('p22');
+        await home(auditor);
+        await auditor.page.waitForSelector('[data-testid=program-health]');
+        results.tests.overdue_warning = { case_no: grant.case_no, layout_problems: layout };
+        assert.deepEqual(layout, []);
+    } finally {
+        // 還原迄日再讓排程繼續（後面的重疊測試要用這張生效中的單）
+        await admin.query('update sgn.grant_record set valid_to = $2::date where case_id = $1', [grant.case_id, grant.valid_to]);
+        process.kill(jobsPid, 'SIGCONT');
+    }
+});
+
 test('尚未錨定：錨定程式暫停時，稽核畫面明確標示「尚未有外部摘要涵蓋」，不顯示驗證通過；恢復錨定後才通過', async () => {
     const auditor = await loggedIn('p22');
     const anchorPid = Number(readFileSync(join(RUN_DIR, 'anchor.pid'), 'utf8'));
@@ -777,10 +815,12 @@ test('K-PASSKEY-SUSPEND 渡邊翔只憑登入停用自己的全部金鑰（裁�
     assert.deepEqual(layout, []);
 });
 
-test('K-PASSKEY-REVOKE 裝置真的遺失：田中美咲用自己的通行金鑰撤銷渡邊翔的全部金鑰；渡邊翔重新登記，田中美咲用手機掃新裝置畫面上的 QR 碼背書（掃到別的指紋不簽）', async () => {
-    const boss = await person('p32');
-    await fakeBarcodeDetector(boss);
-    await loggedIn('p32');
+test('K-PASSKEY-REVOKE K-PASSKEY-RECOVERY 裝置真的遺失：田中美咲用自己的通行金鑰撤銷渡邊翔的全部金鑰；渡邊翔重新登記，撤銷的田中美咲不能背書（裁決 D88 (1)），由登記人葉佳蓉用手機掃新裝置畫面上的 QR 碼背書（掃到別的指紋不簽）；冷卻期加長、本人看得到「不是我登記的」', async () => {
+    const boss = await loggedIn('p32');
+    const keeper = await person(config.db.SGN_SEED_REGISTRAR_2);
+    await fakeBarcodeDetector(keeper);
+    await loggedIn(keeper.uid);
+    await useInstalledRegistrarKey(keeper);
     const staff = await loggedIn('p35');
     await openPasskeys(boss);
     await ensurePasskey(boss);
@@ -800,36 +840,79 @@ test('K-PASSKEY-REVOKE 裝置真的遺失：田中美咲用自己的通行金鑰
     // 測試的「相機」：從新裝置畫面的 QR 碼讀出來的就是畫面上的完整指紋
     const seen = await readDeviceQr(staff.page);
     assert.equal(fingerprintFromPayload(seen), shown.fingerprint);
-    // 田中美咲：從首頁開始數步數
-    await home(boss);
+    // 撤銷的人（田中美咲）不能背書替換的金鑰：她的待核准清單裡沒有這一筆，直接打後端也被擋
+    await boss.page.goto(`${ORIGIN}/#passkeys`);
+    await boss.page.reload();
+    await waitPage(boss.page);
+    assert.equal(await boss.page.locator('[data-testid=enrollment-item]', { hasText: '渡邊翔' }).count(), 0);
+    const pendingId = (await callApi(staff.page, '/api/me')).result.passkey_pending[0].enrollment_id;
+    const blocked = await callApi(boss.page, '/api/passkey_endorse_challenge', { enrollment_id: pendingId, method: 'qr' });
+    assert.equal(blocked.error?.code, 'PASSKEY_ENDORSER_REVOKER', JSON.stringify(blocked));
+    // 登記人葉佳蓉：從首頁開始數步數
+    await home(keeper);
     const steps = [];
-    await boss.page.click('[data-testid=open-passkeys]');
+    await keeper.page.click('[data-testid=open-passkeys]');
     steps.push('點「待核准的通行金鑰登記」');
-    const item = boss.page.locator('[data-testid=enrollment-item]', { hasText: '渡邊翔' });
+    const item = keeper.page.locator('[data-testid=enrollment-item]', { hasText: '渡邊翔' });
     await item.waitFor();
-    layout.push(...(await layoutProblems(boss.page, '背書通行金鑰（掃描）')));
+    layout.push(...(await layoutProblems(keeper.page, '背書通行金鑰（掃描）')));
     // 掃到別的指紋（例如被入侵的後端換掉的金鑰）：警告，不簽
-    await boss.page.evaluate((text) => (window.__seenQr = text), fingerprintPayload('ab'.repeat(32)));
+    await keeper.page.evaluate((text) => (window.__seenQr = text), fingerprintPayload('ab'.repeat(32)));
     await item.locator('[data-testid=endorse-scan]').click();
-    await boss.page.waitForSelector('[data-testid=scan-mismatch]');
-    assert.equal(await boss.page.locator('[data-testid=confirm-passkey]').count(), 0);
-    await boss.page.click('.sheet button');
+    await keeper.page.waitForSelector('[data-testid=scan-mismatch]');
+    assert.equal(await keeper.page.locator('[data-testid=confirm-passkey]').count(), 0);
+    await keeper.page.click('.sheet button');
     // 掃新裝置畫面上的 QR 碼
-    await boss.page.evaluate((text) => (window.__seenQr = text), seen);
+    await keeper.page.evaluate((text) => (window.__seenQr = text), seen);
     await item.locator('[data-testid=endorse-scan]').click();
     steps.push('按「當面掃描新裝置的 QR 碼」（相機對準，自動辨識）');
-    await boss.page.waitForSelector('[data-testid=confirm-passkey]');
-    layout.push(...(await layoutProblems(boss.page, '掃描後確認')));
-    assert.match(await boss.page.textContent('[data-testid=consequence]'), /完整指紋和這筆登記一致/);
-    const done = await flashAfter(boss.page, () => boss.page.click('[data-testid=confirm-passkey]'));
+    await keeper.page.waitForSelector('[data-testid=confirm-passkey]');
+    layout.push(...(await layoutProblems(keeper.page, '掃描後確認')));
+    assert.match(await keeper.page.textContent('[data-testid=consequence]'), /完整指紋和這筆登記一致/);
+    const done = await flashAfter(keeper.page, () => keeper.page.click('[data-testid=confirm-passkey]'));
     steps.push('按「用通行金鑰確認」');
     steps.push('裝置上的使用者驗證');
     assert.equal(done.ok, true, done.text);
+    // 復原的金鑰（被別人撤銷之後登記的）：冷卻期加長，本人首頁的提示多一個「不是我登記的」
     await staff.page.reload();
     await waitPage(staff.page);
-    await staff.page.waitForSelector('[data-testid=passkey-cooling]');
+    await staff.page.waitForSelector('[data-testid=passkey-cooling] [data-testid=open-not-me]');
+    const me = (await callApi(staff.page, '/api/me')).result;
+    assert.equal(me.passkey_disownable, 1);
+    const admin = dbPool('ADMIN');
+    const recovery = await admin.query(
+        `select x.detail from sgn.exception_record x join sgn.person_identity i on i.person_id::text = x.detail ->> 'person'
+         where x.rule_code = 'K-PASSKEY-RECOVERY' and i.external_id = 'p35' order by x.id desc limit 1`,
+    );
+    assert.equal(recovery.rows.length, 1, '開了 K-PASSKEY-RECOVERY');
     results.tests.passkey_qr = { endorse_steps_from_home: steps.length, steps, layout_problems: layout };
     assert.ok(steps.length <= 4, `步數 ${steps.length}`);
+    assert.deepEqual(layout, []);
+});
+
+test('K-PASSKEY-NOT-ME 渡邊翔的新金鑰（別人背書、冷卻期內）不是他登記的：從首頁只憑登入回報，金鑰立即撤銷（量步數）', async () => {
+    const staff = await loggedIn('p35');
+    const layout = [];
+    const steps = [];
+    await home(staff);
+    await staff.page.click('[data-testid=open-not-me]');
+    steps.push('首頁「這把新金鑰不是我登記的」');
+    const item = staff.page.locator('[data-testid=not-me-item]');
+    await item.waitFor();
+    assert.match(await item.textContent(), /葉佳蓉/, '看得到是誰背書的');
+    layout.push(...(await layoutProblems(staff.page, '冷卻期內的新金鑰')));
+    await item.locator('[data-testid=not-me]').click();
+    steps.push('按「不是我登記的」');
+    assert.match(await staff.page.textContent('[data-testid=consequence]'), /立即撤銷/);
+    layout.push(...(await layoutProblems(staff.page, '回報不是我登記的')));
+    const done = await flashAfter(staff.page, () => staff.page.click('[data-testid=confirm-not-me]'));
+    steps.push('按「確認撤銷這把金鑰」');
+    assert.equal(done.ok, true, done.text);
+    const me = (await callApi(staff.page, '/api/me')).result;
+    assert.deepEqual([me.passkey_disownable, me.passkey_cooling_until], [0, null]);
+    console.log(`K-PASSKEY-NOT-ME 本人回報：${steps.length} 步（${steps.join(' → ')}）`);
+    results.tests.passkey_not_me = { steps_from_home: steps.length, steps, layout_problems: layout };
+    assert.ok(steps.length <= 3, `步數 ${steps.length}`);
     assert.deepEqual(layout, []);
 });
 

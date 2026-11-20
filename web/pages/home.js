@@ -23,6 +23,10 @@ async function caseCard(c, testid) {
         el('span', { class: 'line' }, cat ? pack.packagesLine(cat, c.content) : c.process_type),
         el('span', { class: 'line muted' }, `${c.terms.principal?.name ?? '—'}・${t.validRange(c.terms.valid_from, c.terms.valid_to)}`),
         stage ? el('span', { class: 'line muted' }, `${stage.name}${waiting ? `・${waiting}` : ''}`) : null,
+        // 逾期還沒被處理（資料庫算好；排程或交付程式可能停擺，K-PROGRAM-STALLED）
+        c.overdue
+            ? el('span', { class: 'line bad-text', 'data-testid': 'overdue', 'data-kind': c.overdue.kind }, t.overdue.line(c.overdue))
+            : null,
         // 等確認的站內待辦：剩幾個工作天、快到期（資料庫算好；不只靠郵件，K-CONFIRM-REMIND）
         c.confirm_due
             ? el(
@@ -86,6 +90,25 @@ function auditSearch() {
     return section('audit', t.audit, form);
 }
 
+/** 背景程式的存活（K-PROGRAM-STALLED）：打開時資料庫檢查一次（開例外、結案），停擺的程式與沒人處理的逾期工作列成警示。 */
+export async function programHealth() {
+    const h = await api.call('program_health');
+    const programs = h.programs.filter((p) => p.stalled);
+    const overdue = h.overdue.filter((o) => o.stalled);
+    const bad = programs.length + overdue.length > 0;
+    return el(
+        'div',
+        { class: `result ${bad ? 'bad' : 'ok'}`, 'data-testid': 'program-health', 'data-status': bad ? 'bad' : 'ok' },
+        el('p', {}, bad ? t.programHealth.bad : t.programHealth.ok),
+        programs.length || overdue.length
+            ? el('ul', {}, [
+                  ...programs.map((p) => el('li', { 'data-program': p.code }, t.programHealth.program(p))),
+                  ...overdue.map((o) => el('li', { 'data-work': o.kind }, t.programHealth.work(o))),
+              ])
+            : null,
+    );
+}
+
 async function auditExceptions() {
     const list = await api.call('audit_exceptions');
     return section(
@@ -105,6 +128,9 @@ async function auditExceptions() {
                               ? (t.exceptionScope[x.rule_code] ?? t.exceptionNoCase)
                               : el('a', { href: `#audit/${x.case_no}` }, `${t.caseNo} ${x.case_no}`),
                           `・${t.exception[x.rule_code] ?? t.exceptionUnknown}`,
+                          x.closed_at
+                              ? el('span', { class: 'muted', 'data-testid': 'exception-closed' }, t.exceptionClosed(x.closed_at))
+                              : null,
                       ),
                   ),
               ),
@@ -115,10 +141,12 @@ export async function renderHome(ctx) {
     const can = (c) => ctx.me.capabilities.includes(c);
     const parts = [];
     // 停用中的通行金鑰：沒有待簽清單的人也要在首頁看到（待簽清單裡已經有同一個提示）
-    if (!can('inbox') && ctx.me.passkey_suspended > 0) parts.push(Promise.resolve(passkeyNotice(ctx.me)));
+    // 別人背書、冷卻期內的新金鑰（K-PASSKEY-NOT-ME）：本人要在首頁就看到「不是我登記的」
+    if (!can('inbox') && (ctx.me.passkey_suspended > 0 || ctx.me.passkey_disownable > 0))
+        parts.push(Promise.resolve(passkeyNotice(ctx.me)));
     if (can('inbox')) parts.push(fillInbox(ctx));
     if (can('case.submit')) parts.push(fillMine());
-    if (can('audit')) parts.push(Promise.resolve(auditSearch()), auditExceptions());
+    if (can('audit')) parts.push(programHealth(), Promise.resolve(auditSearch()), auditExceptions());
     // 通行金鑰：待核准的登記（我可以背書的，或我自己用舊金鑰核准的，依資料庫回傳的 actions）、等我背書恢復的停用；
     // 遺失裝置、停用或撤銷人人都要找得到
     const endorse = can('passkey.endorse') || ctx.me.passkey_pending.some((e) => e.actions.includes('endorse'));

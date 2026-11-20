@@ -166,9 +166,10 @@ test('K-PASSKEY-ENROLL 已有金鑰的人：新金鑰用舊金鑰核准；核准
     await rejectsWith(decidePasskey(app, ch.challenge_id, 'approve', other.assert(ch.challenge)), 'NOT_APPROVER');
 });
 
-test('K-PASSKEY-ENROLL 第一位登記人只能由資料庫擁有者在安裝時建立一次；後端帳號執行不到', async () => {
+test('K-PASSKEY-ENROLL 登記人只能由資料庫擁有者在安裝時建立（可用的登記人少於下限時才行）；後端帳號執行不到', async () => {
+    // 裁決 D88 (2)：安裝時建立兩位登記人（passkey.registrar_min＝2），之後就不能再建
     const boot = await one(admin, `select count(*)::int as n from sgn.audit_event where event_type = 'passkey.bootstrapped'`);
-    assert.equal(boot.n, 1);
+    assert.equal(boot.n, 2);
     const key = newAuthenticator();
     await rejectsPermission(
         app.query('select sgn_internal.passkey_bootstrap($1, $2, $3, $4)', [users.p05.personId, key.credentialIdB64, key.spkiB64, 'x']),

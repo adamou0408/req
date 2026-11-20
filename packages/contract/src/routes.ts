@@ -91,6 +91,11 @@ const caseFields = {
     /** 送審前必須修正的地方（只有草稿與退回的單有） */
     errors: { array: contentError },
     exceptions: { array: exceptionRef },
+    /**
+     * 逾期還沒被處理的工作（裁決 D88 (3)；資料庫算，頁面不自行推斷）：kind 是 grant_expiry（迄日已過還沒到期）、
+     * confirmation_expiry（確認期限已過還沒撤銷）或 delivery（交付超過時限沒有結果）；since 是開始逾期的時間。沒有時為 null。
+     */
+    overdue: { nullable: { object: { kind: 'text', since: 'timestamp' } } },
 } as const satisfies Record<string, Shape>;
 
 /**
@@ -295,7 +300,30 @@ const revocationResult: Shape = {
 
 /** 只憑登入停用自己的全部通行金鑰的結果（裁決 D84 (2)：不是撤銷）。 */
 const suspensionResult: Shape = {
-    object: { person: personRef, suspended: 'int', cancelled_enrollments: 'int', suspended_at: 'timestamp' },
+    object: {
+        person: personRef,
+        suspended: 'int',
+        cancelled_enrollments: 'int',
+        suspended_at: { nullable: 'timestamp' },
+        /** 全公司只憑登入的停用超過上限（K-PASSKEY-SUSPEND-FLOOD）：沒有停用，資料庫已開例外；畫面顯示 message。其他時候為 null */
+        refused: { nullable: message },
+    },
+};
+
+/** 本人可以回報「不是我登記的」的新金鑰（K-PASSKEY-NOT-ME）：別人背書、還在冷卻期。畫面只從 display 畫。 */
+const disownable: Shape = {
+    object: {
+        display: {
+            object: {
+                credential_id: 'b64url',
+                public_key_sha256: 'hex',
+                endorsed_by: personRef,
+                endorsed_at: 'timestamp',
+                usable_from: 'timestamp',
+            },
+        },
+        actions: { array: 'text' },
+    },
 };
 
 /** 恢復的顯示摘要：本人、停用的每一把金鑰、停用時間。恢復畫面只從它畫，本人與背書人簽的都是它。 */
@@ -392,6 +420,8 @@ export const routes = [
                 /** 只憑登入停用、還沒恢復的金鑰數（K-PASSKEY-SUSPEND） */
                 passkey_suspended: 'int',
                 passkey_cooling_until: { nullable: 'timestamp' },
+                /** 別人背書、還在冷卻期、本人可以回報「不是我登記的」的金鑰數（K-PASSKEY-NOT-ME） */
+                passkey_disownable: 'int',
                 passkey_pending: { array: enrollment },
                 capabilities: { array: 'text' },
             },
@@ -471,6 +501,21 @@ export const routes = [
         params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
         returns: { object: { suspension_id: 'uuid', status: 'text', person: personRef } },
     },
+    /** 冷卻期內本人只憑登入回報「不是我登記的」（裁決 D88 (1)）：只會收回 */
+    { fn: 'passkey_not_me_list', params: ['session'], returns: { array: disownable } },
+    {
+        fn: 'passkey_report_not_me',
+        params: ['session', 'credential_id'],
+        returns: {
+            object: {
+                person: personRef,
+                revoked: 'int',
+                cancelled_enrollments: 'int',
+                revoked_at: 'timestamp',
+                reports_left: 'int',
+            },
+        },
+    },
     {
         fn: 'passkey_revoke_challenge',
         params: ['session', 'holder_id', 'reason'],
@@ -492,7 +537,54 @@ export const routes = [
         fn: 'audit_exceptions',
         params: ['session'],
         returns: {
-            array: { object: { id: 'int', rule_code: 'text', case_no: { nullable: 'int' }, opened_at: 'timestamp', event_seq: 'int' } },
+            array: {
+                object: {
+                    id: 'int',
+                    rule_code: 'text',
+                    case_no: { nullable: 'int' },
+                    opened_at: 'timestamp',
+                    event_seq: 'int',
+                    /** 狀況解除時結案（K-EXCEPTION-CLOSE）；未結案為 null */
+                    closed_at: { nullable: 'timestamp' },
+                },
+            },
+        },
+    },
+    /**
+     * 稽核頁的存活檢查（K-PROGRAM-STALLED）：觸發一次檢查（會開例外與結案，所以不叫 audit_*），
+     * 回傳每個背景程式最後一次心跳與每種逾期還沒被處理的工作。
+     */
+    {
+        fn: 'program_health',
+        params: ['session'],
+        returns: {
+            object: {
+                programs: {
+                    array: {
+                        object: {
+                            code: 'text',
+                            name: 'text',
+                            last_seen: { nullable: 'timestamp' },
+                            max_seconds: 'int',
+                            stalled: 'bool',
+                        },
+                    },
+                },
+                overdue: {
+                    array: {
+                        object: {
+                            kind: 'text',
+                            count: 'int',
+                            oldest_since: 'timestamp',
+                            oldest_case_no: { nullable: 'int' },
+                            max_seconds: 'int',
+                            stalled: 'bool',
+                        },
+                    },
+                },
+                opened: 'int',
+                closed: 'int',
+            },
         },
     },
     // 角色指派變更（控制、平台、治理類角色只能走這裡）：提出與決定都要通行金鑰（裁決 D68、D69）
@@ -614,21 +706,29 @@ export const anchorCalls = {
     anchorPolicy: { fn: 'anchor_policy', params: [] },
     /** 錨點存放處收下錨點之後回報（資料庫依它判斷錨定有沒有落後，K-ANCHOR-LAG） */
     anchorRecorded: { fn: 'anchor_recorded', params: ['seq', 'hash', 'code_fingerprint'] },
+    /** 每一輪回報心跳並檢查其他程式（K-PROGRAM-STALLED；裁決 D88 (3)） */
+    anchorHeartbeat: { fn: 'anchor_heartbeat', params: [] },
 } as const satisfies Record<string, Grant>;
 
 /** 通知寄送（api/src/mailer.ts，帳號 sgn_mailer；裁決 D76）：領走一批、寄出後回報 */
 export const mailerCalls = {
     notificationClaim: { fn: 'notification_claim', params: ['limit'] },
     notificationMark: { fn: 'notification_mark', params: ['id', 'sent', 'error'] },
+    /** 每一輪回報心跳並檢查其他程式（K-PROGRAM-STALLED） */
+    mailerHeartbeat: { fn: 'mailer_heartbeat', params: [] },
 } as const satisfies Record<string, Grant>;
 
 /** 對帳（api/src/reconciler.ts，帳號 sgn_reconciler）：外部系統簽過的對帳回報交給資料庫驗證與比對 */
 export const reconcilerCalls = {
     reconciliationSubmit: { fn: 'reconciliation_submit', params: ['channel', 'report'] },
+    /** 每一輪回報心跳並檢查其他程式（K-PROGRAM-STALLED） */
+    reconcilerHeartbeat: { fn: 'reconciler_heartbeat', params: [] },
 } as const satisfies Record<string, Grant>;
 
 /** 排程（db/tools/jobs.mjs，帳號 sgn_scheduler） */
 export const schedulerCalls = {
+    /** 每一輪先回報心跳並檢查其他程式（K-PROGRAM-STALLED；排程停了由別的程式與稽核頁發現） */
+    schedulerHeartbeat: { fn: 'scheduler_heartbeat', params: [] },
     directorySettle: { fn: 'directory_settle', params: [] },
     authChallengePurge: { fn: 'auth_challenge_purge', params: [] },
     /** 治理類角色的持有人沒有可用的通行金鑰時開例外（裁決 D77） */
@@ -652,6 +752,8 @@ export const schedulerCalls = {
 /** 身分提供者的金鑰更新程序（db/tools/idp-keys.mjs，帳號 sgn_idp_keys；裁決 D81 (5)）能執行的 api_idp function。 */
 export const idpCalls = {
     idpKeysSync: { fn: 'idp_keys_sync', params: ['issuer', 'jwks'] },
+    /** 每一輪回報心跳並檢查其他程式（K-PROGRAM-STALLED） */
+    idpKeysHeartbeat: { fn: 'idp_keys_heartbeat', params: [] },
 } as const satisfies Record<string, Grant>;
 
 /**
@@ -661,4 +763,6 @@ export const idpCalls = {
 export const deliveryCalls = {
     deliveryClaim: { fn: 'delivery_claim', params: ['channel', 'limit'] },
     deliveryReport: { fn: 'delivery_report', params: ['op_id', 'lease_token', 'outcome'] },
+    /** 每一輪回報心跳並檢查其他程式（K-PROGRAM-STALLED） */
+    deliveryHeartbeat: { fn: 'delivery_heartbeat', params: [] },
 } as const satisfies Record<string, Grant>;

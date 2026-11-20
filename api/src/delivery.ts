@@ -55,6 +55,8 @@ async function main(): Promise<void> {
     const db = new pg.Pool({ connectionString: config.dbUrl, max: 2 });
     const ports = Object.entries(config.channels).map(([channel, c]) => [channel, dcHttpDelivery(c)] as const);
     const once = async (): Promise<void> => {
+        // 每一輪先回報心跳（裁決 D88 (3)：同時檢查其他程式有沒有停擺）；心跳失敗不擋住交付
+        await db.query(`select api_delivery.${deliveryCalls.deliveryHeartbeat.fn}()`).catch((err: unknown) => console.error(err));
         const out: Record<string, number> = {};
         for (const [channel, port] of ports) out[channel] = await deliverChannel(db, channel, port);
         if (Object.values(out).some((n) => n > 0)) console.log(JSON.stringify({ at: new Date().toISOString(), sent: out }));

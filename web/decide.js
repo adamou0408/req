@@ -40,6 +40,8 @@ export function passkeyNotice(me) {
             'div',
             { class: 'result warn', 'data-testid': 'passkey-cooling' },
             el('p', {}, t.passkeyCooling(me.passkey_cooling_until)),
+            // 別人背書的新金鑰（例如被撤銷之後）：冷卻期內本人只憑登入就能回報不是自己登記的（K-PASSKEY-NOT-ME）
+            me.passkey_disownable > 0 ? el('a', { href: '#passkeys', 'data-testid': 'open-not-me' }, t.passkeys.notMeOpen) : null,
         );
     }
     return el(

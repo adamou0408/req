@@ -1,9 +1,11 @@
 // 端對端共用：每個人一個手機尺寸的瀏覽器環境（各自帶虛擬通行金鑰驗證器）、真的 Dex 登入、
 // 走畫面填申請、走畫面做決定、版面自動檢查（ux-acceptance 第 3 節：390px 沒有水平捲動、觸控目標 44px）。
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { approveEnrollment, call, closePools, pool, rememberKey, settlePasskey } from '../../../db/tests/kernel/lib/harness.mjs';
-import { loadConfig } from '../../../db/tools/lib/env.mjs';
+import { RUN_DIR, loadConfig } from '../../../db/tools/lib/env.mjs';
 import { groupedCode, shortCode } from '../../../web/lib/signing.js';
 import { readQr } from './qr-read.mjs';
 
@@ -175,6 +177,30 @@ export async function ensurePasskey(p) {
     await p.page.reload();
     await waitPage(p.page);
     return true;
+}
+
+/**
+ * 安裝時建立的登記人（db/tools/bootstrap-registrar.mjs）：把它的軟體金鑰放進這個人瀏覽器的虛擬驗證器，讓他在畫面上背書。
+ * 計數器從目前的時間算起（和 harness 的跨行程金鑰一樣，比之前任何一次都大）。
+ */
+export async function useInstalledRegistrarKey(p) {
+    const saved = JSON.parse(readFileSync(join(RUN_DIR, `registrar-${config.database}.json`), 'utf8'));
+    const entry = [saved, ...(saved.others ?? [])].find((r) => r.uid === p.uid);
+    assert.ok(entry, `${p.uid} 不是安裝時建立的登記人`);
+    await p.cdp.send('WebAuthn.addCredential', {
+        authenticatorId: p.authenticatorId,
+        credential: {
+            credentialId: Buffer.from(entry.key.credentialId, 'base64url').toString('base64'),
+            // 頁面用可探索的憑證（navigator.credentials.get 不帶 allowCredentials）：要是常駐憑證，帶上使用者代碼（內部 id）
+            isResidentCredential: true,
+            userHandle: Buffer.from((await call(app, 'me', (await sessionOf(p)).session)).person_id.replaceAll('-', ''), 'hex').toString(
+                'base64',
+            ),
+            rpId: config.db.SGN_RP_ID,
+            privateKey: entry.key.privateKeyPkcs8,
+            signCount: Math.floor((Date.now() - 1.7e12) / 100),
+        },
+    });
 }
 
 /**

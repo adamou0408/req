@@ -449,6 +449,14 @@ export async function renderCase(ctx, caseId) {
                   d.exceptions.map((x) => el('p', {}, t.exception[x.rule_code] ?? t.exceptionUnknown)),
               )
             : null,
+        // 逾期還沒被處理（資料庫算好，頁面不自行推斷；K-PROGRAM-STALLED）
+        c.overdue
+            ? el(
+                  'div',
+                  { class: 'result bad', role: 'alert', 'data-testid': 'overdue', 'data-kind': c.overdue.kind },
+                  t.overdue.box(c.overdue),
+              )
+            : null,
         duplicatesNotice(c),
         needsProof ? passkeyNotice(ctx.me) : null,
         confirmationPanel(c),

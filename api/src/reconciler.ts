@@ -36,6 +36,8 @@ async function main(): Promise<void> {
     const db = new pg.Pool({ connectionString: config.dbUrl, max: 1 });
     const ports = Object.entries(config.channels).map(([channel, c]) => [channel, dcHttpReconciliation(c)] as const);
     const once = async (): Promise<void> => {
+        // 每一輪先回報心跳（裁決 D88 (3)：同時檢查其他程式有沒有停擺）；心跳失敗不擋住對帳
+        await db.query(`select api_job.${reconcilerCalls.reconcilerHeartbeat.fn}()`).catch((err: unknown) => console.error(err));
         for (const [channel, port] of ports) {
             console.log(JSON.stringify({ at: new Date().toISOString(), channel, result: await reconcileChannel(db, channel, port) }));
         }

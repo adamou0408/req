@@ -165,12 +165,13 @@ export async function endorsementChallenge(db, endorser, enrollmentId, ch, { met
 const timeCounter = () => Math.floor((Date.now() - 1.7e12) / 100);
 
 const registrars = new Map();
+const registrarFile = () => JSON.parse(readFileSync(join(RUN_DIR, `registrar-${config.database}.json`), 'utf8'));
 /**
  * 系統的第一位登記人（db/tools/bootstrap-registrar.mjs 在建置時由資料庫擁有者建立，金鑰存在 .run/）。
  */
 export function registrar(db) {
     if (!registrars.has(db)) {
-        const saved = JSON.parse(readFileSync(join(RUN_DIR, `registrar-${config.database}.json`), 'utf8'));
+        const saved = registrarFile();
         registrars.set(
             db,
             login(db, saved.uid).then((user) => ({
@@ -212,6 +213,18 @@ export async function oldKey(db, user) {
     else {
         const reg = await registrar(db);
         if (reg.personId === id) liveKeys.set(id, reg.key);
+        // 安裝時建立的其他登記人（bootstrap-registrar.mjs 的 others；裁決 D88 (2) 的第二位登記人）
+        const other = registrarFile().others?.find((o) => o.uid === user.uid);
+        if (other)
+            liveKeys.set(
+                id,
+                new SoftAuthenticator({
+                    rpId: config.db.SGN_RP_ID,
+                    origin: config.db.SGN_WEB_ORIGIN,
+                    ...other.key,
+                    counterFrom: timeCounter,
+                }),
+            );
     }
     return liveKeys.get(id) ?? null;
 }

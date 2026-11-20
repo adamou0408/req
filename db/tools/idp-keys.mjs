@@ -15,6 +15,8 @@ const pool = new pg.Pool({ connectionString: programDbUrl(config, PROGRAMS['idp-
 const everyIndex = process.argv.indexOf('--every');
 
 async function runOnce() {
+    // 每一輪先回報心跳（裁決 D88 (3)：同時檢查其他程式有沒有停擺）；心跳失敗不擋住同步
+    await pool.query(`select api_idp.${idpCalls.idpKeysHeartbeat.fn}()`).catch((err) => console.error(err.message));
     const discovery = await (await fetch(`${idp.SIM_IDP_ISSUER}/.well-known/openid-configuration`)).json();
     const jwks = await (await fetch(discovery.jwks_uri)).json();
     const { rows } = await pool.query(`select api_idp.${idpCalls.idpKeysSync.fn}($1, $2) as r`, [discovery.issuer, jwks]);

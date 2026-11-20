@@ -901,3 +901,70 @@ test('架構：被入侵的後端（sgn_app）不能領取交付、不能謊報�
     await rejectsPermission(scheduler.query(`select api_delivery.delivery_claim('dc', 1)`));
     await rejectsPermission(reconciler.query(`select api_delivery.delivery_claim('dc', 1)`));
 });
+
+test('K-GRANT-LATE 過了授權迄日才標記已套用（人工）或確認（自動）：不生效、直接走到期、不產生授權；人工的受管系統開例外並通知管理人去拿掉（裁決 D88 (5)）', async () => {
+    // 測試準備：模擬「核准後很久都沒人執行」——這一版的授權期間整個移到過去
+    const lapse = (caseId) =>
+        admin.query(
+            `update sgn.case_version set terms = jsonb_set(jsonb_set(terms, '{valid_from}', to_jsonb((current_date - 40)::text)),
+                                                         '{valid_to}', to_jsonb((current_date - 2)::text))
+             where case_id = $1`,
+            [caseId],
+        );
+    // 人工：執行人標記已套用時迄日已過 → 不開確認、直接到期
+    const content = {
+        scope: [{ package: 'payroll', fields: ['employee_id', 'net_pay'], row_filters: [] }],
+        data_period: { from: '2094-01-01', to: '2094-12-31' },
+        purpose_category: 'operations',
+        purpose_description: '交付測試（人工、過了迄日才執行）',
+        export_allowed: false,
+    };
+    const t = { principal_id: P['ap-recon-bot'], valid_from: today(), valid_to: today(60) };
+    const c = await call(app, 'case_submit_new', users.p04.session, DA, content, t, null);
+    for (const who of ['p12', 'p03', 'p15', 'p19']) await decide(app, users[who], c.case_id);
+    await call(app, 'task_claim', users.p16.session, c.case_id);
+    await decide(app, users.p16, c.case_id);
+    await lapse(c.case_id);
+    await call(app, 'task_claim', users.p30.session, c.case_id);
+    assert.equal(await decide(app, users.p30, c.case_id, 'fulfil'), 'expired');
+    let v = await view(c.case_id);
+    assert.equal(v.grant, null, '沒有產生授權');
+    assert.equal(v.confirmation, null, '不開確認');
+    assert.ok((await events(c.case_id)).includes('grant.expired'));
+    const manual = await admin.query(
+        `select detail ->> 'event' as event from sgn.exception_record where case_id = $1 and rule_code = 'K-DELIVERY-MANUAL' order by id`,
+        [c.case_id],
+    );
+    assert.ok(
+        manual.rows.some((r) => r.event === 'lapsed'),
+        '人工的受管系統：開例外叫管理人去拿掉',
+    );
+    const told = await admin.query(
+        `select person_id from sgn.notification_outbox where case_id = $1 and event_code = 'delivery.manual_required'`,
+        [c.case_id],
+    );
+    assert.ok(told.rows.some((r) => r.person_id === users.p30.personId));
+    // 自動：驗證通過、等確認時迄日過了 → 申請人確認也不生效，走到期並排清除
+    const auto = await approved(2093);
+    await drain(delivery, dc);
+    assert.equal((await view(auto)).confirmation?.status, 'pending');
+    await lapse(auto);
+    v = await confirmVerification(app, users.p04, auto);
+    assert.equal(v.state, 'expired');
+    assert.equal(v.grant, null);
+    assert.equal(v.confirmation.status, 'cancelled');
+    // 清除是整個通道一筆（delivery_purge）：把外部系統上已過期的規則拿掉
+    const purge = await one(
+        admin,
+        `select count(*)::int as n from sgn.delivery_op where channel = $1 and kind = 'purge' and status in ('queued', 'sending')`,
+        [CHANNEL],
+    );
+    assert.ok(purge.n >= 1, '排清除，把外部系統上的規則拿掉');
+    const ended = await one(
+        admin,
+        `select convert_from(body, 'UTF8')::jsonb as body from sgn.audit_event where case_id = $1 and event_type = 'grant.expired'`,
+        [auto],
+    );
+    assert.deepEqual(ended.body.data.rules, ['K-GRANT-LATE', 'K-DELIVERY-AUTO']);
+    await drain(delivery, dc);
+});

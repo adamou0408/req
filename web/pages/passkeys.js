@@ -5,6 +5,7 @@
 //   這筆登記允許哪些方式（methods）由資料庫決定（本人只憑登入撤銷金鑰之後只能當面掃）。
 // 簽的內容是清單的顯示摘要（本人、金鑰編號、指紋）加上核對方式與成本，資料庫用自己的紀錄重算（D75）。
 // 撤銷：清單與按鈕只依資料庫回傳的 actions；替別人撤銷一律用自己的通行金鑰簽撤銷的顯示摘要加上原因。
+// 不是我登記的（K-PASSKEY-NOT-ME）：別人背書、還在冷卻期的新金鑰，本人只憑登入回報，金鑰立即撤銷（只會收回）。
 import { api } from '../api.js';
 import { passkeyNotice } from '../decide.js';
 import { t } from '../i18n.js';
@@ -206,6 +207,12 @@ function confirmRevoke(row, action) {
             const done = self
                 ? await api.call('passkey_revoke_self', { reason: reason.value })
                 : await revokeWithPasskey(row, reason.value);
+            // 全公司只憑登入的停用超過上限（K-PASSKEY-SUSPEND-FLOOD）：資料庫沒有停用、已開例外，顯示它給的訊息
+            if (done.refused) {
+                error.textContent = done.refused.message;
+                error.hidden = false;
+                return;
+            }
             panel.remove();
             go('#passkeys', { text: self ? k.suspended(done.suspended) : k.revoked(done.revoked), ok: true });
         } catch (err) {
@@ -311,15 +318,60 @@ function suspensionCard(row) {
     );
 }
 
+// ── 不是我登記的（K-PASSKEY-NOT-ME） ──
+
+function confirmNotMe(row) {
+    const error = el('p', { class: 'result bad', role: 'alert', hidden: true, 'data-testid': 'decision-error' });
+    const panel = sheet(
+        k.notMeConfirmTitle,
+        el('p', { 'data-testid': 'consequence' }, k.notMeConsequence(row.display.endorsed_by.name)),
+        error,
+        el(
+            'div',
+            { class: 'row sheet-buttons' },
+            el('button', { onclick: () => panel.remove() }, t.cancel),
+            el('button', { class: 'primary', 'data-testid': 'confirm-not-me', onclick: () => run() }, k.notMeConfirm),
+        ),
+    );
+    async function run() {
+        try {
+            await api.call('passkey_report_not_me', { credential_id: row.display.credential_id });
+            panel.remove();
+            go('#passkeys', { text: k.notMeDone, ok: true });
+        } catch (err) {
+            error.textContent = explain(err);
+            error.hidden = false;
+        }
+    }
+}
+
+function notMeCard(row) {
+    return el(
+        'div',
+        { class: 'card', 'data-testid': 'not-me-item' },
+        facts([
+            [k.keys, el('span', { class: 'mono' }, `${row.display.public_key_sha256.slice(0, 16)}…`)],
+            [k.endorsedBy, row.display.endorsed_by.name],
+            [k.endorsedAt, dateText(row.display.endorsed_at)],
+            [k.usableFrom, dateText(row.display.usable_from)],
+        ]),
+        row.actions.includes('report_not_me')
+            ? el('button', { class: 'wide', 'data-testid': 'not-me', onclick: () => confirmNotMe(row) }, k.notMe)
+            : null,
+    );
+}
+
 export async function renderPasskeys(ctx) {
-    const [list, revocable, suspended] = await Promise.all([
+    const [list, revocable, suspended, disownable] = await Promise.all([
         api.call('passkey_enrollment_list'),
         api.call('passkey_revocation_list'),
         api.call('passkey_suspension_list'),
+        api.call('passkey_not_me_list'),
     ]);
     return [
         el('a', { href: '#' }, `← ${t.home}`),
         passkeyNotice(ctx.me),
+        disownable.length ? section('not-me', k.notMeTitle, el('p', { class: 'muted' }, k.notMeHint), disownable.map(notMeCard)) : null,
         suspended.length
             ? section('restore', k.restoreTitle, el('p', { class: 'muted' }, k.restoreHint), suspended.map(suspensionCard))
             : null,

@@ -22,6 +22,7 @@ import {
     call,
     challengeFor,
     closePools,
+    config,
     decisionChallenge,
     endorsementChallenge,
     idToken,
@@ -294,6 +295,7 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     await check('audit_chain', auditor.session, 0, 50);
     await check('audit_code_fingerprint', auditor.session);
     await check('audit_exceptions', auditor.session);
+    await check('program_health', auditor.session);
     // 角色指派變更：稽核主管提出、稽核治理人以通行金鑰核准；最後撤除，不影響其他測試
     await check('role_change_options', auditHead.session);
     const changeRole = async (change) => {
@@ -353,7 +355,16 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
         await check('passkey_revoke_passkey', revoke.challenge_id, r.credentialId, r.authenticatorData, r.clientDataJSON, r.signature);
     };
     await signRevoke(keeper, '契約測試：登記人用金鑰撤銷');
-    holder.key = await registerPasskey(app, holder, newAuthenticator(), { endorser: keeper });
+    // 裁決 D88 (1)：撤銷的登記人不能背書替換的金鑰，由第二位登記人背書（安裝時建立；harness 的 oldKey 認得它的金鑰）
+    const second = await login(app, config.db.SGN_SEED_REGISTRAR_2);
+    second.key = await oldKey(app, second);
+    const replacement = newAuthenticator();
+    holder.key = await registerPasskey(app, holder, replacement, { endorser: second, settle: false });
+    // 冷卻期內本人可以回報「不是我登記的」（K-PASSKEY-NOT-ME）：先看清單；回報之後再登記一把真的（本人只憑登入撤銷之後只能當面掃）
+    const disownable = await check('passkey_not_me_list', holder.session);
+    assert.equal(disownable.length, 1);
+    await check('passkey_report_not_me', holder.session, disownable[0].display.credential_id);
+    holder.key = await registerPasskey(app, holder, newAuthenticator(), { endorser: second });
     await signRevoke(holder, '契約測試：用金鑰撤銷');
     // 恢復停用的金鑰：稽核主管（之後不再用）停用 → 本人用原金鑰簽 → 登記人背書
     await call(app, 'passkey_revoke_self', auditHead.session, '契約測試：停用');

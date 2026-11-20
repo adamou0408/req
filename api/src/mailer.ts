@@ -4,6 +4,7 @@
 // 設定只讀自己的（裁決 D81 (1)）：.run/secrets/mailer.env（sgn_mailer 的密碼）與 sim/mail 的位址。
 import pg from 'pg';
 import { loadProgramConfig, programDbUrl, simServiceEnv } from '../../db/tools/lib/env.mjs';
+import { mailerCalls } from '@sgn/contract';
 import { PROGRAMS } from '../../db/tools/lib/programs.mjs';
 import { deliverPending } from './notify.ts';
 import { smtpMailer } from './smtp.ts';
@@ -21,8 +22,12 @@ const mailerConfig = {
 const db = new pg.Pool({ connectionString: mailerConfig.dbUrl, max: 2 });
 const mail = smtpMailer(mailerConfig.smtp);
 const everyIndex = process.argv.indexOf('--every');
-const once = async () =>
+// 每一輪先回報心跳（裁決 D88 (3)：同時檢查其他程式有沒有停擺）；心跳失敗不擋住寄送
+const heartbeat = async () => db.query(`select api_job.${mailerCalls.mailerHeartbeat.fn}()`).catch((err: unknown) => console.error(err));
+const once = async () => {
+    await heartbeat();
     console.log(JSON.stringify({ at: new Date().toISOString(), ...(await deliverPending(db, mail, mailerConfig.from)) }));
+};
 
 await once();
 if (everyIndex > 0) setInterval(() => once().catch((err: unknown) => console.error(err)), Number(process.argv[everyIndex + 1]) * 1000);
