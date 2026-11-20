@@ -82,6 +82,12 @@ check_tracked_files() {
 }
 
 check_audit() { npm audit --audit-level=high --omit=optional; }
+# sim/dc 不在根目錄的 workspaces（自己的 lock）：以根目錄的 Prettier、ESLint 設定檢查，再跑它自己的型別檢查與測試
+check_sim_dc() {
+    npx prettier --ignore-path /dev/null --check sim/dc/src sim/dc/tests >/dev/null &&
+        npx eslint --no-ignore --max-warnings 0 sim/dc/src sim/dc/tests &&
+        sim/dc/test.sh >/dev/null
+}
 check_tests() { tools/run-all.sh; }
 
 run "安裝（npm ci）" check_install
@@ -93,6 +99,7 @@ run "PL/pgSQL 靜態分析（plpgsql_check）" check_plpgsql
 run "禁止字串（TODO/FIXME、.skip/.only）" check_forbidden
 run "追蹤的檔案（1 MB、執行期目錄）" check_tracked_files
 run "套件弱點（npm audit，high 以上）" check_audit
+run "sim/dc（格式、lint、型別、測試）" check_sim_dc
 if ((!fast)); then
     run "測試（tools/run-all.sh）" check_tests
 fi

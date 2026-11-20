@@ -149,3 +149,23 @@ test('K-PRINCIPAL-OWNER-CONFIRM 路徑的適用條件是資料：只收已知的
     await bad({ resolver: { kind: 'applicant_manager' }, applies_when: { applicant_not_principal_owner: true } });
     await bad({ resolver: { kind: 'applicant_manager' }, applies_when: { applicant_is_anyone: true } });
 });
+
+test('K-PRINCIPAL-OWNER-CONFIRM 被授權者 id 只認標準寫法：前後空白、大括號、大寫都以錯誤目錄的 PRINCIPAL_UNKNOWN 拒絕，不回原始的 SQLSTATE（紅隊第四輪 資訊 2）', async () => {
+    const id = P['季度業績看板'];
+    for (const variant of [` ${id} `, `{${id}}`, id.toUpperCase(), 'not-a-uuid']) {
+        const draft = await call(
+            app,
+            'case_create',
+            users.p05.session,
+            DA,
+            l3Content({ purpose_description: `variant ${Math.random()}` }),
+            terms(variant, 2),
+        );
+        assert.deepEqual(
+            draft.errors.filter((e) => e.path === 'terms.principal_id').map((e) => e.code),
+            ['PRINCIPAL_UNKNOWN'],
+            JSON.stringify(variant),
+        );
+        await rejectsWith(submit('p05', terms(variant, 2), `variant ${variant}`), 'CONTENT_INVALID');
+    }
+});

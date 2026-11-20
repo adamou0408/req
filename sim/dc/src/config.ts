@@ -1,5 +1,5 @@
-// 設定只從環境變數讀：start.sh 載入 service.env（非機密）與 test-credentials.env（測試憑證），
-// 測試則自己給一組（另外的資料庫、角色前綴與 unix socket），兩者不互相干擾。
+// 設定只從環境變數讀：start.sh 載入 service.env（非機密）、instances/<實例>.env（實例自己的埠、資料庫、角色）
+// 與這個實例的密鑰檔（執行期產生，見 lib.sh 的 sim_dc_init_secrets）；測試則自己給一組（另外的資料庫、角色前綴與 unix socket）。
 
 export type Scope = 'rules.write' | 'rules.read' | 'test_query' | 'reconcile.read' | 'sandbox.run' | 'admin.backdoor';
 
@@ -15,6 +15,8 @@ export interface EnvConfig {
     readonly database: string;
     readonly rolePrefix: string;
     readonly masked: boolean;
+    // 這個環境信任的平台簽章公鑰（每個環境各自一份；裁決 D81 (2)：同一份已簽章的規則不能送到另一個環境）
+    readonly trustedKeysFile: string;
 }
 
 export interface Config {
@@ -31,7 +33,10 @@ export interface Config {
     readonly envs: readonly EnvConfig[];
     readonly systems: readonly string[];
     readonly timezone: string;
-    readonly trustedKeysFile: string;
+    // 平台的交付通道代碼：被簽的請求必須指名這個通道
+    readonly channel: string;
+    // 回應證明（attestation）的簽章私鑰（ES256，PKCS#8 PEM）
+    readonly responseKeyFile: string;
     readonly backdoor: boolean;
     readonly clients: readonly ClientConfig[];
 }
@@ -74,6 +79,7 @@ export function loadConfig(): Config {
                 database: checked(required('SIM_DC_DB'), DB_NAME, 'SIM_DC_DB'),
                 rolePrefix: checked(required('SIM_DC_ROLE_PREFIX'), ROLE_NAME, 'SIM_DC_ROLE_PREFIX'),
                 masked: false,
+                trustedKeysFile: required('SIM_DC_TRUSTED_KEYS_FILE'),
             },
             {
                 name: 'masked',
@@ -81,13 +87,15 @@ export function loadConfig(): Config {
                 database: checked(required('SIM_DC_DB_MASKED'), DB_NAME, 'SIM_DC_DB_MASKED'),
                 rolePrefix: checked(required('SIM_DC_MASKED_ROLE_PREFIX'), ROLE_NAME, 'SIM_DC_MASKED_ROLE_PREFIX'),
                 masked: true,
+                trustedKeysFile: required('SIM_DC_TRUSTED_KEYS_FILE_MASKED'),
             },
         ],
         systems: required('SIM_DC_SYSTEMS')
             .split(/\s+/)
             .filter((s) => s !== ''),
         timezone: required('SIM_DC_TIMEZONE'),
-        trustedKeysFile: required('SIM_DC_TRUSTED_KEYS_FILE'),
+        channel: required('SIM_DC_CHANNEL'),
+        responseKeyFile: required('SIM_DC_RESPONSE_KEY_FILE'),
         backdoor: process.env['SIM_DC_ENABLE_BACKDOOR'] === '1',
         clients: [
             {

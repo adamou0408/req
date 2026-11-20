@@ -2,12 +2,24 @@
 // 呼叫方：沒有金鑰、金鑰錯、沒有權限的呼叫方被拒絕。
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { call, example1, KEYS, platformPrivateKey, signed, sql, startServer, stopServer, TEST_KEY_ID, untrustedKey } from './harness.ts';
+import {
+    call,
+    envelope,
+    example1,
+    KEYS,
+    platformPrivateKey,
+    signed,
+    sql,
+    startServer,
+    stopServer,
+    TEST_KEY_ID,
+    untrustedKey,
+} from './harness.ts';
 
 const PRINCIPAL = '0b9f6c3e-0000-4000-8000-00000000000c';
 const ROLE = 'simdc_t_p_0b9f6c3e00004000800000000000000c';
-const body = JSON.stringify(example1(PRINCIPAL, 'DA-2026-0300'));
 const path = '/v1/rule-sets/DA-2026-0300';
+const body = envelope('PUT', path, example1(PRINCIPAL, 'DA-2026-0300'));
 
 async function nothingApplied(): Promise<void> {
     assert.equal((await sql('select 1 from pg_roles where rolname = $1', [ROLE])).length, 0);
@@ -51,7 +63,7 @@ test('簽章格式不對 → 401', async () => {
 
 test('撤回也要簽章', async () => {
     assert.equal((await call('PUT', path, { body, headers: signed(body) })).status, 200);
-    const w = JSON.stringify({ request_id: 'w-1', case_no: 'DA-2026-0300' });
+    const w = envelope('DELETE', path, { request_id: 'w-1', case_no: 'DA-2026-0300' });
     assert.equal((await call('DELETE', path, { body: w })).status, 401);
     assert.equal((await call('DELETE', path, { body: w, headers: signed(w, untrustedKey, TEST_KEY_ID) })).status, 401);
     assert.equal((await sql('select 1 from pg_roles where rolname = $1', [ROLE])).length, 1);
@@ -60,7 +72,8 @@ test('撤回也要簽章', async () => {
 });
 
 test('路徑的單號和本文不同 → 拒絕', async () => {
-    const r = await call('PUT', '/v1/rule-sets/DA-2026-0399', { body, headers: signed(body) });
+    const other = envelope('PUT', '/v1/rule-sets/DA-2026-0399', example1(PRINCIPAL, 'DA-2026-0300'));
+    const r = await call('PUT', '/v1/rule-sets/DA-2026-0399', { body: other, headers: signed(other) });
     assert.equal(r.status, 422);
 });
 
@@ -77,14 +90,15 @@ test('呼叫方的驗證', async () => {
 });
 
 test('規則結構不對 → 422（只檢查能不能執行，不做業務判斷）', async () => {
+    const rs0 = example1(PRINCIPAL, 'DA-2026-0300');
     const bad = [
-        { ...JSON.parse(body), format: 'dc_rule_set/1' },
-        { ...JSON.parse(body), rules: [] },
-        { ...JSON.parse(body), valid: { from: '2027-01-01', to: '2026-01-01' } },
-        { ...JSON.parse(body), grantee: { type: 'team', principal_id: "x'; drop role postgres; --", name: 'x' } },
+        { ...rs0, format: 'dc_rule_set/1' },
+        { ...rs0, rules: [] },
+        { ...rs0, valid: { from: '2027-01-01', to: '2026-01-01' } },
+        { ...rs0, grantee: { type: 'team', principal_id: "x'; drop role postgres; --", name: 'x' } },
     ];
     for (const rs of bad) {
-        const text = JSON.stringify(rs);
+        const text = envelope('PUT', path, rs);
         assert.equal((await call('PUT', path, { body: text, headers: signed(text) })).status, 422, text.slice(0, 80));
     }
 });

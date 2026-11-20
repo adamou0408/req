@@ -4,6 +4,9 @@
 -- 只用到 pgcrypto 的 digest（SHA-512）與 gen_random_bytes；工程規範只允許 pgcrypto，它沒有 Ed25519。
 -- 點用擴充座標 (X, Y, Z, T)，a = -1 的扭曲愛德華曲線；加法用 add-2008-hwcd-3（完整、統一），倍點用 dbl-2008-hwcd。
 
+insert into sgn.error_catalog (code, message, http_status) values
+    ('ED25519_KEY_MISMATCH', '簽章金鑰的公鑰和私鑰種子不一致', 500);
+
 create function sgn_internal.ed25519_p()
 returns numeric
 language sql
@@ -202,7 +205,8 @@ as $$
     select sgn_internal.ed25519_encode(sgn_internal.ed25519_base_mul((sgn_internal.ed25519_expand(p_seed)).scalar))
 $$;
 
--- 簽章（RFC 8032 5.1.6）。p_public_key 由呼叫者傳入已算好的公鑰，省掉一次純量乘法。
+-- 簽章（RFC 8032 5.1.6）。公鑰一律由種子自己導出（紅隊第四輪 資訊 3）：呼叫者傳入的公鑰若和種子不一致，
+-- 同一則訊息兩次簽章的 r 相同、k 不同，就能解出私鑰純量。參數 p_public_key 保留（既有呼叫介面），只用來比對，不一致就拒絕。
 create function sgn_internal.ed25519_sign(p_seed bytea, p_public_key bytea, p_message bytea)
 returns bytea
 language plpgsql
@@ -213,10 +217,14 @@ as $$
 declare
     l constant numeric := sgn_internal.ed25519_l();
     v_key record := sgn_internal.ed25519_expand(p_seed);
+    v_public bytea := sgn_internal.ed25519_encode(sgn_internal.ed25519_base_mul(v_key.scalar));
     v_r numeric := mod(sgn_internal.le_to_int(sgn_internal.digest(v_key.prefix || p_message, 'sha512')), l);
     v_big_r bytea := sgn_internal.ed25519_encode(sgn_internal.ed25519_base_mul(v_r));
-    v_k numeric := mod(sgn_internal.le_to_int(sgn_internal.digest(v_big_r || p_public_key || p_message, 'sha512')), l);
+    v_k numeric := mod(sgn_internal.le_to_int(sgn_internal.digest(v_big_r || v_public || p_message, 'sha512')), l);
 begin
+    if p_public_key is distinct from v_public then
+        perform sgn_internal.raise_error('ED25519_KEY_MISMATCH');
+    end if;
     return v_big_r || sgn_internal.int_to_le(mod(v_r + v_k * v_key.scalar, l), 32);
 end;
 $$;

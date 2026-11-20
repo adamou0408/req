@@ -1,12 +1,11 @@
 // 最薄的後端：node:http，沒有框架。不做任何業務判斷，只回 JSON（頁面由另一個來源的靜態伺服器提供，web/server.mjs；裁決 D68）：
 //   /api/*    路由表（packages/contract）裡的資料庫 function，參數照名稱從 JSON 取，session 從 cookie 取
 //   /auth/*   OIDC 登入、通行金鑰登記時的再驗證、登出（SSO adapter），拿到原始 ID token 交給資料庫
-//   /anchors  資料庫以外的錨點檔（唯讀轉送；正式環境應由稽核人員直接向獨立存放處取得）
 //   /errors   錯誤目錄的訊息（登入頁只收錯誤代碼，文字從這裡取；裁決 D71）
+// 錨點不經後端：頁面直接向錨點存放處取（db/tools/anchor-store.mjs；裁決 D81 (4)）。
 //   /         導回頁面的來源，只帶錯誤目錄裡有的代碼
 // 跨來源：CORS 只開給頁面的來源（帶 cookie）；會改狀態的請求帶了別的 Origin 一律拒絕。
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { backendCalls, packRoutes, routes, type Call } from '@sgn/contract';
 import { config } from './config.ts';
@@ -205,12 +204,6 @@ function serveErrors(res: ServerResponse): void {
     sendJson(res, 200, { result: db.messages() });
 }
 
-async function serveAnchors(res: ServerResponse): Promise<void> {
-    const text = await readFile(config.anchorFile, 'utf8').catch(() => '');
-    res.writeHead(200, { ...corsHeaders(), 'content-type': 'application/x-ndjson; charset=utf-8', 'cache-control': 'no-store' });
-    res.end(text);
-}
-
 /** 預檢：只回答頁面的來源。 */
 function preflight(req: IncomingMessage, res: ServerResponse): void {
     if (req.headers.origin !== config.webOrigin) return sendError(res, db.error('FORBIDDEN'));
@@ -236,7 +229,6 @@ async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void
     if (path === '/auth/oidc/callback' && req.method === 'GET') return handleCallback(req, res, url);
     if (path === '/auth/passkey' && req.method === 'POST') return handlePasskeyStart(req, res);
     if (path === '/auth/logout' && req.method === 'POST') return handleLogout(req, res);
-    if (path === '/anchors' && req.method === 'GET') return serveAnchors(res);
     if (path === '/errors' && req.method === 'GET') return serveErrors(res);
     if (path === '/' && req.method === 'GET') return toWeb(res, url);
     sendError(res, db.error('NOT_FOUND'));

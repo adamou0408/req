@@ -2,7 +2,7 @@
 // 不可匯出的規則不能匯出。判定一律是以被授權者的角色真的查資料庫。
 import assert from 'node:assert/strict';
 import { after, before, describe, test } from 'node:test';
-import { call, example1, PRINCIPAL_A, putRuleSet, sql, startServer, stopServer, testQuery, type QueryInput } from './harness.ts';
+import { call, example1, PRINCIPAL_A, putRuleSet, sql, startServer, stopServer, testQuery, type QueryInput, attested } from './harness.ts';
 
 const base: QueryInput = {
     package: 'sales_order',
@@ -17,7 +17,7 @@ before(async () => {
     await startServer();
     const r = await putRuleSet(example1(PRINCIPAL_A));
     assert.equal(r.status, 200, JSON.stringify(r.body));
-    assert.deepEqual(r.body, { status: 'applied', dc_ref: 'DC-DA-2026-0004-v1' });
+    assert.deepEqual(attested(r).result, { status: 'applied', dc_ref: 'DC-DA-2026-0004-v1' });
 });
 after(stopServer);
 

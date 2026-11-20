@@ -1,13 +1,15 @@
 -- 身分證明：挑戰值、身分提供者的 ID token、工作階段、通行金鑰。
 -- 原則：後端只轉送原始的證明；「是誰」一律由資料庫驗章後自己決定。
 
--- 身分提供者的公開金鑰（RS256）。由 migration（owner）匯入；輪替流程不在探針範圍。
+-- 身分提供者的公開金鑰（RS256）。登記與退役只經金鑰更新程序（460：專用帳號、進鏈、通知治理角色；裁決 D81 (5)）。
 create table sgn.idp_key (
     kid text primary key,
     issuer text not null,
     n bytea not null,
     e bytea not null,
-    imported_at timestamptz not null default sgn_internal.now()
+    imported_at timestamptz not null default sgn_internal.now(),
+    -- 身分提供者不再公布這把金鑰：之後簽的 token 不再接受
+    retired_at timestamptz
 );
 
 -- 一次性挑戰值。用途：session（登入）、passkey_register（登記通行金鑰）、decision（做決定）。
@@ -121,7 +123,7 @@ begin
     if v_jwt.header is null or v_jwt.header ->> 'alg' is distinct from 'RS256' then
         perform sgn_internal.raise_error('TOKEN_INVALID', 'alg');
     end if;
-    select * into v_key from sgn.idp_key where kid = v_jwt.header ->> 'kid';
+    select * into v_key from sgn.idp_key where kid = v_jwt.header ->> 'kid' and retired_at is null;
     if v_key.kid is null
        or not sgn_internal.rs256_verify(v_jwt.signing_input, v_jwt.signature, v_key.n, v_key.e) then
         perform sgn_internal.raise_error('TOKEN_INVALID', 'signature');

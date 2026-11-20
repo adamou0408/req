@@ -13,6 +13,7 @@ import {
     withdraw,
     type QueryInput,
     type ReconItem,
+    attested,
 } from './harness.ts';
 
 const ROLE = 'simdc_t_p_0b9f6c3e00004000800000000000000b';
@@ -54,7 +55,7 @@ test('同一條規則送兩次，結果相同', async () => {
     const items1 = mine(await reconciliation());
     const second = await putRuleSet(example1(PRINCIPAL_B, 'DA-2026-0200'));
     assert.equal(first.status, 200);
-    assert.deepEqual(second.body, first.body);
+    assert.deepEqual(attested(second).result, attested(first).result);
     assert.deepEqual(await catalogState(), state1);
     assert.deepEqual(mine(await reconciliation()), items1);
     assert.equal(items1.length, 7);
@@ -94,7 +95,7 @@ test('較舊的版本被拒絕', async () => {
 
 test('撤回一條規則：那個主題包的權限消失，其他的還在', async () => {
     const r = await withdraw('DA-2026-0200', 'req-1', ['DA-2026-0200-1']);
-    assert.deepEqual(r.body, { status: 'withdrawn' });
+    assert.deepEqual(attested(r).result, { status: 'withdrawn' });
     assert.equal((await testQuery(PRINCIPAL_B, customers))['reason'], 'no_rule');
     assert.equal((await testQuery(PRINCIPAL_B, { ...sales, fields: ['order_no'], row: { region: 'central' } }))['decision'], 'allow');
     assert.ok(!mine(await reconciliation()).some((i) => i.startsWith('customer_master.')));
@@ -111,26 +112,38 @@ test('全部撤回：權限與角色都不在了', async () => {
     );
 });
 
-test('撤回後重送同一版的已簽章規則 → 拒絕', async () => {
+test('全部撤回＝封存：之後同一版、較新版的已簽章規則都拒絕（裁決 D81 (2)）', async () => {
     const rs = example1(PRINCIPAL_B, 'DA-2026-0200');
     rs.case_version_no = 2;
     const rule = rs.rules[1];
     assert.ok(rule !== undefined);
     rule.fields = ['order_date', 'order_no'];
     rule.row_filter = [{ filter: 'region', op: 'in', values: ['central'] }];
-    assert.equal((await putRuleSet(rs)).status, 409);
+    const same = await putRuleSet(rs);
+    assert.equal(same.status, 409);
+    assert.equal(same.body['code'], 'archived');
+    rs.case_version_no = 3;
+    const newer = await putRuleSet(rs);
+    assert.equal(newer.status, 409);
+    assert.equal(attested(newer).result['code'], 'archived');
     assert.equal((await sql('select 1 from pg_roles where rolname = $1', [ROLE])).length, 0);
 });
 
-test('重送同一個撤回請求不會撤掉之後新套用的規則', async () => {
-    const rs = example1(PRINCIPAL_B, 'DA-2026-0200');
-    rs.case_version_no = 3;
+test('重送同一個（部分）撤回請求不會撤掉之後新套用的規則', async () => {
+    const rs = example1(PRINCIPAL_B, 'DA-2026-0201');
     assert.equal((await putRuleSet(rs)).status, 200);
-    assert.equal((await withdraw('DA-2026-0200', 'req-2')).status, 200);
+    assert.equal((await withdraw('DA-2026-0201', 'req-p', ['DA-2026-0201-2'])).status, 200);
+    rs.case_version_no = 2;
+    assert.equal((await putRuleSet(rs)).status, 200, '部分撤回不封存，新的一版照收');
+    assert.equal((await withdraw('DA-2026-0201', 'req-p', ['DA-2026-0201-2'])).status, 200);
     assert.equal((await testQuery(PRINCIPAL_B, sales))['decision'], 'allow');
+    assert.equal((await withdraw('DA-2026-0201', 'req-p-all')).status, 200);
 });
 
-test('撤回不存在的單或規則 → 404', async () => {
+test('撤回不存在的單或規則 → 404；不存在的單也被封存', async () => {
     assert.equal((await withdraw('DA-2099-0001', 'req-9')).status, 404);
     assert.equal((await withdraw('DA-2026-0200', 'req-10', ['DA-2026-0200-9'])).status, 404);
+    const late = await putRuleSet(example1(PRINCIPAL_B, 'DA-2099-0001'));
+    assert.equal(late.status, 409);
+    assert.equal(late.body['code'], 'archived');
 });

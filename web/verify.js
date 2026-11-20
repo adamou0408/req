@@ -4,7 +4,9 @@
 //   3. 內容指紋 = sha256(RFC 8785 標準化的內容)，瀏覽器自己標準化，和送審、核准時記下的一致
 //   4. 每個決定（核准、縮小後核准、退回、駁回、撤回、標記已套用）的通行金鑰簽章用 WebCrypto 重驗，
 //      簽的是鏈上記下的那一版內容，公鑰對得到鏈上的登記事件，決定者是那一關開始時指派或認領的人（撤回是申請人）
-// 限制：這支程式本身由後端送來；正式環境的稽核工具要從獨立管道取得（見 docs/handoff/probe-path-findings.md）。
+// 錨點直接向獨立的錨點存放處取得（頁面來源的 /config.json 告訴它在哪裡），不經後端（裁決 D81 (4)）：
+// 後端改寫了鏈，也換不了錨點。這支程式不依賴頁面的模組，離線（Node）時給 location 就能跑。
+// 限制：這支程式本身由頁面的伺服器送來（D68：和後端分開部署）；正式環境的稽核工具要從獨立管道取得（見 docs/handoff/probe-path-findings.md）。
 import { canonicalize } from './lib/jcs.js';
 import { signingChallenge, toB64url } from './lib/signing.js';
 import { unb64url } from './webauthn.js';
@@ -57,9 +59,17 @@ async function verifyChain(api) {
     return { problems, hashBySeq, lastSeq: expected - 1 };
 }
 
+/** 錨點存放處的全部錨點：位置來自頁面來源的 /config.json（不是後端）。 */
+export async function fetchAnchors() {
+    const { ANCHOR_ORIGIN } = await (await fetch(new URL('/config.json', location.origin))).json();
+    const res = await fetch(new URL('/anchors', ANCHOR_ORIGIN), { cache: 'no-store' });
+    if (!res.ok) throw new Error(`錨點存放處 HTTP ${res.status}`);
+    return res.json();
+}
+
 async function verifyAnchors(api, chain) {
     const problems = [];
-    const anchors = await api.anchors();
+    const anchors = await fetchAnchors();
     for (const anchor of anchors) {
         if (anchor.seq > chain.lastSeq) problems.push(`外部錨點記到第 ${anchor.seq} 筆，資料庫只剩 ${chain.lastSeq} 筆（被刪除或還原過）`);
         else if (anchor.seq > 0 && chain.hashBySeq.get(anchor.seq) !== anchor.hash) problems.push(`第 ${anchor.seq} 筆和外部錨點不符`);

@@ -2,27 +2,33 @@
 
 一個獨立的小服務（Node 22 + TypeScript，唯一的執行期套件是 `pg`），加上它自己的 PostgreSQL 資料庫。收到平台核准的規則後，把它套用成**真正的資料庫權限**：每個被授權者一個身分角色、**每條規則一個角色**（欄位層級的權限、列層級安全 RLS 都掛在規則角色上，所以不同規則互不交叉）、匯出另外授權。測試查詢與對帳都是對資料庫的真實操作。只供開發與測試；不含平台的業務判斷，收到什麼規則就執行什麼。
 
+實作到平台定義的「外部系統交付介面」完整等級（裁決 D81 (2)）：平台簽的請求帶通道、環境、方法、路徑與期限（信封）；整張單撤回＝封存，之後任何版本都不收；每個環境各自的信任清單；**每個回應都帶 DC 自己簽的證明**（請求摘要、平台給的一次性亂數、HTTP 狀態與結果），對帳回報也是。見下面的「簽章格式」與「回應的證明」。
+
 ## 怎麼跑
 
 ```bash
-sim/dc/start.sh            # 第一次會安裝套件、建立資料庫與示範資料（幾秒）
+sim/dc/start.sh            # 實例 main（7001）。第一次會安裝套件、產生這個實例的密鑰、建立資料庫與示範資料（幾秒）
+SIM_DC_INSTANCE=unit sim/dc/start.sh   # 實例 unit（7002）：平台的資料庫測試（sgn_test）專用
 sim/dc/start.sh --reset    # 重建兩個資料庫的結構與示範資料，刪除所有被授權者角色
 sim/dc/health.sh           # /health 回 ok（HTTP 在、兩個資料庫都連得上）才回 0
 sim/dc/stop.sh
 sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：sim/dc/test.sh tests/01-apply.test.ts
 ```
 
+- **實例**：`main`（`service.env`，平台端對端用的 `sgn_e2e` 連它）與 `unit`（`instances/unit.env` 只覆寫不同的值：埠、資料庫、服務角色、角色前綴）。兩個平台資料庫的單號都從 1 編起，各自一個實例才不會互相覆蓋或撤回對方的單。平台的 `db/build.sh` 啟動兩個實例、寫信任清單、登記回應金鑰。
+- **密鑰不在 repo**：每個實例第一次啟動時（`cli.ts init-secrets`）在 `sim/.run/<實例>/keys/`（0700）產生 `secrets.env`（服務的資料庫密碼、三個呼叫方的金鑰，隨機）與回應證明的 ES256 金鑰對；之後沿用。平台的建置以 root 讀取，再只把 platform 金鑰發給交付程式、auditor 金鑰發給對帳程式（`db/tools/provision-secrets.mjs`）。
+
 - 需要 Node 22.18 以上（直接執行 TypeScript）、npm、curl、jq，以及一個 PostgreSQL 16（與開發環境共用，連線見下）。
 - 程式與 `node_modules` 安裝在 `sim/.run/dc/app/`（repo 可能以唯讀掛載）；log 在 `sim/.run/dc/dc.log`。
-- 設定的唯一來源是 `service.env`（非機密）與 `test-credentials.env`（只在 sim 有效的測試憑證）。superuser 連線沒有另外設定時讀 `db/sgn.env` 的 `SGN_PG_ADMIN_URL`，只用來建立本服務的登入角色與資料庫。
-- **測試不占用 7001**：`test.sh` 另外啟動一份服務，聽 `sim/.run/dc/test/dc.sock`，用資料庫 `sim_dc_check`、`sim_dc_check_test` 與角色前綴 `simdc_t_`。開發用的服務在跑也不受影響。
+- 設定的唯一來源是 `service.env`、`instances/<實例>.env`（非機密）與實例的 `keys/secrets.env`（執行期產生）。superuser 連線沒有另外設定時讀 `db/admin.env` 的 `SGN_PG_ADMIN_URL`，只用來建立本服務的登入角色與資料庫。
+- **測試不占用 7001、7002**：`test.sh` 另外啟動一份服務，聽 `sim/.run/dc/test/dc.sock`，用資料庫 `sim_dc_check`、`sim_dc_check_test`、服務角色 `simdc_t_service`、角色前綴 `simdc_t_`，以及自己產生的密鑰與兩把平台測試金鑰（正式與遮罩環境各一把）。開發用的服務在跑也不受影響。
 
 ## 資料庫
 
 | 項目 | 值 |
 |---|---|
 | 資料庫 | `sim_dc`（合成資料）、`sim_dc_test`（遮罩資料，結構相同） |
-| 服務的登入角色 | `simdc_service`（擁有資料表，`CREATEROLE`，不是 superuser）；密碼見 `test-credentials.env` |
+| 服務的登入角色 | `simdc_service`（main）、`simdc_u_service`（unit）：擁有資料表，`CREATEROLE`，不是 superuser；密碼在實例的 `keys/secrets.env` |
 | 被授權者角色 | `simdc_p_<principal_id>`（遮罩資料庫是 `simdc_m_p_…`）；UUID 去掉連字號，或正整數。`NOLOGIN`，身分的錨點，不持有資料權限 |
 | 規則角色 | `simdc_p_<principal_id>_r<規則代碼雜湊>`，每條有效的規則一個；`NOLOGIN`。欄位權限、policy、匯出檢視表只掛在它上面 |
 | 時區 | `Asia/Taipei`（授權起迄與「今天」） |
@@ -38,7 +44,7 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 
 ## 呼叫方（`Authorization: Bearer <金鑰>`）
 
-金鑰在 `test-credentials.env`。
+金鑰在實例的 `keys/secrets.env`（執行期隨機產生）。
 
 | 呼叫方 | 金鑰變數 | 可以做 |
 |---|---|---|
@@ -63,13 +69,14 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 | `POST /masked/v1/sandbox/runs` | 遮罩環境的沙箱 | `{"queries":[{"name","sql"}]}` → 見下 |
 | `POST {base}/admin/{操作}` | **管理後門，只供測試** | 見下 |
 
-失敗一律回 `{"status":"failed","code","error"}`：401 金鑰或簽章不對、403 呼叫方沒有權限、409 版本衝突、422 規則或查詢的結構不對、404 沒有這張單。請求本文要帶 `content-length`。
+失敗一律回 `{"status":"failed","code","error"}`：401 金鑰或簽章不對（`signature_invalid`）、簽章過期（`signature_expired`）、403 呼叫方沒有權限、409 版本衝突（`conflict`）、這張單已封存（`archived`）、簽章指定的通道／環境／方法／路徑和這次請求不同（`target_mismatch`）、422 規則或查詢的結構不對、不是信封（`invalid_envelope`）、404 沒有這張單。請求本文要帶 `content-length`。環境前綴底下的**每個回應**（含失敗）都另有 `attestation`（見「回應的證明」）。
 
 ### 套用的語意
 
 - 只接受 `format = data_access_rule_set/1`（`pack_data_access.build_fulfilment` 的實際輸出）。檢查的只有「能不能執行」：主題包、欄位、列條件在 DC 的目錄上、運算子與值的型別對、`rules[].system` 是本 DC 接受的（`SIM_DC_SYSTEMS`）。
 - 每次套用、撤回或清除，把該被授權者在資料庫裡的權限**整個重算**：收回全部 → 依目前所有有效的規則，各自建立一個規則角色並授予。所以：同一份規則送兩次結果相同；新的一版取代舊的一版（縮小就真的變小）；直接在資料庫做的改動（例如管理後門）在下一次重算時會被蓋掉。
 - 版本：同一版同內容 → 冪等；同一版不同內容、較舊的版本、已撤回的同一版 → 409（擋下重送舊的已簽章規則）。撤回請求以 `request_id` 記住，重送不會再動作。
+- **撤回整張單＝封存**（省略 `rule_ids` 的撤回）：之後這張單的任何版本都 409 `archived`，連平台簽過、比較新的版本也一樣（紅隊第四輪 中-1）。沒有套用過的單也會封存（回 404）。部分撤回不封存。
 - **規則互相隔離**：同一個被授權者有 A 單（欄位 a、北區）與 B 單（欄位 b、南區）時，a 只在 A 的列條件、授權期間、資料期間內可讀，b 只在 B 的範圍內可讀；實際範圍恰好是各規則範圍的聯集。匯出同樣各自隔離。
 - 每條規則一個 policy（掛在該規則的角色上）：`simdc.rule_match('<規則 JSON>'::jsonb, jsonb_build_object(<條件欄>))`，判斷授權起迄（以查詢日期）、列條件（全部成立）、資料期間。`export` 是 `true` 或 `null` 時建立匯出檢視表。
 
@@ -140,19 +147,30 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 Sgn-Signature: keyid="<金鑰代號>", alg="ed25519", sig="<簽章，標準 base64>"
 ```
 
-- 被簽的位元組 = `"sgn-dc-sig/1\n"`（UTF-8）緊接著**請求本文的原始位元組**。不重新序列化：送出的本文必須就是簽章時的那串位元組。
-- 演算法 Ed25519（RFC 8032，純 Ed25519，不先雜湊）。DC 依 `keyid` 從信任清單找公鑰。
-- 信任清單：`SIM_DC_TRUSTED_KEYS_FILE`，格式 `{"keys":[{"key_id":"…","public_key_pem":"-----BEGIN PUBLIC KEY-----…"}]}`（SPKI PEM）。沒有指定時，`start.sh` 在 `sim/.run/dc/keys/` 產生一組開發用金鑰對：`platform-dev.private.pem`（給平台在開發環境簽）與 `trusted-keys.json`。
-- 自己簽一份來試：
+- 本文是一個**信封**，被簽的位元組 = `"sgn-dc-sig/1\n"`（UTF-8）緊接著**本文的原始位元組**（不重新序列化）：
 
-```bash
-app=sim/.run/dc/app; keys=sim/.run/dc/keys
-sig="$(node $app/src/cli.ts sign $keys/platform-dev.private.pem platform-dev rule-set.json)"
-curl -X PUT -H 'Authorization: Bearer sim-dc-platform-key' -H "Sgn-Signature: $sig" \
-     --data-binary @rule-set.json http://127.0.0.1:7001/v1/rule-sets/DA-2026-0004
+```json
+{"format": "sgn_dc_request/1", "channel": "dc", "environment": "sim_dc", "method": "PUT",
+ "path": "/rule-sets/DA-2026-0004", "not_after": "2026-11-20T03:05:00Z", "payload": { …規則或撤回請求… }}
 ```
 
+- DC 先驗章，再要求 `channel` 等於 `SIM_DC_CHANNEL`、`environment` 等於這個環境的資料庫名稱、`method` 與 `path`（環境前綴之後）等於這次請求、現在還沒過 `not_after`。所以同一份已簽章的規則不能送到另一個環境（`/masked/v1`）或另一個端點，也不能拖到很久之後才送（紅隊第四輪 中-2）。
+- 演算法 Ed25519（RFC 8032，純 Ed25519，不先雜湊）。DC 依 `keyid` 從**這個環境的**信任清單找公鑰。
+- 信任清單：`SIM_DC_TRUSTED_KEYS_FILE`（`/v1`）與 `SIM_DC_TRUSTED_KEYS_FILE_MASKED`（`/masked/v1`），格式 `{"keys":[{"key_id":"…","public_key_pem":"-----BEGIN PUBLIC KEY-----…"}]}`（SPKI PEM）。檔案不存在＝不信任任何金鑰；**沒有開發用的平台金鑰**。平台的建置（`db/tools/delivery-keys.mjs`）把對應資料庫目前那一把寫進正式環境的清單、遮罩環境的清單留空。
 - 要換做法（JWS、HTTP Message Signatures）只需要換 `src/signature.ts`。
+
+### 回應的證明（attestation）
+
+環境前綴底下的每個回應本文都是「結果」加上 `attestation`：
+
+```json
+{"status": "applied", "dc_ref": "DC-DA-2026-0004-v1",
+ "attestation": {"payload": "<文字>", "key_id": "simdc-…", "alg": "es256", "sig": "<DER 簽章，標準 base64>"}}
+```
+
+- `payload` 是一段 JSON 文字：`{"format":"sgn_dc_attestation/1","channel","environment","method","path","query","request_sha256","nonce","http_status","issued_at","result"}`。`request_sha256` 是 DC 收到的請求本文的 SHA-256；`nonce` 是請求標頭 `Sgn-Nonce` 的值（平台每次領取給一個；沒給或格式不對是 null）；`result` 就是這個回應的結果。
+- 被簽的位元組 = `"sgn-dc-attestation/1\n"` 緊接著 `payload` 的 UTF-8；ECDSA P-256＋SHA-256。私鑰是實例的 `keys/response.private.pem`，金鑰代號 `simdc-<公鑰 SPKI 的 SHA-256 前 16 個十六進位字>`（`keys/response.key-id`）。
+- 平台只採信 `payload` 裡的結果（驗章、方法、路徑、請求摘要、一次性亂數都相符之後）；回應的其他欄位只是可讀副本，給不驗章的人與工具看。對帳回報也一樣：`GET /reconciliation` 的 `items` 等欄位是可讀副本，被簽的完整回報在 `attestation.payload.result`。
 
 ### 管理後門（只供測試）
 
@@ -169,4 +187,4 @@ curl -X PUT -H 'Authorization: Bearer sim-dc-platform-key' -H "Sgn-Signature: $s
 
 ## 已知限制
 
-見 `docs/handoff/sim-dc.md` 的「限制」：到期的權限要呼叫清除端點才會離開目錄、真實使用者必須以規則角色連線（見下）、沙箱以執行計畫為準、容器映像沒有 PostgreSQL 等。
+見 `docs/handoff/sim-dc.md` 的「限制」：到期的權限要呼叫清除端點才會離開目錄、真實使用者必須以規則角色連線（見下）、沙箱以執行計畫為準、容器映像沒有 PostgreSQL 等。D81 的改動與它的限制（傳輸沒有加密、證明不防 DC 自己說謊）見 `docs/handoff/redteam-fixes-4.md`。

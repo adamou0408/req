@@ -32,11 +32,4 @@ export const api = {
     loginUrl: () => `${API_ORIGIN}/auth/login`,
     /** 錯誤目錄（代碼 → 訊息）；登入頁只收網址上的錯誤代碼，文字從這裡取。 */
     messages: async () => (await (await send('/errors')).json()).result,
-    anchors: async () => {
-        const text = await (await send('/anchors')).text();
-        return text
-            .split('\n')
-            .filter(Boolean)
-            .map((line) => JSON.parse(line));
-    },
 };

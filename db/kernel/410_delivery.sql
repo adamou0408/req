@@ -9,7 +9,7 @@
 --   - 私鑰在 sgn.signing_key（只有 owner 讀得到），簽章在 SECURITY DEFINER 的領取入口裡做；後端（sgn_app）與
 --     交付程式（sgn_delivery）都拿不到私鑰，所以改內容、簽自己編的規則都會被外部系統以簽章擋下。
 --   - 外部系統的回報只收交付程式（資料庫驗證過的登入角色）在租約內的回報；回報的分類（成功、重送、拒絕）由資料庫依
---     HTTP 狀態與回應判斷。外部系統的回應本身沒有簽章（未解），由獨立通道的對帳（430）事後抓出謊報。
+--     外部系統的證明（405：驗章、請求摘要、這次領取的一次性亂數）判斷，交付程式說的 HTTP 狀態與回應不算數（裁決 D81 (2)）。
 --
 -- 可靠送達：outbox（sgn.delivery_op）、冪等鍵（request_id，重送不變）、租約、退避（參數）、持續送不到開例外。
 -- 順序：同一張單在同一通道上一次只送最前面一筆（head-of-line）；撤銷時還沒送出的套用與驗證直接作廢，
@@ -103,6 +103,9 @@ insert into sgn.error_catalog (code, message, http_status) values
     ('DELIVERY_CHANNEL_MISSING', '這個受管系統設定為系統對系統交付，但沒有設定交付通道', 500),
     ('DELIVERY_MANUAL_ONLY', '這筆授權有人工執行的受管系統，不能直接縮小；請撤銷後重新申請', 409),
     ('SIGNING_KEY_MISSING', '平台沒有可用的交付簽章金鑰', 500);
+
+insert into sgn.error_catalog (code, message, http_status) values
+    ('DELIVERY_CASE_NO_MISSING', '這種交付要有單號', 500);
 
 -- ── 參數 ──
 
@@ -245,7 +248,16 @@ create table sgn.delivery_op (
     -- 送出的就是這串文字的 UTF-8 位元組（簽章涵蓋它），交付程式不得重新序列化
     body text not null,
     body_sha256 bytea not null,
+    -- 外部系統上的方法與路徑（環境前綴之後），簽章的信封與證明都要相符
+    method text not null,
+    path text not null,
+    -- 實際送出的位元組：套用與撤回是簽過的信封（帶期限，過期時重新簽），其他是 body 原樣
+    sent_body text,
+    sent_sha256 bytea,
+    signed_until timestamptz,
     signature jsonb,
+    -- 這次領取的一次性亂數：外部系統的證明必須帶著它（不能拿別次的回應來回報）
+    nonce text,
     status text not null,
     attempts int not null default 0,
     next_attempt_at timestamptz not null,
@@ -258,6 +270,8 @@ create table sgn.delivery_op (
     result jsonb,
     superseded_by bigint references sgn.delivery_op (id),
     stuck_exception_id bigint references sgn.exception_record (id),
+    -- 撤回被外部系統拒絕：不是終態，退避重送；第一次被拒時開例外並升級（紅隊第四輪 低-1、裁決 D81 (6)）
+    refused_exception_id bigint references sgn.exception_record (id),
     check ((kind = 'purge') = (case_id is null))
 );
 
@@ -282,6 +296,25 @@ create table sgn.verification_run (
 
 create index verification_run_case_idx on sgn.verification_run (case_id, version);
 
+-- 外部系統交付介面的端點（平台定義的介面，sim/dc/README.md）：方法與環境前綴之後的路徑。
+create function sgn_internal.delivery_target(p_kind text, p_case_no text, out method text, out path text)
+language plpgsql
+immutable
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    if p_kind in ('apply', 'withdraw') and p_case_no is null then
+        perform sgn_internal.raise_error('DELIVERY_CASE_NO_MISSING', p_kind);
+    end if;
+    method := case p_kind when 'apply' then 'PUT' when 'withdraw' then 'DELETE' else 'POST' end;
+    path := case p_kind
+        when 'purge' then '/maintenance/purge-expired'
+        when 'verify' then '/test-queries'
+        else '/rule-sets/' || p_case_no
+    end;
+end;
+$$;
+
 -- 建立一筆交付。撤回與驗證的本文帶冪等鍵；套用的本文是規則原樣。
 create function sgn_internal.delivery_op_create(p_channel text, p_kind text, p_case_id uuid, p_version int, p_body jsonb)
 returns bigint
@@ -295,10 +328,12 @@ declare
         else p_body::text
     end;
     v_hash bytea := sgn_internal.digest(convert_to(v_body, 'UTF8'), 'sha256');
+    v_target record := sgn_internal.delivery_target(p_kind, (select c.case_no::text from sgn.request_case as c where c.id = p_case_id));
     v_id bigint;
 begin
-    insert into sgn.delivery_op (channel, kind, case_id, version, request_id, body, body_sha256, status, next_attempt_at, created_at)
-    values (p_channel, p_kind, p_case_id, p_version, v_request, v_body, v_hash, 'queued', sgn_internal.now(), sgn_internal.now())
+    insert into sgn.delivery_op (channel, kind, case_id, version, request_id, body, body_sha256, method, path, status, next_attempt_at, created_at)
+    values (p_channel, p_kind, p_case_id, p_version, v_request, v_body, v_hash, v_target.method, v_target.path, 'queued',
+        sgn_internal.now(), sgn_internal.now())
     returning id into v_id;
     perform sgn_internal.audit_append(
         'delivery.queued', p_case_id, null,
@@ -354,7 +389,53 @@ begin
 end;
 $$;
 
--- ── 領取：同一張單在同一通道一次只給最前面一筆；第一次領取時簽章（之後重送用同一份）──
+-- 外部系統交付介面的信封（sgn_dc_request/1）：通道、環境、方法、路徑、期限與本文。被簽的就是這串文字。
+create function sgn_internal.delivery_envelope(p_channel text, p_method text, p_path text, p_payload jsonb, p_until timestamptz)
+returns text
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select jsonb_build_object(
+        'format', 'sgn_dc_request/1',
+        'channel', p_channel,
+        'environment', sgn_internal.setting('delivery.target_environment', array['channel:' || p_channel]) #>> '{}',
+        'method', p_method,
+        'path', p_path,
+        'not_after', to_char(p_until at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+        'payload', p_payload
+    )::text
+$$;
+
+-- 套用與撤回要送出的信封：通道、環境、方法、路徑、期限與本文一起簽（裁決 D81 (2)）。每次簽都進鏈（簽了什麼的摘要）。
+create function sgn_internal.delivery_seal(p_op sgn.delivery_op, p_context text)
+returns sgn.delivery_op
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_ttl int := sgn_internal.delivery_setting_int('delivery.signature_ttl_seconds', p_op.channel);
+    v_until timestamptz := sgn_internal.now() + make_interval(secs => v_ttl);
+    v_text text := sgn_internal.delivery_envelope(p_op.channel, p_op.method, p_op.path, p_op.body::jsonb, v_until);
+    v_op sgn.delivery_op;
+begin
+    update sgn.delivery_op
+    set sent_body = v_text, sent_sha256 = sgn_internal.digest(convert_to(v_text, 'UTF8'), 'sha256'),
+        signature = sgn_internal.delivery_sign(p_context, v_text), signed_until = v_until
+    where id = p_op.id
+    returning * into v_op;
+    perform sgn_internal.audit_append(
+        'delivery.signed', v_op.case_id, null,
+        jsonb_build_object('op', v_op.id, 'channel', v_op.channel, 'kind', v_op.kind, 'sent_sha256', encode(v_op.sent_sha256, 'hex'),
+            'key_id', v_op.signature ->> 'key_id', 'not_after', v_until,
+            'settings', jsonb_build_object('delivery.signature_ttl_seconds', v_ttl),
+            'rules', jsonb_build_array('K-DELIVERY-SIGNED', 'K-DELIVERY-ATTESTED'))
+    );
+    return v_op;
+end;
+$$;
+
+-- ── 領取：同一張單在同一通道一次只給最前面一筆；套用與撤回在第一次領取、以及簽章快過期時簽（之後重送用同一份）──
 
 create function sgn_internal.delivery_claim(p_channel text, p_limit int)
 returns jsonb
@@ -363,7 +444,6 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
     v_op sgn.delivery_op;
-    v_sig jsonb;
     v_token uuid;
     v_out jsonb := '[]'::jsonb;
     v_lease int := sgn_internal.delivery_setting_int('delivery.lease_seconds', p_channel);
@@ -384,20 +464,24 @@ begin
         limit greatest(p_limit, 1)
         for update skip locked
     loop
-        v_sig := v_op.signature;
-        if v_sig is null and v_op.kind in ('apply', 'withdraw') then
-            v_sig := sgn_internal.delivery_sign(v_context, v_op.body);
+        if v_op.kind in ('apply', 'withdraw')
+           and (v_op.signature is null or v_op.signed_until < sgn_internal.now() + make_interval(secs => v_lease)) then
+            v_op := sgn_internal.delivery_seal(v_op, v_context);
+        elsif v_op.sent_body is null then
+            update sgn.delivery_op set sent_body = body, sent_sha256 = body_sha256 where id = v_op.id returning * into v_op;
         end if;
         v_token := gen_random_uuid();
         update sgn.delivery_op
         set status = sgn_internal.entity_transition('delivery_op', v_op.status, 'claim'),
-            signature = v_sig, attempts = attempts + 1, lease_token = v_token,
+            attempts = attempts + 1, lease_token = v_token, nonce = encode(sgn_internal.gen_random_bytes(18), 'hex'),
             lease_until = sgn_internal.now() + make_interval(secs => v_lease)
-        where id = v_op.id;
+        where id = v_op.id
+        returning * into v_op;
         v_out := v_out || jsonb_build_object(
             'op_id', v_op.id, 'lease_token', v_token, 'kind', v_op.kind, 'request_id', v_op.request_id,
             'case_no', (select c.case_no::text from sgn.request_case as c where c.id = v_op.case_id),
-            'body', v_op.body, 'signature', v_sig - 'context'
+            'method', v_op.method, 'path', v_op.path, 'nonce', v_op.nonce,
+            'body', v_op.sent_body, 'signature', v_op.signature - 'context'
         );
     end loop;
     return v_out;
@@ -405,37 +489,70 @@ end;
 $$;
 
 -- ── 回報的分類（資料庫判斷，不信交付程式的說法）：succeed、retry、reject ──
-
-create function sgn_internal.delivery_classify(p_kind text, p_outcome jsonb)
-returns text
+-- 交付程式交回 {http_status, response, error}：http_status 是 null 代表連不上。其餘一律以外部系統的證明為準：
+-- 驗章、這筆的方法與路徑、送出的位元組的摘要、這次領取的一次性亂數都要相符；不符就當成沒有送到（retry），
+-- 交付程式（或網路上的人）說的 HTTP 狀態與內容不採信。回傳 {class, http_status, result, error}。
+-- p_expect：這一筆的 {method, path, request_sha256, nonce}（delivery_classify 從交付列取；合約測試直接給）。
+create function sgn_internal.delivery_verdict(p_channel text, p_kind text, p_expect jsonb, p_outcome jsonb)
+returns jsonb
 language plpgsql
-immutable
+stable
 set search_path = pg_catalog, pg_temp
 as $$
 declare
+    v_att jsonb;
     v_http int;
-    v_status text := p_outcome #>> '{response,status}';
+    v_result jsonb;
+    v_status text;
     v_expected text := case p_kind
         when 'apply' then 'applied' when 'withdraw' then 'withdrawn' when 'purge' then 'purged' else 'completed'
     end;
+    v_class text;
 begin
     if jsonb_typeof(p_outcome) is distinct from 'object'
        or jsonb_typeof(p_outcome -> 'http_status') not in ('number', 'null') then
         perform sgn_internal.raise_error('DELIVERY_REPORT_INVALID');
     end if;
-    v_http := (p_outcome ->> 'http_status')::int;
-    if v_http is null or v_http >= 500 or v_http in (408, 429) then
-        return 'retry';
+    if p_outcome ->> 'http_status' is null then
+        return jsonb_build_object('class', 'retry', 'http_status', null, 'result', null, 'error', left(p_outcome ->> 'error', 1000));
     end if;
-    if v_http between 200 and 299 and v_status = v_expected then
-        return 'succeed';
+    -- 摘要以外都相符才是「這一次」的回應；不是就當成沒送到（重放、別筆的回應、網路上的人編的）
+    v_att := sgn_internal.attestation_open(p_channel, p_outcome -> 'response', p_expect - 'request_sha256');
+    if not (v_att ->> 'ok')::boolean then
+        return jsonb_build_object('class', 'retry', 'http_status', null, 'result', null,
+            'error', 'RESPONSE_UNVERIFIED:' || (v_att ->> 'reason'), 'unverified', v_att);
     end if;
-    -- 撤回時外部系統沒有這張單的規則（從沒套用成功）：目的已經達成
-    if p_kind = 'withdraw' and v_http = 404 then
-        return 'succeed';
+    v_http := (v_att #>> '{payload,http_status}')::int;
+    v_result := v_att #> '{payload,result}';
+    -- 外部系統收到的位元組和資料庫給的不同：送出途中被改過（交付程式或網路）。不論外部系統怎麼處理，一律當成被拒絕
+    -- （套用不生效並撤回；撤回則重送並升級）
+    if v_att #>> '{payload,request_sha256}' is distinct from p_expect ->> 'request_sha256' then
+        return jsonb_build_object('class', 'reject', 'http_status', v_http, 'result', v_result,
+            'error', 'REQUEST_ALTERED:' || coalesce(v_result ->> 'error', v_http::text), 'expired', false);
     end if;
-    return 'reject';
+    v_status := v_result ->> 'status';
+    v_class := case
+        when v_http >= 500 or v_http in (408, 429) then 'retry'
+        when v_http between 200 and 299 and v_status = v_expected then 'succeed'
+        -- 撤回時外部系統沒有這張單的規則（從沒套用成功）：目的已經達成（外部系統仍封存這張單）
+        when p_kind = 'withdraw' and v_http = 404 then 'succeed'
+        -- 信封過期（例如在佇列裡等太久）：下次領取時重新簽
+        when v_http = 401 and v_result ->> 'code' = 'signature_expired' then 'retry'
+        else 'reject'
+    end;
+    return jsonb_build_object('class', v_class, 'http_status', v_http, 'result', v_result, 'error', left(v_result ->> 'error', 1000),
+        'expired', v_http = 401 and v_result ->> 'code' = 'signature_expired');
 end;
+$$;
+
+create function sgn_internal.delivery_classify(p_op sgn.delivery_op, p_outcome jsonb)
+returns jsonb
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select sgn_internal.delivery_verdict(p_op.channel, p_op.kind, jsonb_build_object(
+        'method', p_op.method, 'path', p_op.path, 'request_sha256', encode(p_op.sent_sha256, 'hex'), 'nonce', p_op.nonce), p_outcome)
 $$;
 
 create function sgn_internal.delivery_backoff_seconds(p_channel text, p_attempts int)
@@ -457,21 +574,30 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
     v_op sgn.delivery_op;
+    v_verdict jsonb;
     v_class text;
+    v_refused boolean;
     v_wait int;
 begin
     select * into v_op from sgn.delivery_op where id = p_op_id for update;
     if v_op.id is null or v_op.status <> 'sending' or v_op.lease_token is distinct from p_lease_token then
         perform sgn_internal.raise_error('DELIVERY_LEASE', p_op_id::text);
     end if;
-    v_class := sgn_internal.delivery_classify(v_op.kind, p_outcome);
+    v_verdict := sgn_internal.delivery_classify(v_op, p_outcome);
+    v_class := v_verdict ->> 'class';
+    -- 撤回被拒絕不是終態（權限可能還在外部系統上）：退避重送，第一次被拒時開例外並升級（K-DELIVERY-REJECTED）
+    v_refused := v_class = 'reject' and v_op.kind = 'withdraw';
+    if v_refused then
+        v_class := 'retry';
+    end if;
     v_wait := case v_class when 'retry' then sgn_internal.delivery_backoff_seconds(v_op.channel, v_op.attempts) end;
     update sgn.delivery_op
     set status = sgn_internal.entity_transition('delivery_op', v_op.status, v_class),
-        lease_token = null, lease_until = null,
-        last_http_status = (p_outcome ->> 'http_status')::int,
-        last_error = left(p_outcome ->> 'error', 1000),
-        result = p_outcome -> 'response',
+        lease_token = null, lease_until = null, nonce = null,
+        last_http_status = (v_verdict ->> 'http_status')::int,
+        last_error = v_verdict ->> 'error',
+        result = v_verdict -> 'result',
+        signature = case when (v_verdict ->> 'expired')::boolean then null else signature end,
         next_attempt_at = case v_class when 'retry' then sgn_internal.now() + make_interval(secs => v_wait) else next_attempt_at end,
         finished_at = case v_class when 'retry' then null else sgn_internal.now() end
     where id = v_op.id
@@ -481,13 +607,18 @@ begin
         jsonb_build_object(
             'op', v_op.id, 'channel', v_op.channel, 'kind', v_op.kind, 'attempts', v_op.attempts, 'request_id', v_op.request_id,
             'http_status', v_op.last_http_status, 'response', v_op.result, 'error', v_op.last_error,
+            'unverified', v_verdict -> 'unverified', 'refused', v_refused,
             'settings', case v_class when 'retry' then jsonb_build_object(
                 'delivery.retry_base_seconds', sgn_internal.delivery_setting_int('delivery.retry_base_seconds', v_op.channel),
                 'delivery.retry_max_seconds', sgn_internal.delivery_setting_int('delivery.retry_max_seconds', v_op.channel),
                 'wait_seconds', v_wait) end,
-            'rules', jsonb_build_array(case v_class when 'reject' then 'K-DELIVERY-REJECTED' else 'K-DELIVERY-RETRY' end)
+            'rules', jsonb_build_array(case when v_class = 'reject' or v_refused then 'K-DELIVERY-REJECTED' else 'K-DELIVERY-RETRY' end,
+                'K-DELIVERY-ATTESTED')
         )
     );
+    if v_refused and v_op.refused_exception_id is null then
+        perform sgn_internal.delivery_withdraw_refused(v_op);
+    end if;
     if v_class = 'succeed' then
         perform sgn_internal.delivery_after_success(v_op);
     elsif v_class = 'reject' then
@@ -644,6 +775,29 @@ begin
         -- 撤回或清除被拒絕：外部系統上的權限可能還在，不能靜默
         perform sgn_internal.exception_open('K-DELIVERY-REJECTED', p_op.case_id, v_detail);
     end if;
+end;
+$$;
+
+-- 撤回被外部系統拒絕（第一次）：開例外、通知升級對象；之後照退避繼續重送，直到外部系統接受或有人處理。
+create function sgn_internal.delivery_withdraw_refused(p_op sgn.delivery_op)
+returns void
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    update sgn.delivery_op
+    set refused_exception_id = sgn_internal.exception_open('K-DELIVERY-REJECTED', p_op.case_id, jsonb_build_object(
+        'op', p_op.id, 'channel', p_op.channel, 'kind', p_op.kind, 'http_status', p_op.last_http_status,
+        'response', p_op.result, 'error', p_op.last_error, 'retrying', true))
+    where id = p_op.id;
+    perform sgn_internal.notify(
+        'delivery.rejected', sgn_internal.delivery_escalation_people(), p_op.case_id,
+        jsonb_build_object(
+            'case_no', coalesce((select c.case_no::text from sgn.request_case as c where c.id = p_op.case_id), '-'),
+            'kind', p_op.kind, 'channel', p_op.channel,
+            'error', coalesce(p_op.result ->> 'error', p_op.last_error, p_op.last_http_status::text, '-')
+        )
+    );
 end;
 $$;
 

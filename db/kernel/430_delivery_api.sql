@@ -105,8 +105,9 @@ end;
 $$;
 
 comment on function api_delivery.delivery_claim(text, int) is
-    '交付程式領走這個通道最多 p_limit 筆該送的交付（同一張單一次只給最前面一筆），附上租約、冪等鍵、要原樣送出的本文與資料庫的簽章。'
-    '呼叫者：sgn_delivery（api/src/delivery.ts）。規則：K-DELIVERY-AUTO、K-DELIVERY-SIGNED、K-DELIVERY-ORDER、K-DELIVERY-STUCK';
+    '交付程式領走這個通道最多 p_limit 筆該送的交付（同一張單一次只給最前面一筆），附上租約、冪等鍵、方法與路徑、這次領取的一次性亂數、'
+    '要原樣送出的本文（套用與撤回是帶通道、環境、方法、路徑與期限的信封）與資料庫的簽章。'
+    '呼叫者：sgn_delivery（api/src/delivery.ts）。規則：K-DELIVERY-AUTO、K-DELIVERY-SIGNED、K-DELIVERY-ATTESTED、K-DELIVERY-ORDER、K-DELIVERY-STUCK';
 
 create function api_delivery.delivery_report(p_op_id bigint, p_lease_token uuid, p_outcome jsonb)
 returns jsonb
@@ -120,8 +121,9 @@ end;
 $$;
 
 comment on function api_delivery.delivery_report(bigint, uuid, jsonb) is
-    '交付程式回報一筆的結果 {http_status（連不上為 null）, response, error}。只收租約內的回報；成功、重送（退避）、拒絕由資料庫依 HTTP 狀態與回應判斷，'
-    '驗證的結果由資料庫比對預期。呼叫者：sgn_delivery。規則：K-DELIVERY-RETRY、K-DELIVERY-REJECTED、K-VERIFY-AUTO';
+    '交付程式回報一筆的結果 {http_status（連不上為 null）, response, error}。只收租約內的回報；成功、重送（退避）、拒絕由資料庫依外部系統的證明'
+    '（驗章、方法與路徑、送出位元組的摘要、這次的一次性亂數）判斷，證明不符當成沒送到；撤回被拒絕不是終態（重送並升級）。'
+    '驗證的結果由資料庫比對預期。呼叫者：sgn_delivery。規則：K-DELIVERY-RETRY、K-DELIVERY-REJECTED、K-DELIVERY-ATTESTED、K-VERIFY-AUTO';
 
 -- ── 排程的入口 ──
 
@@ -161,13 +163,14 @@ select sgn_internal.register_rule(r.code, r.description, null, r.coverage, r.not
 from (values
     ('K-DELIVERY-AUTO',
         '核准之後不經人手：交付方式是 system 的受管系統，執行關開始時自動排套用；生效以外部系統套用成功並通過自動驗證為準（D63）',
-        'partial', '外部系統的回應沒有簽章（威脅表未解）；file（檔案交換）這一版視同人工'),
+        'partial', 'file（檔案交換）這一版視同人工'),
     ('K-DELIVERY-SIGNED',
         '交付內容由資料庫從核准的內容版本產生，以資料庫內的 Ed25519 金鑰簽章；後端與交付程式都拿不到私鑰',
         'partial', '資料庫擁有者讀得到私鑰；沒有硬體金鑰'),
-    ('K-DELIVERY-RETRY', '送不到（連不上、5xx、408、429）就以參數的退避重送，冪等鍵不變；其他 4xx 不重送', 'full', null),
+    ('K-DELIVERY-RETRY', '送不到（連不上、5xx、408、429、沒有有效的外部系統證明、信封過期）就以參數的退避重送，冪等鍵不變；其他 4xx 不重送（撤回除外）', 'full', null),
     ('K-DELIVERY-STUCK', '一筆交付超過 delivery.stuck_alert_seconds 秒還沒有結果就開例外並通知升級對象', 'full', null),
-    ('K-DELIVERY-REJECTED', '外部系統拒絕交付（簽章不符、版本衝突、格式錯誤）就開例外；套用被拒的單不生效並撤回已送出的部分', 'full', null),
+    ('K-DELIVERY-REJECTED', '外部系統拒絕交付（簽章不符、版本衝突、格式錯誤）就開例外；套用被拒的單不生效並撤回已送出的部分；'
+        '撤回被拒不是終態：開例外、升級並以退避繼續重送', 'full', null),
     ('K-DELIVERY-ORDER', '同一張單在同一通道一次只送最前面一筆；撤銷時還沒送出的套用與驗證作廢，撤回不會被較舊的套用蓋掉', 'full', null),
     ('K-DELIVERY-MANUAL', '人工執行只在受管系統的交付方式是 manual 時出現；每次走人工都開常設例外，撤銷時通知該系統的管理人', 'full', null),
     ('K-VERIFY-AUTO',

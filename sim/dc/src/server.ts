@@ -1,7 +1,8 @@
 // HTTP 端點。路徑前綴 /v1 是正式（合成）資料，/masked/v1 是遮罩資料；兩者端點相同，另外遮罩環境多一個沙箱。
+// 兩個環境各自信任自己的平台金鑰；每個回應都帶 DC 的證明（signature.ts）。
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
-import { applyRuleSet, ApplyConflict, listRuleSets, purgeExpired, withdrawRules, WithdrawNotFound } from './apply.ts';
+import { applyRuleSet, ApplyConflict, CaseArchived, listRuleSets, purgeExpired, withdrawRules, WithdrawNotFound } from './apply.ts';
 import { backdoor, BackdoorError } from './backdoor.ts';
 import type { ClientConfig, Config, Scope } from './config.ts';
 import { withTx, type Env } from './db.ts';
@@ -9,7 +10,19 @@ import { reconciliationReport } from './reconcile.ts';
 import { principalIdValid } from './roles.ts';
 import { caseNoValid, parseRuleSet, RuleSetError } from './ruleset.ts';
 import { runSandbox, SandboxError } from './sandbox.ts';
-import { SIGNATURE_HEADER, SignatureError, verifyRequest, type TrustedKeys } from './signature.ts';
+import {
+    attest,
+    EnvelopeError,
+    NONCE_HEADER,
+    nonceOf,
+    openEnvelope,
+    SIGNATURE_HEADER,
+    SignatureError,
+    verifyRequest,
+    type ResponseKey,
+    type Target,
+    type TrustedKeys,
+} from './signature.ts';
 import { parseTestQuery, QueryError, runTestQuery, type TestQueryResult } from './testQuery.ts';
 
 const MAX_BODY = 1024 * 1024;
@@ -31,6 +44,8 @@ interface Ctx {
     readonly query: URLSearchParams;
     readonly body: Buffer;
     readonly client: ClientConfig;
+    readonly keys: TrustedKeys;
+    readonly target: Target;
 }
 
 function digest(s: string): Buffer {
@@ -70,13 +85,16 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
     return Buffer.concat(chunks);
 }
 
-function signedBy(ctx: Ctx, keys: TrustedKeys): string {
+/** 驗章（這個環境信任的金鑰）並打開信封：回傳金鑰代號與 payload。 */
+function signedPayload(ctx: Ctx): { keyId: string; payload: unknown } {
+    let keyId: string;
     try {
-        return verifyRequest(keys, ctx.req.headers[SIGNATURE_HEADER] as string | undefined, ctx.body);
+        keyId = verifyRequest(ctx.keys, ctx.req.headers[SIGNATURE_HEADER] as string | undefined, ctx.body);
     } catch (err) {
         if (err instanceof SignatureError) throw new HttpError(401, 'signature_invalid', err.message);
         throw err;
     }
+    return { keyId, payload: openEnvelope(ctx.body, ctx.target, new Date()) };
 }
 
 function caseNoOf(path: string): string {
@@ -85,20 +103,19 @@ function caseNoOf(path: string): string {
     return raw;
 }
 
-async function putRuleSet(ctx: Ctx, config: Config, keys: TrustedKeys): Promise<unknown> {
+async function putRuleSet(ctx: Ctx, config: Config): Promise<unknown> {
     requireScope(ctx, 'rules.write');
-    const keyId = signedBy(ctx, keys);
-    const rs = parseRuleSet(json(ctx.body), config.systems);
+    const { keyId, payload } = signedPayload(ctx);
+    const rs = parseRuleSet(payload, config.systems);
     if (rs.case_no !== caseNoOf(ctx.path)) throw new HttpError(422, 'case_no_mismatch', '路徑的 case_no 與本文不同');
     const requestId = (ctx.req.headers['x-request-id'] as string | undefined) ?? null;
     const result = await withTx(ctx.env, (db) => applyRuleSet(db, ctx.env.config.rolePrefix, rs, { keyId, requestId }));
     return { status: result.status, dc_ref: result.dc_ref };
 }
 
-async function deleteRuleSet(ctx: Ctx, keys: TrustedKeys): Promise<unknown> {
+async function deleteRuleSet(ctx: Ctx): Promise<[number, unknown]> {
     requireScope(ctx, 'rules.write');
-    signedBy(ctx, keys);
-    const body = json(ctx.body) as { request_id?: unknown; case_no?: unknown; rule_ids?: unknown };
+    const body = (signedPayload(ctx).payload ?? {}) as { request_id?: unknown; case_no?: unknown; rule_ids?: unknown };
     if (typeof body.request_id !== 'string' || body.request_id === '') throw new HttpError(422, 'invalid_request', 'request_id 必須是字串');
     if (body.case_no !== caseNoOf(ctx.path)) throw new HttpError(422, 'case_no_mismatch', '路徑的 case_no 與本文不同');
     const ids = body.rule_ids ?? null;
@@ -106,7 +123,10 @@ async function deleteRuleSet(ctx: Ctx, keys: TrustedKeys): Promise<unknown> {
         throw new HttpError(422, 'invalid_request', 'rule_ids 必須是非空的字串陣列或省略');
     }
     const req = { request_id: body.request_id, case_no: body.case_no, rule_ids: ids as string[] | null };
-    return withTx(ctx.env, (db) => withdrawRules(db, ctx.env.config.rolePrefix, req));
+    const result = await withTx(ctx.env, (db) => withdrawRules(db, ctx.env.config.rolePrefix, req));
+    if (result.status === 'not_found')
+        return [404, { status: 'failed', code: 'not_found', error: `沒有套用過 ${req.case_no} 的規則（已封存）` }];
+    return [200, result];
 }
 
 function principalOf(v: unknown): string {
@@ -172,11 +192,11 @@ async function purge(ctx: Ctx): Promise<unknown> {
     return { status: 'purged', count: purged.length, purged };
 }
 
-async function route(ctx: Ctx, config: Config, keys: TrustedKeys): Promise<[number, unknown]> {
+async function route(ctx: Ctx, config: Config): Promise<[number, unknown]> {
     const { path } = ctx;
     const method = ctx.req.method ?? 'GET';
-    if (path.startsWith('/rule-sets/') && method === 'PUT') return [200, await putRuleSet(ctx, config, keys)];
-    if (path.startsWith('/rule-sets/') && method === 'DELETE') return [200, await deleteRuleSet(ctx, keys)];
+    if (path.startsWith('/rule-sets/') && method === 'PUT') return [200, await putRuleSet(ctx, config)];
+    if (path.startsWith('/rule-sets/') && method === 'DELETE') return deleteRuleSet(ctx);
     if (path === '/rule-sets' && method === 'GET') {
         requireScope(ctx, 'rules.read');
         return [200, { rule_sets: await withTx(ctx.env, (db) => listRuleSets(db, null)) }];
@@ -217,6 +237,10 @@ function toHttpError(err: unknown): HttpError {
         return new HttpError(422, 'invalid_request', err.message);
     }
     if (err instanceof ApplyConflict) return new HttpError(409, 'conflict', err.message);
+    if (err instanceof CaseArchived) return new HttpError(409, 'archived', err.message);
+    if (err instanceof EnvelopeError) {
+        return new HttpError({ signature_expired: 401, target_mismatch: 409, invalid_envelope: 422 }[err.code], err.code, err.message);
+    }
     if (err instanceof WithdrawNotFound) return new HttpError(404, 'not_found', err.message);
     return new HttpError(500, 'internal_error', err instanceof Error ? err.message : String(err));
 }
@@ -225,6 +249,12 @@ function send(res: ServerResponse, status: number, body: unknown): void {
     const text = JSON.stringify(body);
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(text) });
     res.end(text);
+}
+
+/** 環境底下的每個回應：結果本身＋DC 對「這次請求、這個結果」的證明。 */
+function sendAttested(res: ServerResponse, key: ResponseKey, f: Parameters<typeof attest>[1]): void {
+    const result = f.result as Record<string, unknown>;
+    send(res, f.httpStatus, { ...result, attestation: attest(key, f, new Date()) });
 }
 
 async function logCall(env: Env, client: string | null, method: string, path: string, status: number, note: string | null): Promise<void> {
@@ -248,7 +278,12 @@ async function health(envs: readonly Env[]): Promise<unknown> {
     return { status: 'ok', databases: out };
 }
 
-export function createDcServer(config: Config, envs: readonly Env[], keys: TrustedKeys): Server {
+export function createDcServer(
+    config: Config,
+    envs: readonly Env[],
+    trusted: ReadonlyMap<string, TrustedKeys>,
+    responseKey: ResponseKey,
+): Server {
     return createServer((req, res) => {
         const url = new URL(req.url ?? '/', 'http://sim-dc');
         const env = [...envs]
@@ -259,19 +294,32 @@ export function createDcServer(config: Config, envs: readonly Env[], keys: Trust
                 send(res, 200, await health(envs));
                 return;
             }
+            if (env === undefined) {
+                send(res, 404, { status: 'failed', code: 'not_found', error: '路徑要以 /v1/ 或 /masked/v1/ 開頭' });
+                return;
+            }
+            const target: Target = {
+                channel: config.channel,
+                environment: env.config.database,
+                method: req.method ?? 'GET',
+                path: url.pathname.slice(env.config.basePath.length),
+            };
+            const attested = { ...target, query: url.search, nonce: nonceOf(req.headers[NONCE_HEADER]) };
             let client: ClientConfig | null = null;
+            let body: Buffer = Buffer.alloc(0);
             try {
-                if (env === undefined) throw new HttpError(404, 'not_found', '路徑要以 /v1/ 或 /masked/v1/ 開頭');
+                body = await readBody(req);
                 client = authenticate(config.clients, req.headers.authorization);
-                const body = await readBody(req);
-                const ctx: Ctx = { req, env, body, client, query: url.searchParams, path: url.pathname.slice(env.config.basePath.length) };
-                const [status, payload] = await route(ctx, config, keys);
-                send(res, status, payload);
-                await logCall(env, client.name, req.method ?? '', url.pathname, status, null);
+                const keys = trusted.get(env.config.name) ?? new Map();
+                const ctx: Ctx = { req, env, body, client, keys, target, query: url.searchParams, path: target.path };
+                const [status, payload] = await route(ctx, config);
+                sendAttested(res, responseKey, { ...attested, requestBody: body, httpStatus: status, result: payload });
+                await logCall(env, client.name, target.method, url.pathname, status, null);
             } catch (err) {
                 const e = toHttpError(err);
-                send(res, e.status, { status: 'failed', code: e.code, error: e.message });
-                if (env !== undefined) await logCall(env, client?.name ?? null, req.method ?? '', url.pathname, e.status, e.message);
+                const result = { status: 'failed', code: e.code, error: e.message };
+                sendAttested(res, responseKey, { ...attested, requestBody: body, httpStatus: e.status, result });
+                await logCall(env, client?.name ?? null, target.method, url.pathname, e.status, e.message);
             }
         })().catch((err: unknown) => {
             if (!res.headersSent) send(res, 500, { status: 'failed', code: 'internal_error', error: String(err) });

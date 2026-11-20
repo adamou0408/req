@@ -3,7 +3,8 @@
 // 回傳一律是 jsonb，結構寫在 returns；db/tests/kernel/90-contract.test.mjs 檢查 function 的簽章與實際回傳。
 // 刻意沒有「只憑工作階段就能做決定」的路由：做決定只有 case_decide_passkey，身分由資料庫從通行金鑰的簽章得出。
 // 這張表也是資料庫執行權限的唯一來源：db/tools/grants-sql.mjs 只把這裡列出的 function 授權給各執行期帳號
-// （後端 sgn_app：routes、packRoutes、backendCalls；人員同步 sgn_sync：syncCalls；排程 sgn_job：jobCalls；交付程式 sgn_delivery：deliveryCalls），
+// （後端 sgn_app：routes、packRoutes、backendCalls；人員同步 sgn_sync：syncCalls；排程 sgn_job：jobCalls；交付程式 sgn_delivery：deliveryCalls；
+//  身分提供者金鑰更新 sgn_idp_keys：idpCalls），
 // db/tests/kernel/12-grants.test.mjs 檢查實際權限與這裡完全相等。
 import type { Shape } from './shape.ts';
 
@@ -547,8 +548,15 @@ export const jobCalls = {
     deliveryStuckCheck: { fn: 'delivery_stuck_check', params: [] },
     /** 授權迄日已過的授權結束並排清除 */
     grantExpireDue: { fn: 'grant_expire_due', params: [] },
-    /** 對帳（api/src/reconciler.ts）：外部系統的對帳回報交給資料庫比對 */
+    /** 對帳（api/src/reconciler.ts）：外部系統簽過的對帳回報交給資料庫驗證與比對 */
     reconciliationSubmit: { fn: 'reconciliation_submit', params: ['channel', 'report'] },
+    /** 超過時間沒有有效的對帳回報時開例外 K-RECON-OVERDUE（裁決 D81 (3)） */
+    reconciliationOverdueCheck: { fn: 'reconciliation_overdue_check', params: [] },
+} as const satisfies Record<string, Grant>;
+
+/** 身分提供者的金鑰更新程序（db/tools/idp-keys.mjs，帳號 sgn_idp_keys；裁決 D81 (5)）能執行的 api_idp function。 */
+export const idpCalls = {
+    idpKeysSync: { fn: 'idp_keys_sync', params: ['issuer', 'jwks'] },
 } as const satisfies Record<string, Grant>;
 
 /**

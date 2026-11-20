@@ -17,8 +17,24 @@ async function ensureServiceRoleAndDatabases(config: Config): Promise<void> {
         const attrs = `login createrole nosuperuser nocreatedb nobypassrls password ${lit(config.servicePassword)}`;
         await admin.query(exists.rowCount === 0 ? `create role ${role} ${attrs}` : `alter role ${role} ${attrs}`);
         for (const env of config.envs) {
-            const db = await admin.query('select 1 from pg_database where datname = $1', [env.database]);
-            if (db.rowCount === 0) {
+            const db = await admin.query<{ owner: string }>('select pg_get_userbyid(datdba) as owner from pg_database where datname = $1', [
+                env.database,
+            ]);
+            // 實例換了服務角色（例如以前的版本共用一個）：舊的資料庫整個重建，不留別的角色擁有的物件
+            if (db.rows[0] !== undefined && db.rows[0].owner !== config.serviceRole) {
+                await admin.query(`drop database ${ident(env.database)} with (force)`);
+            }
+            // 別的（舊的）服務角色建立的被授權者角色：這個服務角色管不到（PostgreSQL 16 起要有 ADMIN 選項），以 superuser 清掉。
+            // 只在資料庫重建之後才可能有（角色的權限都在那個資料庫裡）。
+            const stale = await admin.query<{ rolname: string }>(
+                `select r.rolname from pg_roles as r
+                 where (starts_with(r.rolname, $1) or r.rolname = $2)
+                   and not exists (select 1 from pg_auth_members as m
+                                   where m.roleid = r.oid and m.member = $3::regrole and m.admin_option)`,
+                [env.rolePrefix, config.sandboxRole, config.serviceRole],
+            );
+            for (const { rolname } of stale.rows) await admin.query(`drop role ${ident(rolname)}`);
+            if (db.rows[0]?.owner !== config.serviceRole) {
                 await admin.query(`create database ${ident(env.database)} owner ${role} encoding 'UTF8' template template0`);
             }
             await admin.query(`revoke all on database ${ident(env.database)} from public`);

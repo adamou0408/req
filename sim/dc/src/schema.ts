@@ -6,7 +6,7 @@ import { ident, lit } from './db.ts';
 import { PACKAGES, ROW_ID, type ColumnType } from './catalog.ts';
 
 // 結構改變時加一：啟動時發現版本不同，就整個重建（只是模擬資料，重建即可）。
-export const SCHEMA_VERSION = 5;
+export const SCHEMA_VERSION = 6;
 
 const SQL_TYPE: Record<ColumnType, string> = { text: 'text', numeric: 'numeric', date: 'date' };
 
@@ -99,6 +99,12 @@ function metaSql(): string[] {
             case_no text not null,
             received_at timestamptz not null default now(),
             result jsonb not null
+        )`,
+        // 撤回整張單＝封存（裁決 D81 (2)）：之後這張單的任何版本都不再接受，連較新的已簽章版本也一樣
+        `create table simdc_meta.archived_case (
+            case_no text primary key,
+            request_id text not null,
+            archived_at timestamptz not null default now()
         )`,
         // 管理後門：讓某條規則「套用時被默默略過」，用來測試對帳抓不抓得到「核准未設定」
         `create table simdc_meta.sabotage (rule_id text primary key, created_at timestamptz not null default now())`,

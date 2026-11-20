@@ -1,27 +1,15 @@
 // 交付 port 與對帳 port 的 HTTP adapter：外部資料系統（DC）的介面（sim/dc/README.md「端點」與「簽章格式」）。
+// 方法與路徑由資料庫決定（領取時給；簽章的信封與外部系統的證明都涵蓋它們），這裡只接在 {base}（環境前綴）後面：
 //   apply     PUT    {base}/rule-sets/{case_no}           簽章
 //   withdraw  DELETE {base}/rule-sets/{case_no}           簽章
 //   purge     POST   {base}/maintenance/purge-expired
 //   verify    POST   {base}/test-queries
 //   對帳      GET    {base}/reconciliation                 唯讀的稽核金鑰
-// 本文一律送資料庫給的那串文字的 UTF-8 位元組（簽章涵蓋它）；冪等鍵放在 X-Request-Id（撤回與驗證的本文裡也有）。
+// 本文一律送資料庫給的那串文字的 UTF-8 位元組（簽章涵蓋它）；冪等鍵放在 X-Request-Id（撤回與驗證的本文裡也有），
+// 這次領取的一次性亂數放在 Sgn-Nonce（外部系統的證明要帶著它）。回應原樣交回資料庫。
 import type { DeliveryItem, DeliveryOutcome, DeliveryPort, ReconciliationPort } from './deliveryPort.ts';
 
 export type DcHttpOptions = { base: string; key: string; timeoutMs: number };
-
-function route(base: string, item: DeliveryItem): { method: string; url: string } {
-    const caseUrl = `${base}/rule-sets/${encodeURIComponent(item.case_no ?? '')}`;
-    switch (item.kind) {
-        case 'apply':
-            return { method: 'PUT', url: caseUrl };
-        case 'withdraw':
-            return { method: 'DELETE', url: caseUrl };
-        case 'purge':
-            return { method: 'POST', url: `${base}/maintenance/purge-expired` };
-        case 'verify':
-            return { method: 'POST', url: `${base}/test-queries` };
-    }
-}
 
 async function parse(res: Response): Promise<unknown> {
     const text = await res.text();
@@ -41,18 +29,18 @@ export function dcHttpDelivery(options: DcHttpOptions): DeliveryPort {
     return {
         kind: 'http',
         async send(item: DeliveryItem): Promise<DeliveryOutcome> {
-            const { method, url } = route(options.base, item);
             const headers: Record<string, string> = {
                 authorization: `Bearer ${options.key}`,
                 'content-type': 'application/json',
                 'x-request-id': item.request_id,
+                'sgn-nonce': item.nonce,
             };
             if (item.signature !== null) {
                 headers['sgn-signature'] = `keyid="${item.signature.key_id}", alg="${item.signature.alg}", sig="${item.signature.sig}"`;
             }
             try {
-                const res = await fetch(url, {
-                    method,
+                const res = await fetch(`${options.base}${item.path}`, {
+                    method: item.method,
                     headers,
                     body: Buffer.from(item.body, 'utf8'),
                     signal: AbortSignal.timeout(options.timeoutMs),
@@ -73,8 +61,8 @@ export function dcHttpReconciliation(options: DcHttpOptions): ReconciliationPort
                 headers: { authorization: `Bearer ${options.key}` },
                 signal: AbortSignal.timeout(options.timeoutMs),
             });
-            if (!res.ok) throw new Error(`對帳回報 HTTP ${res.status}`);
-            return (await res.json()) as unknown;
+            // 不論 HTTP 狀態都原樣交給資料庫：採不採信由外部系統的證明決定
+            return parse(res);
         },
     };
 }

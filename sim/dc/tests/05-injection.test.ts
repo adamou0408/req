@@ -4,7 +4,19 @@ import assert from 'node:assert/strict';
 import { ruleRoleFor } from '../src/roles.ts';
 import { after, before, test } from 'node:test';
 import pg from 'pg';
-import { call, example1, putRuleSet, reconciliation, signed, sql, startServer, stopServer, testQuery, type QueryInput } from './harness.ts';
+import {
+    call,
+    example1,
+    putRuleSet,
+    reconciliation,
+    signed,
+    sql,
+    startServer,
+    stopServer,
+    testQuery,
+    type QueryInput,
+    envelope,
+} from './harness.ts';
 
 const PRINCIPAL = '0b9f6c3e-0000-4000-8000-00000000000f';
 const ROLE = 'simdc_t_p_0b9f6c3e00004000800000000000000f';
@@ -124,12 +136,13 @@ test('代碼類的輸入不在目錄上就拒絕', async () => {
             rs.grantee.principal_id = '1; drop role simdc_service';
         }),
     ];
-    for (const body of bodies) {
+    for (const raw of bodies) {
+        const body = envelope('PUT', '/v1/rule-sets/DA-2026-0501', JSON.parse(raw));
         const r = await call('PUT', '/v1/rule-sets/DA-2026-0501', { body, headers: signed(body) });
         assert.equal(r.status, 422, body.slice(0, 120));
     }
     const caseNo = encodeURIComponent("DA'; drop table data.payroll; --");
-    const body = JSON.stringify(example1(PRINCIPAL, 'DA-2026-0501'));
+    const body = envelope('PUT', `/v1/rule-sets/${caseNo}`, example1(PRINCIPAL, 'DA-2026-0501'));
     assert.equal((await call('PUT', `/v1/rule-sets/${caseNo}`, { body, headers: signed(body) })).status, 400);
     assert.equal((await sql(`select to_regclass('data.payroll') is not null as ok`))[0]?.['ok'], true);
 });

@@ -74,11 +74,36 @@ function anchorLag({ lastSeq, lastAnchorSeq, anchorCount, occurredAt, policy, no
     return { unanchored, problem: late ? { type: 'ANCHOR_LAG', after_anchor_seq: lastAnchorSeq, ...unanchored } : null };
 }
 
+/** 錨點存放處（db/tools/anchor-store.mjs）的 HTTP 介面：讀取不需要金鑰，寫入要錨定程式的寫入金鑰。 */
+export function anchorStoreClient(origin, writeKey = null) {
+    return {
+        async read() {
+            const res = await fetch(new URL('/anchors', origin), { signal: AbortSignal.timeout(10000) });
+            if (!res.ok) throw new Error(`錨點存放處 HTTP ${res.status}`);
+            return res.json();
+        },
+        async append(anchor) {
+            const res = await fetch(new URL('/anchors', origin), {
+                method: 'POST',
+                headers: { authorization: `Bearer ${writeKey}`, 'content-type': 'application/json' },
+                body: JSON.stringify(anchor),
+                signal: AbortSignal.timeout(10000),
+            });
+            if (!res.ok) throw new Error(`錨點存放處拒絕寫入：HTTP ${res.status} ${await res.text()}`);
+        },
+    };
+}
+
+/** 檔案形式的存放處（存放處本身、以及測試用暫存的錨點檔）。 */
+export function anchorFileStore(file) {
+    return { read: async () => readAnchors(file), append: async (anchor) => appendAnchor(file, anchor) };
+}
+
 /**
- * 全量驗證：從創世重算整條鏈，比對鏈頭，並比對資料庫以外的錨點檔，回報最後一個錨點之後的落後。
+ * 全量驗證：從創世重算整條鏈，比對鏈頭，並比對資料庫以外的錨點（anchors：陣列；或 anchorFile：錨點檔），回報最後一個錨點之後的落後。
  * 回傳 { ok, problems, count, anchors, head, unanchored }。
  */
-export async function verifyChain({ dbUrl, anchorFile }) {
+export async function verifyChain({ dbUrl, anchorFile, anchors: given }) {
     const db = new pg.Client({ connectionString: dbUrl });
     await db.connect();
     const problems = [];
@@ -102,7 +127,7 @@ export async function verifyChain({ dbUrl, anchorFile }) {
         if (Number(head.seq) !== lastSeq || head.hash !== prev.toString('hex')) {
             problems.push({ type: 'HEAD_MISMATCH', head_seq: Number(head.seq), last_seq: lastSeq });
         }
-        const anchors = anchorFile ? readAnchors(anchorFile) : [];
+        const anchors = given ?? (anchorFile ? readAnchors(anchorFile) : []);
         const lastAnchor = anchors[anchors.length - 1];
         const {
             rows: [code],
@@ -127,8 +152,8 @@ export async function verifyChain({ dbUrl, anchorFile }) {
             occurredAt,
             policy,
         });
-        // 沒有給錨點檔＝呼叫者只要驗鏈本身（測試裡的內部檢查）；給了錨點檔（就算是空的）就要判斷落後
-        if (anchorFile && lag.problem) problems.push(lag.problem);
+        // 沒有給錨點＝呼叫者只要驗鏈本身（測試裡的內部檢查）；給了錨點（就算是空的）就要判斷落後
+        if ((given || anchorFile) && lag.problem) problems.push(lag.problem);
         return { ok: problems.length === 0, problems, count: lastSeq, anchors: anchors.length, head, unanchored: lag.unanchored };
     } finally {
         await db.end();
@@ -136,11 +161,12 @@ export async function verifyChain({ dbUrl, anchorFile }) {
 }
 
 /**
- * 錨定一次：從上一個錨點開始重算到目前鏈頭（增量驗證），一致才把新的鏈頭與程式指紋寫到資料庫以外的檔案。
+ * 錨定一次：從上一個錨點開始重算到目前鏈頭（增量驗證），一致才把新的鏈頭與程式指紋寫到資料庫以外的存放處
+ * （store：anchorStoreClient／anchorFileStore；或 anchorFile）。
  * 不一致就不寫，回傳問題。程式指紋改變（例如正式的 migration）也不寫，要由人確認後另行處理；探針沒有做這個流程。
  */
-export async function anchorOnce({ dbUrl, anchorFile, label = 'sgn' }) {
-    const anchors = readAnchors(anchorFile);
+export async function anchorOnce({ dbUrl, anchorFile, store = anchorFileStore(anchorFile), label = 'sgn' }) {
+    const anchors = await store.read();
     const last = anchors[anchors.length - 1] ?? { seq: 0, hash: GENESIS.toString('hex') };
     const db = new pg.Client({ connectionString: dbUrl });
     await db.connect();
@@ -177,7 +203,7 @@ export async function anchorOnce({ dbUrl, anchorFile, label = 'sgn' }) {
             anchored_at: new Date().toISOString(),
             label,
         };
-        if (anchor.seq > last.seq || anchor.code_fingerprint !== last.code_fingerprint) appendAnchor(anchorFile, anchor);
+        if (anchor.seq > last.seq || anchor.code_fingerprint !== last.code_fingerprint) await store.append(anchor);
         return { ok: true, anchor };
     } finally {
         await db.end();

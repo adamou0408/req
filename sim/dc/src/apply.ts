@@ -11,6 +11,13 @@ import type { Rule, RuleSet } from './ruleset.ts';
 
 export class ApplyConflict extends Error {}
 
+/** 整張單撤回過（封存）：任何版本都不再接受。 */
+export class CaseArchived extends Error {}
+
+async function archived(db: Db, caseNo: string): Promise<boolean> {
+    return (await db.query('select 1 from simdc_meta.archived_case where case_no = $1', [caseNo])).rowCount !== 0;
+}
+
 interface StoredRuleSet {
     case_no: string;
     case_version_no: number;
@@ -103,6 +110,9 @@ export async function applyRuleSet(
     const role = roleFor(prefix, rs.grantee.principal_id);
     const canonical = JSON.stringify(rs);
     const hash = sha256(canonical);
+    if (await archived(db, rs.case_no)) {
+        throw new CaseArchived(`${rs.case_no} 已經整張撤回（封存），不再接受任何版本`);
+    }
     const prev = await stored(db, rs.case_no);
     if (prev !== null) {
         if (rs.case_version_no < prev.case_version_no) {
@@ -151,12 +161,22 @@ interface WithdrawRequest {
 
 export class WithdrawNotFound extends Error {}
 
-export async function withdrawRules(db: Db, prefix: string, req: WithdrawRequest): Promise<{ status: 'withdrawn' }> {
+/**
+ * 撤回。省略 rule_ids（整張單）時先封存這張單：就算這裡從來沒有套用過（not_found），之後送來的任何版本也不收，
+ * 所以封存要和回應一起提交，不能因為 404 而回滾。
+ */
+export async function withdrawRules(db: Db, prefix: string, req: WithdrawRequest): Promise<{ status: 'withdrawn' | 'not_found' }> {
     const seen = await db.query('select 1 from simdc_meta.withdraw_request where request_id = $1', [req.request_id]);
     // 同一個 request_id 重送：不再動作（簽章過的撤回請求被重放，也不會撤掉之後重新套用的規則）
     if (seen.rowCount !== 0) return { status: 'withdrawn' };
+    if (req.rule_ids === null) {
+        await db.query('insert into simdc_meta.archived_case (case_no, request_id) values ($1, $2) on conflict (case_no) do nothing', [
+            req.case_no,
+            req.request_id,
+        ]);
+    }
     const prev = await stored(db, req.case_no);
-    if (prev === null) throw new WithdrawNotFound(`沒有套用過 ${req.case_no} 的規則`);
+    if (prev === null) return { status: 'not_found' };
     const all = prev.body.rules.map((r) => r.rule_id);
     const targets = req.rule_ids ?? all;
     const unknown = targets.filter((id) => !all.includes(id));

@@ -1,5 +1,6 @@
 // 交付測試共用：交付程式（api/src/delivery.ts 的 deliverChannel，帳號 sgn_delivery）配上交付 port 的模擬 adapter
 // （api/src/dcMock.ts，只用在單元測試）跑一輪又一輪；把一張單從送審簽到執行關。真的外部系統（sim/dc）在合約測試與端對端測試。
+import { generateKeyPairSync, randomUUID } from 'node:crypto';
 import pg from 'pg';
 import { dcMockDelivery } from '../../../../api/src/dcMock.ts';
 import { deliverChannel } from '../../../../api/src/delivery.ts';
@@ -14,10 +15,30 @@ export function deliveryPool() {
     return new pg.Pool({ connectionString: roleUrl(config, 'DELIVERY'), max: 3 });
 }
 
-/** 模擬的外部系統：信任這個資料庫目前的交付簽章公鑰。 */
+/**
+ * 模擬的外部系統：信任這個資料庫目前的交付簽章公鑰；它自己的回應證明金鑰（每次一把新的）登記進資料庫
+ * （和 sim/dc 的 unit 實例的金鑰並存，不退役它；環境代碼用資料庫設定的那一個）。
+ */
 export async function mockDc(admin) {
     const keys = (await admin.query('select sgn_internal.signing_keys_current() as k')).rows[0].k;
-    return dcMockDelivery({ trustedKeys: keys, context: CONTEXT, today: () => today() });
+    const environment = (
+        await admin.query(`select sgn_internal.setting('delivery.target_environment', array['channel:${CHANNEL}']) #>> '{}' as e`)
+    ).rows[0].e;
+    const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    const keyId = `mock-${randomUUID().slice(0, 8)}`;
+    await admin.query('select sgn_internal.channel_key_register($1, $2, $3, false)', [
+        CHANNEL,
+        keyId,
+        publicKey.export({ type: 'spki', format: 'pem' }),
+    ]);
+    return dcMockDelivery({
+        trustedKeys: keys,
+        context: CONTEXT,
+        today: () => today(),
+        channel: CHANNEL,
+        environment,
+        responseKey: { keyId, privatePem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() },
+    });
 }
 
 /** 交付程式跑到沒有可送的為止（每一輪領走、送出、回報）。回傳總共送了幾筆。 */

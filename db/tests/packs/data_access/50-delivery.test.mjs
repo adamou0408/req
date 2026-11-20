@@ -1,7 +1,7 @@
 // 核准之後的系統對系統交付（裁決 D63；威脅表 docs/handoff/delivery.md）：交付程式（sgn_delivery）＋模擬的外部系統
 // （api/src/dcMock.ts）。真的外部系統（sim/dc）在合約測試（db/tests/kernel/93-delivery-adapter.test.mjs）與端對端測試。
 import assert from 'node:assert/strict';
-import { createPublicKey, verify } from 'node:crypto';
+import { createHash, createPublicKey, verify } from 'node:crypto';
 import { after, before, test } from 'node:test';
 import {
     call,
@@ -217,9 +217,9 @@ test('K-DELIVERY-REJECTED 交付內容被竄改（交付程式改了本文）：
 
 test('K-VERIFY-AUTO 外部系統說套用成功卻沒有真的套用（或套用錯）：自動驗證不一致就不生效，開例外並撤回；回報少一個或重複的案例也算不一致', async () => {
     const caseId = await approved(2014);
-    const liar = wrap((item) =>
-        item.kind === 'apply' ? Promise.resolve({ http_status: 200, response: { status: 'applied' }, error: null }) : dc.send(item),
-    );
+    // 外部系統自己（帶著有效的證明）說套用成功，但實際查詢的那一邊沒有這份規則：另一個模擬外部系統收下套用、驗證問的是 dc
+    const elsewhere = await mockDc(admin);
+    const liar = wrap((item) => (item.kind === 'apply' ? elsewhere.send(item) : dc.send(item)));
     await drain(delivery, liar);
     const v = await view(caseId);
     assert.equal(v.state, 'fulfilment_failed');
@@ -268,7 +268,7 @@ test('K-DELIVERY-RETRY 外部系統停掉：連不上、5xx 以退避重送（�
     assert.equal(await (await import('../../../../api/src/delivery.ts')).deliverChannel(delivery, CHANNEL, dc), 0, '還沒到重送時間');
     await setSetting(admin, 'delivery.retry_base_seconds', 0, `channel:${CHANNEL}`);
     await admin.query('update sgn.delivery_op set next_attempt_at = now() where id = $1', [op.id]);
-    const busy = wrap(() => Promise.resolve({ http_status: 503, response: { status: 'failed', error: 'busy' }, error: 'busy' }));
+    const busy = wrap((it) => Promise.resolve(dc.reply(it, 503, { status: 'failed', error: 'busy' })));
     await (await import('../../../../api/src/delivery.ts')).deliverChannel(delivery, CHANNEL, busy);
     [op] = await ops(admin, caseId);
     assert.deepEqual([op.status, op.attempts], ['queued', 2]);
@@ -294,14 +294,29 @@ test('K-DELIVERY-RETRY 外部系統停掉：連不上、5xx 以退避重送（�
     );
     await drain(delivery, dc);
     assert.equal((await view(caseId)).state, 'active');
-    const classified = await one(
-        admin,
-        `select sgn_internal.delivery_classify('apply', '{"http_status": 422, "response": {"status": "failed"}}') as a,
-                sgn_internal.delivery_classify('apply', '{"http_status": 429, "response": null}') as b,
-                sgn_internal.delivery_classify('apply', '{"http_status": 200, "response": {"status": "weird"}}') as c,
-                sgn_internal.delivery_classify('withdraw', '{"http_status": 404, "response": {"status": "failed"}}') as d`,
-    );
-    assert.deepEqual(Object.values(classified), ['reject', 'retry', 'reject', 'succeed']);
+    // 外部系統（帶證明）的各種回覆怎麼分類：4xx 拒絕、429 重送、2xx 但狀態不對拒絕、撤回時 404 算達成、撤回被拒重送
+    const expect = {
+        method: item.method,
+        path: item.path,
+        request_sha256: createHash('sha256').update(item.body).digest('hex'),
+        nonce: item.nonce,
+    };
+    const kinds = [
+        ['apply', 422, { status: 'failed' }, 'reject'],
+        ['apply', 429, { status: 'failed' }, 'retry'],
+        ['apply', 200, { status: 'weird' }, 'reject'],
+        ['withdraw', 404, { status: 'failed' }, 'succeed'],
+        ['withdraw', 409, { status: 'failed' }, 'reject'],
+    ];
+    for (const [kind, http, result, want] of kinds) {
+        const v = await one(admin, `select sgn_internal.delivery_verdict($1, $2, $3, $4) ->> 'class' as c`, [
+            CHANNEL,
+            kind,
+            expect,
+            dc.reply(item, http, result),
+        ]);
+        assert.equal(v.c, want, `${kind} ${http}`);
+    }
 });
 
 test('K-DELIVERY-STUCK 持續送不到：超過參數時間開例外（每筆一次）並通知升級對象；排程與交付程式的領取都會檢查', async () => {
@@ -505,7 +520,9 @@ const report = (items) => ({
     items,
 });
 const reconCodes = async (caseId) => (await exceptionCodes(caseId)).filter((c) => c.startsWith('K-RECON'));
-const submit = async (items) => (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, report(items)])).r;
+/** 交一份由模擬外部系統簽過的對帳回報（對帳程式交上來的就是外部系統的回應原樣）。 */
+const submit = async (items) =>
+    (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, dc.reconciliation(report(items))])).r;
 
 test('K-RECON-MISSING 對帳：平台認為已生效、外部系統上卻沒有的權限開例外；兩邊相同時沒有發現', async () => {
     const caseId = await active(2022);
@@ -537,10 +554,14 @@ test('K-RECON-EXTRA 對帳：多出來的權限（核准以外的欄位、已撤
     assert.equal((await submit([...items, extraField, stranger])).new_findings, 0, '同一個發現不重複開例外');
     assert.deepEqual(await reconCodes(caseId), ['K-RECON-EXTRA']);
     await call(app, 'case_revoke', users.p04.session, caseId, '對帳測試');
-    assert.equal((await submit([...items, extraField, stranger])).new_findings, 0, '撤回還在送：不確定期，不算多出來');
+    // 撤銷在平台那一刻生效：撤回還在送時外部系統上的權限就是多出來的（紅隊第四輪 高-2；已經有撤回在排，不重複排）
+    const withdrawsBefore = (await ops(admin, caseId)).filter((o) => o.kind === 'withdraw').length;
+    assert.equal((await submit([...items, extraField, stranger])).new_findings, mine.length, '撤回還在送：每一項都是多出來的');
+    assert.equal((await ops(admin, caseId)).filter((o) => o.kind === 'withdraw').length, withdrawsBefore, '撤回已經在排');
     await drain(delivery, dc);
     const after = await submit([...items, extraField, stranger]);
-    assert.equal(after.new_findings, mine.length, '撤回完成後外部系統還有它的權限：每一項都是多出來的');
+    assert.equal(after.new_findings, 0, '撤回完成後外部系統還有它的權限：同一批發現，不重複開');
+    assert.equal(after.resolved, 0);
 });
 
 test('K-RECON-DIFFERENT 對帳：兩邊都有但列條件、資料期間或有效期間不同開例外', async () => {
@@ -557,7 +578,209 @@ test('K-RECON-DIFFERENT 對帳：兩邊都有但列條件、資料期間或有�
     assert.deepEqual(await reconCodes(caseId), ['K-RECON-DIFFERENT']);
     const runs = await one(admin, `select count(*)::int as n from sgn.audit_event where event_type = 'reconciliation.completed'`);
     assert.ok(runs.n >= 1, '每一輪對帳進鏈');
-    await rejectsWith(one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: 'x' }]), 'RECONCILIATION_INVALID');
+    const bad = await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: 'x' }]);
+    assert.deepEqual([bad.r.status, bad.r.reason], ['rejected', 'unverified'], '沒有外部系統證明的回報不收');
+});
+
+test('K-DELIVERY-REJECTED 撤回被外部系統拒絕不是終態：第一次開例外並升級，之後以退避繼續重送，外部系統接受後才算完成（紅隊第四輪 低-1、裁決 D81 (6)）', async () => {
+    const caseId = await active(2030);
+    await call(app, 'case_revoke', users.p04.session, caseId, '撤回被拒測試');
+    const refuse = wrap((it) =>
+        Promise.resolve(
+            it.kind === 'withdraw' ? dc.reply(it, 409, { status: 'failed', code: 'conflict', error: 'busy elsewhere' }) : dc.send(it),
+        ),
+    );
+    const { deliverChannel } = await import('../../../../api/src/delivery.ts');
+    await deliverChannel(delivery, CHANNEL, refuse);
+    await deliverChannel(delivery, CHANNEL, refuse);
+    const withdraw = (await ops(admin, caseId)).find((o) => o.kind === 'withdraw');
+    assert.equal(withdraw.status, 'queued', '不是 rejected：還會再送');
+    assert.ok(withdraw.attempts >= 2);
+    assert.equal((await exceptionCodes(caseId)).filter((c) => c === 'K-DELIVERY-REJECTED').length, 1, '例外只開一次');
+    const notified = await admin.query(`select 1 from sgn.notification_outbox where case_id = $1 and event_code = 'delivery.rejected'`, [
+        caseId,
+    ]);
+    assert.ok(notified.rowCount >= 2, '升級對象收到通知');
+    await drain(delivery, dc);
+    assert.equal((await ops(admin, caseId)).find((o) => o.kind === 'withdraw').status, 'done');
+});
+
+// ── 對帳回報的證明、上限、逾期、自動撤回與結案（裁決 D81 (3)；紅隊第四輪 中-3、高-2）──
+
+const recon = (rows) => rows.map((r) => r.rule_code);
+const channelExceptions = async (code) =>
+    recon(
+        (
+            await admin.query(`select rule_code from sgn.exception_record where rule_code = $1 and detail ->> 'channel' = $2`, [
+                code,
+                CHANNEL,
+            ])
+        ).rows,
+    );
+
+test('K-RECON-UNVERIFIED 對帳程式改不了回報：只採信外部系統簽的內容（改可讀副本、拿掉項目都沒用）；沒有證明、證明被改、重送、過期的回報不收並開例外（限速）', async () => {
+    const caseId = await active(2026);
+    const caseNo = String((await view(caseId)).case_no);
+    const items = await expectedItems();
+    const backdoor = {
+        ...items.find((i) => i.properties.case_no === caseNo),
+        item_key: 'bd',
+        resource: { type: 'data_field', id: 'sales_order.gross_margin' },
+    };
+    // 外部系統簽的回報裡有後門；對帳程式（D）把它從可讀副本拿掉再交 → 資料庫看的是簽過的那一份，照樣抓到
+    const signed = dc.reconciliation(report([...items, backdoor]));
+    const hidden = { ...signed, items: signed.items.filter((i) => i.item_key !== 'bd') };
+    const r = (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, hidden])).r;
+    assert.equal(r.status, 'accepted');
+    assert.equal(r.new_findings, 1);
+    assert.deepEqual(await reconCodes(caseId), ['K-RECON-EXTRA']);
+    // 同一份再交一次（重送）：不收
+    const again = (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, signed])).r;
+    assert.deepEqual([again.status, again.reason], ['rejected', 'replay']);
+    // 證明被改（把後門從被簽的內容裡拿掉）：不收；限速：同一通道在新鮮度的時間內只開一筆例外
+    const att = signed.attestation;
+    const forged = { ...signed, attestation: { ...att, payload: att.payload.replace('sales_order.gross_margin', 'sales_order.amount') } };
+    const before = (await channelExceptions('K-RECON-UNVERIFIED')).length;
+    assert.equal((await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, forged])).r.reason, 'unverified');
+    assert.equal((await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: [] }])).r.reason, 'unverified');
+    assert.ok((await channelExceptions('K-RECON-UNVERIFIED')).length <= before + 1, '壞回報灌不爆例外');
+    assert.ok((await channelExceptions('K-RECON-UNVERIFIED')).length >= 1);
+    // 過期：外部系統簽發的時間離現在超過參數
+    await setSetting(admin, 'reconciliation.max_report_age_seconds', 1, `channel:${CHANNEL}`);
+    const old = dc.reconciliation(report(items));
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+    assert.equal((await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, old])).r.reason, 'stale');
+    await setSetting(admin, 'reconciliation.max_report_age_seconds', 120, `channel:${CHANNEL}`);
+    // 沒通過的回報不會讓發現結案；有效的回報沒看到後門才結案，而且結案進鏈
+    const open = await one(
+        admin,
+        `select count(*)::int as n from sgn.reconciliation_finding where case_id = $1 and resolved_run_id is null`,
+        [caseId],
+    );
+    assert.equal(open.n, 1);
+    await submit(items);
+    const resolved = await admin.query(
+        `select 1 from sgn.audit_event where event_type = 'reconciliation.finding_resolved' and case_id = $1`,
+        [caseId],
+    );
+    assert.equal(resolved.rowCount, 1);
+});
+
+test('K-RECON-EXTRA 縮小之後新的一版送不出去（交付程式或網路擋下）：外部系統上仍是舊版，舊版多出來的欄位立刻是發現（縮小在平台那一刻生效，紅隊第四輪 腳本 21 b）', async () => {
+    const caseId = await active(2031);
+    const caseNo = String((await view(caseId)).case_no);
+    const before = (await expectedItems()).filter((i) => i.properties.case_no === caseNo);
+    await call(app, 'case_reduce', users.p04.session, caseId, so(2031, ['amount', 'order_date']), null, '縮小');
+    // 新的一版還在排（交付程式擋著）：外部系統的回報仍是舊版的三個欄位
+    const others = (await expectedItems()).filter((i) => i.properties.case_no !== caseNo);
+    const r = await submit([...others, ...before]);
+    assert.ok(r.new_findings >= 1);
+    const kinds = (
+        await admin.query(
+            `select kind, detail ->> 'key' as key from sgn.reconciliation_finding where case_id = $1 and resolved_run_id is null`,
+            [caseId],
+        )
+    ).rows;
+    assert.ok(
+        kinds.some((k) => k.kind === 'extra' && k.key.includes('sales_order.order_no')),
+        JSON.stringify(kinds),
+    );
+    await drain(delivery, dc);
+    assert.equal((await view(caseId)).state, 'active');
+    await submit(await expectedItems());
+    assert.equal(
+        (await admin.query(`select 1 from sgn.reconciliation_finding where case_id = $1 and resolved_run_id is null`, [caseId])).rowCount,
+        0,
+    );
+});
+
+test('K-RECON-RESOLVED 發現只在之後一份有效的回報沒看到時結案，每一筆結案都進鏈（不會只靠下一份回報無人知曉地消失）', async () => {
+    const caseId = await active(2027);
+    const caseNo = String((await view(caseId)).case_no);
+    const items = await expectedItems();
+    await submit(items.filter((i) => !(i.properties.case_no === caseNo && i.resource.id === 'sales_order.amount')));
+    assert.deepEqual(await reconCodes(caseId), ['K-RECON-MISSING']);
+    const bad = (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, report(items)])).r;
+    assert.equal(bad.status, 'rejected');
+    assert.equal(
+        (
+            await one(admin, `select count(*)::int as n from sgn.reconciliation_finding where case_id = $1 and resolved_run_id is null`, [
+                caseId,
+            ])
+        ).n,
+        1,
+    );
+    const ok = await submit(items);
+    assert.equal(ok.resolved, 1);
+    const chain = await admin.query(`select 1 from sgn.audit_event where event_type = 'reconciliation.finding_resolved' and case_id = $1`, [
+        caseId,
+    ]);
+    assert.equal(chain.rowCount, 1, '結案進鏈');
+});
+
+test('K-RECON-LIMIT 單輪上限：項目超過上限整份不收；新發現超過上限時只逐筆開到上限、其餘合併成一筆例外並升級（發現照樣記錄）', async () => {
+    const caseId = await active(2028);
+    const caseNo = String((await view(caseId)).case_no);
+    const items = await expectedItems();
+    await setSetting(admin, 'reconciliation.max_items', items.length, `channel:${CHANNEL}`);
+    const mine = items.find((i) => i.properties.case_no === caseNo);
+    const fakes = ['gross_margin', 'unit_cost', 'discount'].map((f) => ({
+        ...mine,
+        item_key: f,
+        resource: { type: 'data_field', id: `sales_order.${f}` },
+    }));
+    const big = await submit([...items, ...fakes]);
+    assert.deepEqual([big.status, big.reason], ['rejected', 'too_many_items']);
+    assert.ok((await channelExceptions('K-RECON-LIMIT')).length >= 1);
+    await setSetting(admin, 'reconciliation.max_items', 5000, `channel:${CHANNEL}`);
+    await setSetting(admin, 'reconciliation.max_new_findings', 1, `channel:${CHANNEL}`);
+    const before = (await admin.query('select count(*)::int as n from sgn.exception_record')).rows[0].n;
+    const r = await submit([...items, ...fakes]);
+    await setSetting(admin, 'reconciliation.max_new_findings', 100, `channel:${CHANNEL}`);
+    assert.equal(r.new_findings, 3, '發現都記下來');
+    const after = (await admin.query('select count(*)::int as n from sgn.exception_record')).rows[0].n;
+    assert.equal(after - before, 2, '逐筆開 1 筆，其餘合併成 1 筆 K-RECON-LIMIT');
+    await submit(items);
+});
+
+test('K-RECON-OVERDUE 超過參數的時間沒有有效的對帳回報：由資料庫開例外並升級，每段逾期一筆；有效的回報之後重新計算', async () => {
+    await setSetting(admin, 'reconciliation.max_interval_seconds', 0, `channel:${CHANNEL}`);
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assert.equal((await one(job, 'select api_job.reconciliation_overdue_check() as n')).n, 1);
+    assert.equal((await one(job, 'select api_job.reconciliation_overdue_check() as n')).n, 0, '同一段逾期不重複開');
+    // 壞的回報不算
+    await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, { items: [] }]);
+    assert.equal((await one(job, 'select api_job.reconciliation_overdue_check() as n')).n, 0);
+    await submit(await expectedItems());
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    assert.equal((await one(job, 'select api_job.reconciliation_overdue_check() as n')).n, 1, '有效的回報之後又逾期');
+    await setSetting(admin, 'reconciliation.max_interval_seconds', 300, `channel:${CHANNEL}`);
+    const notified = await admin.query(`select 1 from sgn.notification_outbox where event_code = 'reconciliation.overdue'`);
+    assert.ok(notified.rowCount >= 2, '通知升級對象');
+});
+
+test('K-RECON-EXTRA 多出來的屬於已撤銷（撤回已完成）的單：自動排撤回並進鏈；不屬於任何單的不排撤回（升級）', async () => {
+    const caseId = await active(2029);
+    const caseNo = String((await view(caseId)).case_no);
+    const items = await expectedItems();
+    const mine = items.filter((i) => i.properties.case_no === caseNo);
+    await call(app, 'case_revoke', users.p04.session, caseId, '自動撤回測試');
+    await drain(delivery, dc);
+    const withdraws = async () => (await ops(admin, caseId)).filter((o) => o.kind === 'withdraw');
+    assert.deepEqual(
+        (await withdraws()).map((o) => o.status),
+        ['done'],
+    );
+    // 撤回完成之後外部系統上又出現（例如撤銷後才送達的舊版本）：自動再排一筆撤回
+    const r = await submit(items);
+    assert.equal(r.new_findings, mine.length);
+    assert.deepEqual(
+        (await withdraws()).map((o) => o.status),
+        ['done', 'queued'],
+    );
+    assert.ok((await events(caseId)).includes('reconciliation.withdraw_scheduled'));
+    await drain(delivery, dc);
+    await submit(await expectedItems());
 });
 
 test('架構：被入侵的後端（sgn_app）不能領取交付、不能謊報套用或驗證結果、不能交對帳回報；交付程式不能呼叫後端與排程的 function', async () => {

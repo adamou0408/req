@@ -5,7 +5,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { request } from 'node:http';
 import { join } from 'node:path';
 import pg from 'pg';
-import { generateKeyPair, signRequest } from '../src/signature.ts';
+import { attestationValid, generateKeyPair, REQUEST_FORMAT, signRequest, type Attestation } from '../src/signature.ts';
 
 function env(name: string): string {
     const v = process.env[name];
@@ -21,9 +21,59 @@ export const KEYS = {
 
 const keyDir = join(env('SIM_DC_TEST_DIR'), 'keys');
 export const TEST_KEY_ID = 'test-platform';
+/** 遮罩環境信任的是另一把（每個環境各自的信任清單） */
+export const MASKED_KEY_ID = 'test-platform-masked';
 
-export function platformPrivateKey(): string {
-    return readFileSync(join(keyDir, `${TEST_KEY_ID}.private.pem`), 'utf8');
+export function platformPrivateKey(keyId = TEST_KEY_ID): string {
+    return readFileSync(join(keyDir, `${keyId}.private.pem`), 'utf8');
+}
+
+/** DC 回應證明的公鑰（平台那一側登記的就是它） */
+export function responsePublicKey(): string {
+    return readFileSync(join(keyDir, 'response.public.pem'), 'utf8');
+}
+
+const ENVIRONMENTS: Record<string, string> = { '/v1': env('SIM_DC_DB'), '/masked/v1': env('SIM_DC_DB_MASKED') };
+
+/** 平台簽的信封：通道、環境、方法、路徑（環境前綴之後）與期限都在被簽的內容裡。 */
+export function envelope(
+    method: string,
+    fullPath: string,
+    payload: unknown,
+    over: Partial<{ channel: string; environment: string; method: string; path: string; not_after: string }> = {},
+): string {
+    const base = fullPath.startsWith('/masked/v1/') ? '/masked/v1' : '/v1';
+    return JSON.stringify({
+        format: REQUEST_FORMAT,
+        channel: env('SIM_DC_CHANNEL'),
+        environment: ENVIRONMENTS[base],
+        method,
+        path: fullPath.slice(base.length),
+        not_after: new Date(Date.now() + 300_000).toISOString(),
+        ...over,
+        payload,
+    });
+}
+
+export interface AttestationPayload {
+    format: string;
+    channel: string;
+    environment: string;
+    method: string;
+    path: string;
+    query: string;
+    request_sha256: string;
+    nonce: string | null;
+    http_status: number;
+    issued_at: string;
+    result: Record<string, unknown>;
+}
+
+/** 驗回應的證明並打開它（平台的資料庫做同樣的事）。驗不過就丟錯。 */
+export function attested(r: Response): AttestationPayload {
+    const a = r.body['attestation'] as Attestation | undefined;
+    if (a === undefined || !attestationValid(responsePublicKey(), a)) throw new Error(`回應沒有有效的證明：${JSON.stringify(r.body)}`);
+    return JSON.parse(a.payload) as AttestationPayload;
 }
 
 // 另一把不受信任的金鑰：用它簽的規則必須被拒絕
@@ -65,14 +115,20 @@ export function signed(body: string, privateKey = platformPrivateKey(), keyId = 
     return { 'sgn-signature': signRequest(privateKey, keyId, Buffer.from(body, 'utf8')) };
 }
 
-export async function putRuleSet(rs: RuleSetInput, base = '/v1'): Promise<Response> {
-    const body = JSON.stringify(rs);
-    return call('PUT', `${base}/rule-sets/${rs.case_no}`, { body, headers: signed(body) });
+/** 以該環境信任的平台金鑰簽一個信封並送出。 */
+export async function sendSigned(method: string, fullPath: string, payload: unknown): Promise<Response> {
+    const body = envelope(method, fullPath, payload);
+    const keyId = fullPath.startsWith('/masked/v1/') ? MASKED_KEY_ID : TEST_KEY_ID;
+    return call(method, fullPath, { body, headers: signed(body, platformPrivateKey(keyId), keyId) });
 }
 
-export async function withdraw(caseNo: string, requestId: string, ruleIds?: string[]): Promise<Response> {
-    const body = JSON.stringify({ request_id: requestId, case_no: caseNo, ...(ruleIds === undefined ? {} : { rule_ids: ruleIds }) });
-    return call('DELETE', `/v1/rule-sets/${caseNo}`, { body, headers: signed(body) });
+export async function putRuleSet(rs: RuleSetInput, base = '/v1'): Promise<Response> {
+    return sendSigned('PUT', `${base}/rule-sets/${rs.case_no}`, rs);
+}
+
+export async function withdraw(caseNo: string, requestId: string, ruleIds?: string[], base = '/v1'): Promise<Response> {
+    const payload = { request_id: requestId, case_no: caseNo, ...(ruleIds === undefined ? {} : { rule_ids: ruleIds }) };
+    return sendSigned('DELETE', `${base}/rule-sets/${caseNo}`, payload);
 }
 
 export interface QueryInput {
@@ -89,7 +145,7 @@ export async function testQuery(principalId: string, query: QueryInput, probe = 
         body: JSON.stringify({ principal_id: principalId, query, probe_missing_row: probe }),
     });
     if (r.status !== 200) throw new Error(`test-query ${r.status}：${JSON.stringify(r.body)}`);
-    return r.body;
+    return attested(r).result;
 }
 
 export interface ReconItem {
@@ -104,7 +160,7 @@ export interface ReconItem {
 export async function reconciliation(base = '/v1'): Promise<ReconItem[]> {
     const r = await call('GET', `${base}/reconciliation`, { key: KEYS.auditor });
     if (r.status !== 200) throw new Error(`reconciliation ${r.status}`);
-    return r.body['items'] as ReconItem[];
+    return attested(r).result['items'] as ReconItem[];
 }
 
 export async function backdoor(op: string, body: Record<string, unknown>): Promise<Response> {

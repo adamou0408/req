@@ -138,7 +138,7 @@ export async function backdoor(db: Db, prefix: string, op: string, body: Record<
         case 'reset': {
             const roles = await db.query<{ rolname: string }>('select rolname from pg_roles where starts_with(rolname, $1)', [prefix]);
             for (const { rolname } of roles.rows) await dropRole(db, rolname);
-            await db.query('truncate simdc_meta.rule_set, simdc_meta.withdraw_request, simdc_meta.sabotage');
+            await db.query('truncate simdc_meta.rule_set, simdc_meta.withdraw_request, simdc_meta.sabotage, simdc_meta.archived_case');
             return { dropped_roles: roles.rows.map((r) => r.rolname) };
         }
         default:

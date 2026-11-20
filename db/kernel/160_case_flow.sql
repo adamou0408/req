@@ -3,6 +3,21 @@
 
 -- ── 被授權者與授權起迄（terms）──
 
+-- 文字 → uuid；不是 uuid 就是 null（不丟 SQLSTATE 22P02：輸入錯誤一律走錯誤目錄）。
+create function sgn_internal.try_uuid(p_text text)
+returns uuid
+language plpgsql
+immutable
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    return p_text::uuid;
+exception
+    when invalid_text_representation then
+        return null;
+end;
+$$;
+
 create function sgn_internal.try_date(p_text text)
 returns date
 language plpgsql
@@ -61,8 +76,9 @@ begin
     if sgn_internal.process_option(p_process_type, 'uses_principal') then
         v_code := case
             when p_terms ->> 'principal_id' is null then 'PRINCIPAL_REQUIRED'
+            -- 只認標準寫法（小寫、無空白與大括號）的 id；轉型不丟錯，格式不對一律走錯誤目錄（紅隊第四輪 資訊 2）
             when not exists (select 1 from sgn.principal as x where x.id::text = p_terms ->> 'principal_id')
-                 or not sgn_internal.principal_usable((p_terms ->> 'principal_id')::uuid) then 'PRINCIPAL_UNKNOWN'
+                 or not sgn_internal.principal_usable(sgn_internal.try_uuid(p_terms ->> 'principal_id')) then 'PRINCIPAL_UNKNOWN'
         end;
         if v_code is not null then
             v_errors := v_errors || jsonb_build_object('path', 'terms.principal_id', 'code', v_code, 'message', sgn_internal.message_text(v_code));
