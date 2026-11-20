@@ -11,6 +11,7 @@ if sim_pid_alive "$SIM_IDP_NAME"; then
     exit 0
 fi
 
+sim_idp_ensure_secrets
 sim_idp_load_env
 "${here}/install.sh"
 sim_require_cmd curl jq

@@ -3,7 +3,7 @@
 //   node db/tools/anchor.mjs                     錨定一次
 //   node db/tools/anchor.mjs --every 60          每 60 秒錨定一次（常駐）
 // 每次錨定前先從上一個錨點增量重算；不一致就不寫，並以結束代碼 2 回報。
-// 設定：自己的密鑰檔（.run/secrets/anchor.env：sgn_job 的密碼、存放處的寫入金鑰），見 db/tools/lib/programs.mjs。
+// 設定：自己的密鑰檔（.run/secrets/anchor.env：sgn_anchor 的密碼、存放處的寫入金鑰），見 db/tools/lib/programs.mjs。
 import { anchorOnce, anchorStoreClient } from './chain-lib.mjs';
 import { PROGRAMS } from './lib/programs.mjs';
 import { loadProgramConfig, programDbUrl } from './lib/env.mjs';

@@ -6,8 +6,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { after, test } from 'node:test';
-import { anchorFile, loadConfig } from '../../db/tools/lib/env.mjs';
-import { call, closePools, login, pool } from '../../db/tests/kernel/lib/harness.mjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { RUN_DIR, SECRETS_DIR, anchorFile, loadConfig, readEnvFile } from '../../db/tools/lib/env.mjs';
+import { call, closePools, login, one, pool, setSetting } from '../../db/tests/kernel/lib/harness.mjs';
 import { verifyCase } from '../../web/verify.js';
 
 const config = loadConfig();
@@ -103,4 +105,77 @@ test('K-AUDIT-CHAIN 錨點存放處只增不改、寫入要金鑰；資料檔屬
     }
     const res = await fetch(new URL('/anchors', config.db.SGN_RP_ORIGIN));
     assert.equal(res.status, 404, '後端沒有 /anchors');
+});
+
+// ── 紅隊第五輪 中-4（裁決 D84 (7)；redteam/exploits/41）──
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const anchorsNow = async () => (await fetch(new URL('/anchors', config.db.SGN_ANCHOR_ORIGIN))).json();
+
+test('K-ANCHOR-LAG 拿到寫入金鑰（錨定程式的帳號）也只能寫序號更大的錨點：0 號、負的、等於或小於最後一個的都不收（指紋改變也一樣）', async () => {
+    const key = readEnvFile(join(SECRETS_DIR, 'anchor.env')).SGN_ANCHOR_WRITE_KEY;
+    const last = (await anchorsNow()).at(-1);
+    const post = (a) =>
+        fetch(new URL('/anchors', config.db.SGN_ANCHOR_ORIGIN), {
+            method: 'POST',
+            headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+            body: JSON.stringify({
+                hash: 'ab'.repeat(32),
+                code_fingerprint: 'x',
+                anchored_at: new Date().toISOString(),
+                label: 'test',
+                ...a,
+            }),
+        });
+    assert.equal((await post({ seq: 0 })).status, 422, '0 號');
+    assert.equal((await post({ seq: -1 })).status, 422);
+    assert.equal((await post({ seq: last.seq })).status, 409, '一樣的序號、換了指紋');
+    assert.equal((await post({ seq: last.seq - 1, code_fingerprint: last.code_fingerprint })).status, 409, '比較小');
+    assert.equal((await anchorsNow()).at(-1).seq >= last.seq, true);
+});
+
+test('K-ANCHOR-LAG 錨定停擺超過參數：稽核頁判為失敗（不是「尚未錨定」的警告），資料庫開例外；錨定程式被殺掉會被重新啟動，之後恢復', async () => {
+    const auditor = await login(app, 'p22');
+    const scheduler = pool('SCHEDULER');
+    const pidFile = join(RUN_DIR, 'anchor.pid');
+    const pid = Number(readFileSync(pidFile, 'utf8'));
+    await setSetting(admin, 'audit.anchor_max_lag_seconds', 3);
+    process.kill(pid, 'SIGSTOP');
+    try {
+        const c = await one(admin, `select case_no::text as case_no from sgn.request_case order by case_no desc limit 1`);
+        await one(admin, `select sgn_internal.audit_append('test.anchor_lag', null, null, '{}'::jsonb) as seq`);
+        await sleep(4500);
+        const audit = await call(app, 'audit_case', auditor.session, c.case_no);
+        const api = { call: (fn, body) => call(app, fn, auditor.session, ...Object.values(body ?? {})) };
+        const result = await verifyCase(api, audit);
+        assert.equal(result.status, 'bad', JSON.stringify(result.problems));
+        assert.ok(result.problems.some((p) => /外部錨定落後/.test(p)));
+        assert.equal((await one(scheduler, 'select api_job.anchor_lag_check() as r')).r.opened, 1, '資料庫開例外');
+    } finally {
+        process.kill(pid, 'SIGCONT');
+        await setSetting(admin, 'audit.anchor_max_lag_seconds', 30);
+    }
+    // 監看（tools/run-all.sh）：錨定程式結束就重新啟動
+    process.kill(pid, 'SIGKILL');
+    let restarted = 0;
+    for (let i = 0; i < 50 && !restarted; i += 1) {
+        await sleep(200);
+        const now = Number(readFileSync(pidFile, 'utf8'));
+        if (now !== pid) {
+            try {
+                process.kill(now, 0);
+                restarted = now;
+            } catch {
+                // 還在啟動
+            }
+        }
+    }
+    assert.ok(restarted, '錨定程式被重新啟動');
+    const head = Number((await one(admin, 'select seq from sgn.audit_chain_head')).seq);
+    let caught = false;
+    for (let i = 0; i < 50 && !caught; i += 1) {
+        await sleep(200);
+        caught = (await anchorsNow()).at(-1).seq >= head;
+    }
+    assert.ok(caught, '重新啟動之後錨定恢復');
 });

@@ -77,7 +77,9 @@ test('DA-PATH-L3 L3：主管 → 資料擁有者（並行，全部核准才往�
         ['principal_owner', 'manager', 'data_owner', 'mis', 'fulfil'],
     );
     await call(app, 'task_claim', users.p18.session, c.case_id);
-    assert.equal(await decide(app, users.p18, c.case_id, 'fulfil'), 'active');
+    // 人工執行的單也要申請人確認才生效（K-CONFIRM-MANUAL，裁決 D84 (8)）
+    assert.equal(await decide(app, users.p18, c.case_id, 'fulfil'), 'verifying');
+    assert.equal((await call(app, 'case_confirm_verification', users.p04.session, c.case_id)).state, 'active');
     v = await view('p04', c.case_id);
     assert.equal(v.grant.status, 'active');
     assert.equal(v.grant.valid_from, v.terms.valid_from);
@@ -124,7 +126,8 @@ test('DA-FULFIL-CUSTODIAN 執行設定由主題包所屬系統的管理人認領
     assert.deepEqual(v.waiting_on, ['江佩玲']);
     assert.deepEqual(openStageTasks(v)[0].scope_refs, ['system:hr_saas']);
     await call(app, 'task_claim', users.p30.session, c.case_id);
-    assert.equal(await decide(app, users.p30, c.case_id, 'fulfil'), 'active');
+    assert.equal(await decide(app, users.p30, c.case_id, 'fulfil'), 'verifying');
+    assert.equal((await call(app, 'case_confirm_verification', users.p04.session, c.case_id)).state, 'active');
 });
 
 test('DA-PATH-L4 L4：資料擁有者之後多一關資安長；L4 的單要求匯出時改為只能查詢（DA-EXPORT-TIER）', async () => {

@@ -203,7 +203,11 @@ export async function anchorOnce({ dbUrl, anchorFile, store = anchorFileStore(an
             anchored_at: new Date().toISOString(),
             label,
         };
-        if (anchor.seq > last.seq || anchor.code_fingerprint !== last.code_fingerprint) await store.append(anchor);
+        if (anchor.seq > last.seq) {
+            await store.append(anchor);
+            // 存放處收下了才告訴資料庫（不進鏈）；資料庫用它判斷錨定有沒有落後（K-ANCHOR-LAG，裁決 D84 (7)）
+            await db.query('select api_job.anchor_recorded($1, $2, $3)', [anchor.seq, anchor.hash, anchor.code_fingerprint]);
+        }
         return { ok: true, anchor };
     } finally {
         await db.end();

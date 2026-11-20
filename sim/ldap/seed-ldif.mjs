@@ -4,7 +4,7 @@
 //
 // 用法：node seed-ldif.mjs ldif          輸出完整 LDIF 到標準輸出
 //       node seed-ldif.mjs people-count  輸出文件裡的人數（健康檢查用）
-// 設定由環境變數帶入（start.sh 會載入 service.env 與 test-credentials.env）。
+// 設定由環境變數帶入（start.sh 會載入 service.env 與執行期產生的 sim/.run/ldap/secrets.env）。
 
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';

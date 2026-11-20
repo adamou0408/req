@@ -30,6 +30,7 @@ const sha256 = async (bytes) => new Uint8Array(await crypto.subtle.digest('SHA-2
 async function verifyChain(api) {
     const problems = [];
     const hashBySeq = new Map();
+    const occurredAt = new Map();
     let prev = new Uint8Array(32);
     let expected = 1;
     for (let after = 0; ; ) {
@@ -50,13 +51,14 @@ async function verifyChain(api) {
                 new Date(parsed.at).getTime() === new Date(row.occurred_at).getTime();
             if (!columnsMatch) problems.push(`第 ${seq} 筆的查詢欄位和原文不一致`);
             hashBySeq.set(seq, hex(computed));
+            occurredAt.set(seq, row.occurred_at);
             prev = computed;
             expected = seq + 1;
             after = seq;
         }
         if (rows.length < PAGE) break;
     }
-    return { problems, hashBySeq, lastSeq: expected - 1 };
+    return { problems, hashBySeq, occurredAt, lastSeq: expected - 1 };
 }
 
 /** 錨點存放處的全部錨點：位置來自頁面來源的 /config.json（不是後端）。 */
@@ -75,10 +77,28 @@ async function verifyAnchors(api, chain) {
         else if (anchor.seq > 0 && chain.hashBySeq.get(anchor.seq) !== anchor.hash) problems.push(`第 ${anchor.seq} 筆和外部錨點不符`);
     }
     const last = anchors.at(-1);
-    if (last?.code_fingerprint && last.code_fingerprint !== (await api.call('audit_code_fingerprint')).code_fingerprint) {
+    const code = await api.call('audit_code_fingerprint');
+    if (last?.code_fingerprint && last.code_fingerprint !== code.code_fingerprint) {
         problems.push('資料庫的程式在最後一次錨定之後被改過');
     }
+    const lag = anchorLag(chain, last?.seq ?? 0, code.anchor_policy);
+    if (lag) problems.push(lag);
     return { problems, lastAnchorSeq: last?.seq ?? 0, anchorCount: anchors.length };
+}
+
+/**
+ * 錨定落後超過參數（裁決 D84 (7)）：最後一個錨點之後的事件，最舊一筆超過 max_lag_seconds 或筆數超過 max_lag_events，就是失敗，
+ * 不是「尚未錨定」的警告——錨定停擺時，之後的紀錄只靠資料庫保護，後端改寫了也看不出來。參數不足一個週期的落後仍只是警告。
+ */
+function anchorLag(chain, lastAnchorSeq, policy) {
+    const events = chain.lastSeq - Math.min(lastAnchorSeq, chain.lastSeq);
+    if (events <= 0) return null;
+    const oldest = chain.occurredAt.get(chain.lastSeq - events + 1);
+    const seconds = Math.round((Date.now() - new Date(oldest).getTime()) / 1000);
+    if (events > policy.max_lag_events || seconds > policy.max_lag_seconds) {
+        return `外部錨定落後：最後一個錨點之後有 ${events} 筆紀錄、最舊一筆已經 ${seconds} 秒（上限 ${policy.max_lag_seconds} 秒、${policy.max_lag_events} 筆）`;
+    }
+    return null;
 }
 
 function derToRaw(der) {

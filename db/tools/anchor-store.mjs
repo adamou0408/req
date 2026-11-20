@@ -3,7 +3,8 @@
 // 稽核頁與離線驗證工具直接向這裡取錨點，不經後端；後端主機上的人（B）改不了這裡的檔案、也換不了回應。
 //   GET  /anchors   全部錨點（JSON 陣列）；CORS 只開給頁面的來源
 //   POST /anchors   錨定程式（db/tools/anchor.mjs）寫入一個新錨點；要寫入金鑰（這裡只存它的 SHA-256）
-// 只增不改：新的錨點序號要比最後一個大（或程式指紋改變），否則拒絕；所以拿到寫入金鑰也改不了已經寫下的錨點。
+// 只增不改：新的錨點序號要比最後一個大，而且大於 0（裁決 D84 (7)）。第五輪之前「程式指紋改變」時序號可以變小，拿到寫入金鑰的人
+// 就能寫 0 號錨點讓錨定停擺（redteam/exploits/41）；現在程式指紋改變也要等鏈上有新的事件才寫得進新錨點。
 // 資料檔是 .run/anchors-<端對端資料庫>.jsonl，擁有者是這個程式的帳號（db/tools/provision-secrets.mjs）。
 // 用法：node db/tools/anchor-store.mjs（tools/run-all.sh 以 sgn-anchor-store 帳號啟動）
 import { createHash, timingSafeEqual } from 'node:crypto';
@@ -36,7 +37,7 @@ function valid(a) {
         a !== null &&
         typeof a === 'object' &&
         Number.isInteger(a.seq) &&
-        a.seq >= 0 &&
+        a.seq > 0 &&
         /^[0-9a-f]{64}$/.test(a.hash) &&
         typeof a.code_fingerprint === 'string' &&
         typeof a.anchored_at === 'string' &&
@@ -69,7 +70,7 @@ async function handle(req, res) {
     const anchor = await readJson(req).catch(() => null);
     if (!valid(anchor)) return reply(res, 422, { error: 'invalid_anchor' });
     const last = (await store.read()).at(-1);
-    if (last && !(anchor.seq > last.seq || anchor.code_fingerprint !== last.code_fingerprint)) {
+    if (last && !(anchor.seq > last.seq)) {
         return reply(res, 409, { error: 'not_newer', last_seq: last.seq });
     }
     await store.append(anchor);

@@ -10,13 +10,26 @@ const roles = {
     APP: config.db.SGN_ROLE_APP,
     VERIFIER: config.db.SGN_ROLE_TEST_VERIFIER,
     SYNC: config.db.SGN_ROLE_SYNC,
-    ANCHOR: config.db.SGN_ROLE_JOB,
+    SCHEDULER: config.db.SGN_ROLE_SCHEDULER,
+    RECONCILER: config.db.SGN_ROLE_RECONCILER,
+    ANCHOR: config.db.SGN_ROLE_ANCHOR,
+    MAILER: config.db.SGN_ROLE_MAILER,
+    JOB: config.db.SGN_ROLE_JOB,
 };
-const allowedSchema = { APP: 'api', VERIFIER: 'api_verified', SYNC: 'api_sync', ANCHOR: 'api_job' };
+const allowedSchema = {
+    APP: 'api',
+    VERIFIER: 'api_verified',
+    SYNC: 'api_sync',
+    SCHEDULER: 'api_job',
+    RECONCILER: 'api_job',
+    ANCHOR: 'api_job',
+    MAILER: 'api_job',
+    JOB: 'api_job',
+};
 
 after(closePools);
 
-test('角色隔離：四個登入角色對任何資料表、序列、檢視都沒有任何權限', async () => {
+test('角色隔離：各登入角色對任何資料表、序列、檢視都沒有任何權限', async () => {
     for (const role of Object.values(roles)) {
         const { rows } = await admin.query(
             `select n.nspname || '.' || c.relname as rel

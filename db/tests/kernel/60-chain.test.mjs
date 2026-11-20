@@ -3,7 +3,7 @@
 // 每個攻擊情境在主資料庫的複本上做，互不影響。
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import pg from 'pg';
@@ -89,6 +89,7 @@ before(async () => {
     mkdirSync(runDir, { recursive: true });
     rmSync(anchorFile, { force: true });
     execFileSync('pg_dump', ['--format=custom', `--file=${backupFile}`, adminUrl(config)]);
+    chmodSync(backupFile, 0o600); // 整庫備份只有 root 讀得到（裁決 D84 (1)；架構測試 97）
 });
 
 after(async () => {

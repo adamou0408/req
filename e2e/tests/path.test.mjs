@@ -161,7 +161,31 @@ test('DA-PATH-L3 L3 走完：林怡君申請 → 陳建宏核准 → 周文傑�
     await custodian.page.click('[data-action=claim]');
     await custodian.page.waitForSelector('[data-action=fulfil]');
     layout.push(...(await layoutProblems(custodian.page, '執行內容')));
-    assert.match(await decideHere(custodian, 'fulfil'), /授權生效/);
+    assert.match(await decideHere(custodian, 'fulfil'), /等申請人確認後生效/);
+    c = await caseByNo(applicant, mainCaseNo);
+    assert.equal(c.state, 'verifying', '人工執行的單也要申請人確認（K-CONFIRM-MANUAL，裁決 D84 (8)）');
+    assert.equal(c.grant, null);
+
+    // 申請人在手機上確認（從首頁數步數；人工執行沒有自動驗證，畫面寫明是系統管理人標記的）
+    const confirmSteps = [];
+    await home(applicant);
+    assert.match(
+        await applicant.page.textContent(`[data-testid=confirm-item][data-case-no="${mainCaseNo}"] [data-testid=confirm-due]`),
+        /還有 5 個工作天/,
+        '首頁的站內待辦：剩幾個工作天（K-CONFIRM-REMIND）',
+    );
+    await applicant.page.click(`[data-testid=confirm-item][data-case-no="${mainCaseNo}"]`);
+    confirmSteps.push('打開等你確認的單');
+    await applicant.page.waitForSelector('[data-testid=confirmation][data-status=pending] [data-testid=confirmation-manual]');
+    layout.push(...(await layoutProblems(applicant.page, '確認人工執行的結果')));
+    await applicant.page.click('[data-action=confirm_verification]');
+    confirmSteps.push('結果正確，確認生效');
+    await applicant.page.click('[data-testid=confirm-verification-submit]');
+    confirmSteps.push('確認生效');
+    await applicant.page.waitForSelector('#flash.ok:not([hidden])');
+    assert.ok(confirmSteps.length <= 3, `步數 ${confirmSteps.length} 超過 T7 上限 3`);
+    console.log(`K-CONFIRM-MANUAL 確認人工執行的結果：${confirmSteps.length} 步（${confirmSteps.join(' → ')}）`);
+    results.tests.confirm_manual = { steps: confirmSteps.length };
     c = await caseByNo(applicant, mainCaseNo);
     assert.equal(c.state, 'active');
     assert.equal(c.grant.status, 'active');
@@ -681,51 +705,108 @@ async function openPasskeys(p) {
     await p.page.waitForSelector('[data-testid=section-revoke]');
 }
 
-test('K-PASSKEY-REVOKE 遺失全部裝置：渡邊翔自己撤銷全部金鑰，重新登記只能當面核對；田中美咲用手機掃新裝置畫面上的 QR 碼背書（掃到別的指紋不簽）', async () => {
-    const boss = await person('p32');
-    await fakeBarcodeDetector(boss);
-    await loggedIn('p32');
+test('K-PASSKEY-SUSPEND 渡邊翔只憑登入停用自己的全部金鑰（裁決 D84 (2)：不是撤銷）；找回裝置後用原來的金鑰申請、田中美咲背書才恢復（兩邊都從首頁數步數）', async () => {
+    const boss = await loggedIn('p32');
     const staff = await loggedIn('p35');
-    // 渡邊翔原本有一把金鑰（登記人背書）
     await openPasskeys(staff);
     assert.equal(await ensurePasskey(staff), true);
-    // 裝置全部遺失：只憑登入撤銷自己的全部金鑰
+    // 只憑登入：停用
     await openPasskeys(staff);
     const mine = staff.page.locator('[data-testid=revocation-item]', { hasText: '渡邊翔' });
     await mine.locator('[data-testid=revoke-self]').click();
-    assert.match(await staff.page.textContent('[data-testid=consequence]'), /立即失效.*當面掃 QR 碼/);
-    await staff.page.fill('[data-testid=revoke-reason]', '手機與筆電都遺失了');
-    const revoked = await flashAfter(staff.page, () => staff.page.click('[data-testid=confirm-revoke]'));
-    assert.equal(revoked.ok, true, revoked.text);
-    assert.equal((await callApi(staff.page, '/api/me')).result.passkeys, 0);
+    assert.match(await staff.page.textContent('[data-testid=consequence]'), /立即停用.*原來的金鑰.*背書/);
+    await staff.page.fill('[data-testid=revoke-reason]', '手機不見了');
+    const suspended = await flashAfter(staff.page, () => staff.page.click('[data-testid=confirm-revoke]'));
+    assert.equal(suspended.ok, true, suspended.text);
+    const me = (await callApi(staff.page, '/api/me')).result;
+    assert.deepEqual([me.passkeys, me.passkey_suspended], [0, 1]);
     const admin = dbPool('ADMIN');
     const mailed = await admin.query(
         `select i.external_id from sgn.notification_outbox n join sgn.person_identity i on i.person_id = n.person_id
-         where n.event_code = 'passkey.revoked' and i.external_id in ('p35', 'p32') order by 1`,
+         where n.event_code = 'passkey.suspended' and i.external_id in ('p35', 'p32') order by 1`,
     );
     assert.deepEqual(
         mailed.rows.map((r) => r.external_id),
         ['p32', 'p35'],
         '通知本人與主管',
     );
-    // 重新登記：新裝置只顯示 QR 碼（不能念碼）
+    const layout = [];
+    // 本人找回裝置：從首頁開始數步數
+    const selfSteps = [];
+    await home(staff);
+    await staff.page.click('[data-testid=open-passkey-restore-self]');
+    selfSteps.push('首頁「用原來的金鑰申請恢復」');
+    const row = staff.page.locator('[data-testid=suspension-item][data-status=suspended]', { hasText: '渡邊翔' });
+    await row.waitFor();
+    layout.push(...(await layoutProblems(staff.page, '停用中的通行金鑰（本人）')));
+    await row.locator('[data-testid=restore]').click();
+    selfSteps.push('按「用原來的金鑰申請恢復」');
+    const requested = await flashAfter(staff.page, () => staff.page.click('[data-testid=confirm-passkey]'));
+    selfSteps.push('按「用通行金鑰確認」');
+    selfSteps.push('裝置上的使用者驗證');
+    assert.equal(requested.ok, true, requested.text);
+    assert.equal((await callApi(staff.page, '/api/me')).result.passkeys, 0, '本人簽了還不夠，要主管背書');
+    // 主管：首頁出現「等你背書恢復的通行金鑰」
+    await openPasskeys(boss);
+    await ensurePasskey(boss);
+    await home(boss);
+    const bossSteps = [];
+    await boss.page.click('[data-testid=open-passkey-restore]');
+    bossSteps.push('首頁「等你背書恢復的通行金鑰」');
+    const item = boss.page.locator('[data-testid=suspension-item][data-status=self_confirmed]', { hasText: '渡邊翔' });
+    await item.waitFor();
+    layout.push(...(await layoutProblems(boss.page, '背書恢復通行金鑰')));
+    await item.locator('[data-testid=endorse-restore]').click();
+    bossSteps.push('按「背書恢復渡邊翔的金鑰」');
+    assert.match(await boss.page.textContent('[data-testid=consequence]'), /本人申請/);
+    const restored = await flashAfter(boss.page, () => boss.page.click('[data-testid=confirm-passkey]'));
+    bossSteps.push('按「用通行金鑰確認」');
+    bossSteps.push('裝置上的使用者驗證');
+    assert.equal(restored.ok, true, restored.text);
+    assert.equal((await callApi(staff.page, '/api/me')).result.passkeys, 1, '恢復可用');
+    console.log(`K-PASSKEY-SUSPEND 本人申請恢復：${selfSteps.length} 步（${selfSteps.join(' → ')}）`);
+    console.log(`K-PASSKEY-SUSPEND 主管背書恢復：${bossSteps.length} 步（${bossSteps.join(' → ')}）`);
+    results.tests.passkey_restore = {
+        self_steps_from_home: selfSteps.length,
+        endorse_steps_from_home: bossSteps.length,
+        selfSteps,
+        bossSteps,
+        layout_problems: layout,
+    };
+    assert.ok(selfSteps.length <= 4 && bossSteps.length <= 4, `步數 ${selfSteps.length}、${bossSteps.length}`);
+    assert.deepEqual(layout, []);
+});
+
+test('K-PASSKEY-REVOKE 裝置真的遺失：田中美咲用自己的通行金鑰撤銷渡邊翔的全部金鑰；渡邊翔重新登記，田中美咲用手機掃新裝置畫面上的 QR 碼背書（掃到別的指紋不簽）', async () => {
+    const boss = await person('p32');
+    await fakeBarcodeDetector(boss);
+    await loggedIn('p32');
+    const staff = await loggedIn('p35');
+    await openPasskeys(boss);
+    await ensurePasskey(boss);
+    await openPasskeys(boss);
+    const target = boss.page.locator('[data-testid=revocation-item]', { hasText: '渡邊翔' });
+    await target.locator('[data-testid=revoke]').click();
+    await boss.page.fill('[data-testid=revoke-reason]', '裝置確定遺失');
+    const revoked = await flashAfter(boss.page, () => boss.page.click('[data-testid=confirm-passkey]'));
+    assert.equal(revoked.ok, true, revoked.text);
+    assert.equal((await callApi(staff.page, '/api/me')).result.passkeys, 0);
+    // 重新登記：新裝置畫面上有 QR 碼（完整指紋）
     await openPasskeys(staff);
-    const shown = await requestPasskeyInUi(staff, { withCode: false });
-    assert.equal(await staff.page.locator('[data-testid=passkey-pending] [data-testid=short-code]').count(), 0);
+    await staff.page.reload();
+    await waitPage(staff.page);
+    const shown = await requestPasskeyInUi(staff);
     const layout = await layoutProblems(staff.page, '新裝置的 QR 碼');
     // 測試的「相機」：從新裝置畫面的 QR 碼讀出來的就是畫面上的完整指紋
     const seen = await readDeviceQr(staff.page);
     assert.equal(fingerprintFromPayload(seen), shown.fingerprint);
     // 田中美咲：從首頁開始數步數
-    await openPasskeys(boss);
-    await ensurePasskey(boss);
     await home(boss);
     const steps = [];
     await boss.page.click('[data-testid=open-passkeys]');
     steps.push('點「待核准的通行金鑰登記」');
     const item = boss.page.locator('[data-testid=enrollment-item]', { hasText: '渡邊翔' });
     await item.waitFor();
-    assert.equal(await item.locator('[data-testid=endorse-code]').count(), 0, '本人只憑登入撤銷過：不能用念碼的方式');
     layout.push(...(await layoutProblems(boss.page, '背書通行金鑰（掃描）')));
     // 掃到別的指紋（例如被入侵的後端換掉的金鑰）：警告，不簽
     await boss.page.evaluate((text) => (window.__seenQr = text), fingerprintPayload('ab'.repeat(32)));

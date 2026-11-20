@@ -87,7 +87,8 @@ test('K-DELIVERY-AUTO 系統對系統：核准完成後執行關不開人工工�
     assert.equal(v.current_stage.code, 'fulfil');
     assert.deepEqual(v.waiting_on, []);
     assert.deepEqual(v.stages.find((s) => s.code === 'fulfil').tasks, [], '人工退路只在交付方式是人工時出現');
-    assert.deepEqual(v.actions, []);
+    // 待套用時權限可能已在外部系統上：有權撤銷的人都能撤銷（K-GRANT-REVOKE，裁決 D84 (4)）；其他動作都沒有
+    assert.deepEqual(v.actions, ['revoke']);
     assert.deepEqual(
         v.delivery.ops.map((o) => [o.kind, o.status]),
         [['apply', 'queued']],
@@ -389,7 +390,7 @@ test('K-GRANT-REVOKE 撤銷：不用簽核但要原因；申請人、負責人�
     assert.equal(n.n, 1, '申請人就是負責人：通知一次');
 });
 
-test('K-DELIVERY-ORDER 撤銷不得被較舊的套用蓋掉：還沒送出的套用作廢；正在送的套用有結果之後才送撤回；作廢的套用不能再回報', async () => {
+test('K-DELIVERY-ORDER K-GRANT-REVOKE 撤銷不得被較舊的套用蓋掉：還沒送出的套用作廢；正在送的套用也作廢（撤回不必等它、它的回報不採信也不重送）', async () => {
     const queuedCase = await active(2018);
     await call(app, 'case_reduce', users.p04.session, queuedCase, so(2018, ['amount', 'order_no']), null, '少一個欄位');
     await call(app, 'case_revoke', users.p04.session, queuedCase, '改用別的資料');
@@ -404,22 +405,44 @@ test('K-DELIVERY-ORDER 撤銷不得被較舊的套用蓋掉：還沒送出的套
     await drain(delivery, dc);
     assert.equal((await ops(admin, queuedCase)).filter((o) => o.kind === 'apply' && o.attempts > 0).length, 1, '作廢的第 2 版沒有送出');
 
+    // 正在送的套用（裁決 D84 (4)、findings-5 資訊 1）：撤銷時一併作廢，撤回不必等它；它之後的回報不採信、也不會排回重送。
+    // 外部系統收到撤回＝封存整張單，晚到的套用一律拒絕，所以不會被較舊的套用蓋掉。
     const inFlight = await active(2019);
     await call(app, 'case_reduce', users.p04.session, inFlight, so(2019, ['amount', 'order_no']), null, '少一個欄位');
     const claimed = (await one(delivery, 'select api_delivery.delivery_claim($1, 10) as r', [CHANNEL])).r;
     const apply2 = claimed.find((x) => x.kind === 'apply');
     await call(app, 'case_revoke', users.p04.session, inFlight, '改用別的資料');
-    assert.deepEqual((await one(delivery, 'select api_delivery.delivery_claim($1, 10) as r', [CHANNEL])).r, [], '撤回排在正在送的套用後面');
-    await one(delivery, 'select api_delivery.delivery_report($1, $2, $3)', [apply2.op_id, apply2.lease_token, await dc.send(apply2)]);
+    const next = (await one(delivery, 'select api_delivery.delivery_claim($1, 10) as r', [CHANNEL])).r;
+    assert.deepEqual(
+        next.map((x) => x.kind),
+        ['withdraw'],
+        '撤回不必等正在送的套用',
+    );
+    await one(delivery, 'select api_delivery.delivery_report($1, $2, $3)', [next[0].op_id, next[0].lease_token, await dc.send(next[0])]);
+    const late = await dc.send(apply2);
+    assert.equal(late.http_status, 409, '外部系統：撤回之後晚到的套用被拒（封存）');
+    await rejectsWith(
+        one(delivery, 'select api_delivery.delivery_report($1, $2, $3)', [apply2.op_id, apply2.lease_token, late]),
+        'DELIVERY_LEASE',
+    );
+    await rejectsWith(
+        one(delivery, 'select api_delivery.delivery_report($1, $2, $3)', [
+            apply2.op_id,
+            apply2.lease_token,
+            { http_status: null, response: null, error: 'ECONNREFUSED' },
+        ]),
+        'DELIVERY_LEASE',
+    );
     await drain(delivery, dc);
     list = await ops(admin, inFlight);
     assert.deepEqual(
         list.slice(-2).map((o) => [o.kind, o.status]),
         [
-            ['apply', 'done'],
+            ['apply', 'superseded'],
             ['withdraw', 'done'],
         ],
     );
+    assert.equal(list.at(-2).attempts, 1, '作廢的套用沒有排回重送');
     assert.equal(dc.store.get(String((await view(inFlight)).case_no)).withdrawn, true);
     assert.equal(
         (await admin.query('select 1 from sgn.verification_run where apply_op_id = $1', [apply2.op_id])).rowCount,
@@ -479,7 +502,7 @@ test('K-GRANT-EXPIRE 授權迄日過了：排程結束授權並排清除（到�
     assert.ok((await events(caseId)).includes('grant.expired'));
 });
 
-test('K-DELIVERY-MANUAL 交付方式是人工的受管系統（人資系統）：才由該系統的管理人執行，並開常設例外；撤銷時開例外並通知管理人', async () => {
+test('K-DELIVERY-MANUAL K-CONFIRM-MANUAL 交付方式是人工的受管系統（人資系統）：才由該系統的管理人執行，並開常設例外；標記已套用後由申請人確認才生效；撤銷時開例外並通知管理人', async () => {
     const content = {
         scope: [{ package: 'payroll', fields: ['employee_id', 'net_pay', 'pay_date'], row_filters: [] }],
         data_period: { from: '2019-01-01', to: '2019-12-31' },
@@ -497,7 +520,22 @@ test('K-DELIVERY-MANUAL 交付方式是人工的受管系統（人資系統）�
     assert.deepEqual(v.delivery.ops, []);
     assert.ok((await exceptionCodes(c.case_id)).includes('K-DELIVERY-MANUAL'));
     await call(app, 'task_claim', users.p30.session, c.case_id);
-    assert.equal(await decide(app, users.p30, c.case_id, 'fulfil'), 'active');
+    // 人工執行的單也要申請人確認（K-CONFIRM-MANUAL，裁決 D84 (8)）：沒有自動驗證，確認是唯一的驗證
+    assert.equal(await decide(app, users.p30, c.case_id, 'fulfil'), 'verifying');
+    v = await view(c.case_id);
+    assert.equal(v.grant, null, '確認前沒有授權');
+    assert.deepEqual(v.actions, ['confirm_verification', 'dispute_verification', 'revoke']);
+    assert.deepEqual(v.delivery.verifications, []);
+    const manualNotice = await admin.query(
+        `select person_id from sgn.notification_outbox where case_id = $1 and event_code = 'confirmation.requested_manual'`,
+        [c.case_id],
+    );
+    assert.deepEqual(
+        manualNotice.rows.map((r) => r.person_id),
+        [users.p04.personId],
+    );
+    await rejectsWith(call(app, 'case_confirm_verification', users.p30.session, c.case_id), 'NOT_APPLICANT');
+    assert.equal(await confirmed(c.case_id), 'active');
     await rejectsWith(
         call(
             app,
@@ -553,6 +591,14 @@ const reconCodes = async (caseId) => (await exceptionCodes(caseId)).filter((c) =
 /** 交一份由模擬外部系統簽過的對帳回報（對帳程式交上來的就是外部系統的回應原樣）。 */
 const submit = async (items) =>
     (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, dc.reconciliation(report(items))])).r;
+/** 發現要連續幾輪沒看到才結案（參數 reconciliation.resolve_after_rounds；裁決 D84 (5)）。 */
+const ROUNDS = 3;
+/** 交 ROUNDS 輪同樣的回報，回傳最後一輪的結果。 */
+async function submitRounds(items) {
+    let last;
+    for (let i = 0; i < ROUNDS; i += 1) last = await submit(items);
+    return last;
+}
 
 test('K-RECON-MISSING 對帳：平台認為已生效、外部系統上卻沒有的權限開例外；兩邊相同時沒有發現', async () => {
     const caseId = await active(2022);
@@ -564,7 +610,7 @@ test('K-RECON-MISSING 對帳：平台認為已生效、外部系統上卻沒有�
     const result = await submit(items.filter((i) => !(i.properties.case_no === caseNo && i.resource.id === 'sales_order.amount')));
     assert.equal(result.new_findings, 1);
     assert.deepEqual(await reconCodes(caseId), ['K-RECON-MISSING']);
-    assert.equal((await submit(items)).resolved, 1, '下一輪沒看到就結案');
+    assert.equal((await submitRounds(items)).resolved, 1, `連續 ${ROUNDS} 輪沒看到就結案`);
 });
 
 test('K-RECON-EXTRA 對帳：多出來的權限（核准以外的欄位、已撤銷且撤回完成的單、不是平台建立的角色）開例外；同一個發現只開一次；撤回還沒完成的不算', async () => {
@@ -688,7 +734,7 @@ test('K-RECON-UNVERIFIED 對帳程式改不了回報：只採信外部系統簽�
         [caseId],
     );
     assert.equal(open.n, 1);
-    await submit(items);
+    await submitRounds(items);
     const resolved = await admin.query(
         `select 1 from sgn.audit_event where event_type = 'reconciliation.finding_resolved' and case_id = $1`,
         [caseId],
@@ -717,14 +763,14 @@ test('K-RECON-EXTRA 縮小之後新的一版送不出去（交付程式或網路
     );
     await drain(delivery, dc);
     assert.equal((await view(caseId)).state, 'active');
-    await submit(await expectedItems());
+    await submitRounds(await expectedItems());
     assert.equal(
         (await admin.query(`select 1 from sgn.reconciliation_finding where case_id = $1 and resolved_run_id is null`, [caseId])).rowCount,
         0,
     );
 });
 
-test('K-RECON-RESOLVED 發現只在之後一份有效的回報沒看到時結案，每一筆結案都進鏈（不會只靠下一份回報無人知曉地消失）', async () => {
+test('K-RECON-RESOLVED 發現要連續數輪（參數）有效的回報都沒看到才結案，中間又看到就重新計算；每一筆結案都進鏈（不會只靠下一份回報無人知曉地消失）', async () => {
     const caseId = await active(2027);
     const caseNo = String((await view(caseId)).case_no);
     const items = await expectedItems();
@@ -740,12 +786,41 @@ test('K-RECON-RESOLVED 發現只在之後一份有效的回報沒看到時結案
         ).n,
         1,
     );
+    const missing = items.filter((i) => !(i.properties.case_no === caseNo && i.resource.id === 'sales_order.amount'));
+    assert.equal((await submit(items)).resolved, 0, '一輪沒看到不結案');
+    assert.equal((await submit(missing)).resolved, 0, '又看到：重新計算');
+    for (let i = 1; i < ROUNDS; i += 1) assert.equal((await submit(items)).resolved, 0, `第 ${i} 輪沒看到`);
     const ok = await submit(items);
-    assert.equal(ok.resolved, 1);
-    const chain = await admin.query(`select 1 from sgn.audit_event where event_type = 'reconciliation.finding_resolved' and case_id = $1`, [
-        caseId,
-    ]);
+    assert.equal(ok.resolved, 1, `連續 ${ROUNDS} 輪沒看到才結案`);
+    const chain = await admin.query(
+        `select body from sgn.audit_event where event_type = 'reconciliation.finding_resolved' and case_id = $1`,
+        [caseId],
+    );
     assert.equal(chain.rowCount, 1, '結案進鏈');
+    assert.match(chain.rows[0].body.toString(), /reconciliation\.resolve_after_rounds/, '寫明用到的參數');
+});
+
+test('K-RECON-UNVERIFIED 紅隊第五輪 中-2：比較舊、但還在新鮮度內的已簽回報不收（簽發時間必須比已收下的最新一份新），真的發現不會被它結案', async () => {
+    const caseId = await active(2032);
+    const caseNo = String((await view(caseId)).case_no);
+    const items = await expectedItems();
+    const r0 = dc.reconciliation(report(items)); // 對帳帳號先存一份後門出現前的回報
+    const backdoor = {
+        ...items.find((i) => i.properties.case_no === caseNo),
+        item_key: 'bd',
+        resource: { type: 'data_field', id: 'sales_order.gross_margin' },
+    };
+    const r1 = await submit([...items, backdoor]);
+    assert.equal(r1.new_findings, 1);
+    const stale = (await one(job, 'select api_job.reconciliation_submit($1, $2) as r', [CHANNEL, r0])).r;
+    assert.deepEqual([stale.status, stale.reason], ['rejected', 'not_newer']);
+    assert.equal(
+        (await admin.query(`select 1 from sgn.reconciliation_finding where case_id = $1 and resolved_run_id is null`, [caseId])).rowCount,
+        1,
+        '後門的發現仍開著',
+    );
+    await call(app, 'case_revoke', users.p04.session, caseId, '還原');
+    await drain(delivery, dc);
 });
 
 test('K-RECON-LIMIT 單輪上限：項目超過上限整份不收；新發現超過上限時只逐筆開到上限、其餘合併成一筆例外並升級（發現照樣記錄）', async () => {

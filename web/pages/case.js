@@ -288,8 +288,13 @@ function confirmationPanel(c) {
         { class: 'card', 'data-testid': 'confirmation', 'data-status': conf.status },
         el('h3', {}, t.confirmation.title),
         el('p', { class: 'warn-text', 'data-testid': 'confirmation-due' }, t.confirmation.left(conf.workdays_left, conf.due_text)),
-        el('ul', { class: 'delivery-list', 'data-testid': 'confirmation-cases' }, cases.map(verificationItem)),
-        el('p', { class: 'muted' }, t.confirmation.hint),
+        // 人工執行的單沒有自動驗證（K-CONFIRM-MANUAL）：確認是唯一的驗證
+        cases.length ? el('ul', { class: 'delivery-list', 'data-testid': 'confirmation-cases' }, cases.map(verificationItem)) : null,
+        el(
+            'p',
+            { class: 'muted', 'data-testid': cases.length ? 'confirmation-hint' : 'confirmation-manual' },
+            cases.length ? t.confirmation.hint : t.confirmation.manualHint,
+        ),
     );
 }
 

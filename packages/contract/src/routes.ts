@@ -3,7 +3,8 @@
 // 回傳一律是 jsonb，結構寫在 returns；db/tests/kernel/90-contract.test.mjs 檢查 function 的簽章與實際回傳。
 // 刻意沒有「只憑工作階段就能做決定」的路由：做決定只有 case_decide_passkey，身分由資料庫從通行金鑰的簽章得出。
 // 這張表也是資料庫執行權限的唯一來源：db/tools/grants-sql.mjs 只把這裡列出的 function 授權給各執行期帳號
-// （後端 sgn_app：routes、packRoutes、backendCalls；人員同步 sgn_sync：syncCalls；排程 sgn_job：jobCalls；交付程式 sgn_delivery：deliveryCalls；
+// （後端 sgn_app：routes、packRoutes、backendCalls；人員同步 sgn_sync：syncCalls；排程 sgn_scheduler：schedulerCalls；對帳 sgn_reconciler：
+//  reconcilerCalls；錨定 sgn_anchor：anchorCalls；寄信 sgn_mailer：mailerCalls；交付程式 sgn_delivery：deliveryCalls；
 //  身分提供者金鑰更新 sgn_idp_keys：idpCalls），
 // db/tests/kernel/12-grants.test.mjs 檢查實際權限與這裡完全相等。
 import type { Shape } from './shape.ts';
@@ -92,8 +93,13 @@ const caseFields = {
     exceptions: { array: exceptionRef },
 } as const satisfies Record<string, Shape>;
 
+/**
+ * 等申請人確認時的站內待辦（裁決 D84 (6)：不只靠郵件）：期限、剩幾個工作天、是不是已經在提醒期間（K-CONFIRM-REMIND）。其他時候為 null。
+ */
+const confirmDue: Shape = { nullable: { object: { due_text: 'text', workdays_left: 'int', reminding: 'bool' } } };
+
 /** 申請單摘要：所有回傳申請單清單的 function 共用。actions 是這個人現在可以做的動作，畫面依它顯示按鈕。 */
-export const caseSummary: Shape = { object: { ...caseFields, actions: { array: 'text' } } };
+export const caseSummary: Shape = { object: { ...caseFields, actions: { array: 'text' }, confirm_due: confirmDue } };
 
 const task: Shape = {
     object: {
@@ -112,6 +118,7 @@ export const caseDetail: Shape = {
     object: {
         ...caseFields,
         actions: { array: 'text' },
+        confirm_due: confirmDue,
         stages: {
             array: {
                 object: {
@@ -286,9 +293,24 @@ const revocationResult: Shape = {
     },
 };
 
+/** 只憑登入停用自己的全部通行金鑰的結果（裁決 D84 (2)：不是撤銷）。 */
+const suspensionResult: Shape = {
+    object: { person: personRef, suspended: 'int', cancelled_enrollments: 'int', suspended_at: 'timestamp' },
+};
+
+/** 恢復的顯示摘要：本人、停用的每一把金鑰、停用時間。恢復畫面只從它畫，本人與背書人簽的都是它。 */
+const suspensionDisplay: Shape = {
+    object: {
+        suspension_id: 'uuid',
+        person: personRef,
+        credentials: { array: { object: { credential_id: 'b64url', public_key_sha256: 'hex', usable_from: 'timestamp' } } },
+        suspended_at: 'timestamp',
+    },
+};
+
 const auditCase: Shape = {
     object: {
-        case: { object: caseFields },
+        case: { object: { ...caseFields, confirm_due: confirmDue } },
         events: {
             array: {
                 object: {
@@ -367,6 +389,8 @@ export const routes = [
                 name: 'text',
                 /** 可以簽章的通行金鑰數（已核准、已過冷卻期） */
                 passkeys: 'int',
+                /** 只憑登入停用、還沒恢復的金鑰數（K-PASSKEY-SUSPEND） */
+                passkey_suspended: 'int',
                 passkey_cooling_until: { nullable: 'timestamp' },
                 passkey_pending: { array: enrollment },
                 capabilities: { array: 'text' },
@@ -427,7 +451,26 @@ export const routes = [
         params: ['session'],
         returns: { array: { object: { display: revocationDisplay, actions: { array: 'text' } } } },
     },
-    { fn: 'passkey_revoke_self', params: ['session', 'reason'], returns: revocationResult },
+    /** 只憑登入＝停用（不是撤銷；裁決 D84 (2)），本人以原金鑰加主管或登記人背書可恢復 */
+    { fn: 'passkey_revoke_self', params: ['session', 'reason'], returns: suspensionResult },
+    /** 停用中的金鑰：actions 是 restore（本人用原金鑰簽）或 endorse_restore（主管、登記人背書）；status 是 suspended 或 self_confirmed */
+    {
+        fn: 'passkey_suspension_list',
+        params: ['session'],
+        returns: { array: { object: { display: suspensionDisplay, status: 'text', actions: { array: 'text' } } } },
+    },
+    {
+        fn: 'passkey_restore_challenge',
+        params: ['session', 'suspension_id'],
+        returns: {
+            object: { challenge_id: 'uuid', nonce: 'b64url', expires_at: 'timestamp', decision: 'text', display: suspensionDisplay },
+        },
+    },
+    {
+        fn: 'passkey_restore_passkey',
+        params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
+        returns: { object: { suspension_id: 'uuid', status: 'text', person: personRef } },
+    },
     {
         fn: 'passkey_revoke_challenge',
         params: ['session', 'holder_id', 'reason'],
@@ -440,7 +483,11 @@ export const routes = [
     },
     { fn: 'audit_case', params: ['session', 'case_no'], returns: auditCase },
     { fn: 'audit_chain', params: ['session', 'after_seq', 'limit'], returns: { array: chainEvent } },
-    { fn: 'audit_code_fingerprint', params: ['session'], returns: { object: { code_fingerprint: 'hex' } } },
+    {
+        fn: 'audit_code_fingerprint',
+        params: ['session'],
+        returns: { object: { code_fingerprint: 'hex', anchor_policy: { object: { max_lag_seconds: 'int', max_lag_events: 'int' } } } },
+    },
     {
         fn: 'audit_exceptions',
         params: ['session'],
@@ -555,19 +602,37 @@ export const syncCalls = {
     directoryApply: { fn: 'directory_apply', params: ['source', 'kind', 'total', 'entries'] },
 } as const satisfies Record<string, Grant>;
 
-/** 錨定、排程與通知寄送（db/tools/chain-lib.mjs、db/tools/jobs.mjs、api/src/mailer.ts，帳號 sgn_job）能執行的 api_job function。 */
-export const jobCalls = {
+/**
+ * api_job 的 function，依程式分成四個帳號（裁決 D84 (6)：排程、對帳、錨定、寄信各用各的資料庫角色）。
+ * 拿到其中一個程式的密鑰，只能執行那個程式的入口：例如寄信程式讀不到稽核鏈、不能交對帳回報；錨定程式不能領通知。
+ */
+/** 錨定程式（db/tools/anchor.mjs、db/tools/chain-lib.mjs，帳號 sgn_anchor）：讀鏈頭與事件、程式指紋，寫好錨點後告訴資料庫 */
+export const anchorCalls = {
     chainHead: { fn: 'chain_head', params: [] },
     eventsAfter: { fn: 'events_after', params: ['after_seq', 'limit'] },
     codeFingerprint: { fn: 'code_fingerprint', params: [] },
-    directorySettle: { fn: 'directory_settle', params: [] },
-    authChallengePurge: { fn: 'auth_challenge_purge', params: [] },
     anchorPolicy: { fn: 'anchor_policy', params: [] },
-    /** 治理類角色的持有人沒有可用的通行金鑰時開例外（裁決 D77） */
-    governanceCheck: { fn: 'governance_check', params: [] },
-    /** 通知的寄送（裁決 D76）：寄送程式 api/src/mailer.ts 領走一批、寄出後回報 */
+    /** 錨點存放處收下錨點之後回報（資料庫依它判斷錨定有沒有落後，K-ANCHOR-LAG） */
+    anchorRecorded: { fn: 'anchor_recorded', params: ['seq', 'hash', 'code_fingerprint'] },
+} as const satisfies Record<string, Grant>;
+
+/** 通知寄送（api/src/mailer.ts，帳號 sgn_mailer；裁決 D76）：領走一批、寄出後回報 */
+export const mailerCalls = {
     notificationClaim: { fn: 'notification_claim', params: ['limit'] },
     notificationMark: { fn: 'notification_mark', params: ['id', 'sent', 'error'] },
+} as const satisfies Record<string, Grant>;
+
+/** 對帳（api/src/reconciler.ts，帳號 sgn_reconciler）：外部系統簽過的對帳回報交給資料庫驗證與比對 */
+export const reconcilerCalls = {
+    reconciliationSubmit: { fn: 'reconciliation_submit', params: ['channel', 'report'] },
+} as const satisfies Record<string, Grant>;
+
+/** 排程（db/tools/jobs.mjs，帳號 sgn_scheduler） */
+export const schedulerCalls = {
+    directorySettle: { fn: 'directory_settle', params: [] },
+    authChallengePurge: { fn: 'auth_challenge_purge', params: [] },
+    /** 治理類角色的持有人沒有可用的通行金鑰時開例外（裁決 D77） */
+    governanceCheck: { fn: 'governance_check', params: [] },
     /** 超過時間還沒寄出的通知開例外 K-NOTIFY-STUCK（寫入通知的交易也會檢查，不只靠排程） */
     notificationStuckCheck: { fn: 'notification_stuck_check', params: [] },
     /** 交付超過時間還沒有結果時開例外 K-DELIVERY-STUCK 並通知升級對象 */
@@ -576,11 +641,16 @@ export const jobCalls = {
     grantExpireDue: { fn: 'grant_expire_due', params: [] },
     /** 確認期限已過還沒確認的單自動撤銷並撤回（K-CONFIRM-TIMEOUT；交付程式的領取也會檢查） */
     confirmationExpireDue: { fn: 'confirmation_expire_due', params: [] },
-    /** 對帳（api/src/reconciler.ts）：外部系統簽過的對帳回報交給資料庫驗證與比對 */
-    reconciliationSubmit: { fn: 'reconciliation_submit', params: ['channel', 'report'] },
+    /** 確認期限前的提醒（K-CONFIRM-REMIND；站內待辦標出、提醒對象逐日擴大） */
+    confirmationRemindDue: { fn: 'confirmation_remind_due', params: [] },
     /** 超過時間沒有有效的對帳回報時開例外 K-RECON-OVERDUE（裁決 D81 (3)） */
     reconciliationOverdueCheck: { fn: 'reconciliation_overdue_check', params: [] },
+    /** 錨定落後超過參數時開例外 K-ANCHOR-LAG（裁決 D84 (7)） */
+    anchorLagCheck: { fn: 'anchor_lag_check', params: [] },
 } as const satisfies Record<string, Grant>;
+
+/** 四個程式的 api_job function 合起來（只給操作者的合併角色 sgn_job 與型別檢查用；權限依上面四張表分開授權）。 */
+export const jobCalls = { ...anchorCalls, ...mailerCalls, ...reconcilerCalls, ...schedulerCalls } as const;
 
 /** 身分提供者的金鑰更新程序（db/tools/idp-keys.mjs，帳號 sgn_idp_keys；裁決 D81 (5)）能執行的 api_idp function。 */
 export const idpCalls = {

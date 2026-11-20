@@ -328,23 +328,40 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     };
     assert.equal((await changeRole('grant')).status, 'approved');
     assert.equal((await changeRole('revoke')).status, 'approved');
-    // 撤銷通行金鑰（K-PASSKEY-REVOKE）：邱冠廷之後的測試都不用（撤銷後他的舊金鑰就不能用了）；82 留下一把冷卻中的金鑰
+    // 停用與撤銷通行金鑰（K-PASSKEY-SUSPEND、K-PASSKEY-REVOKE）：邱冠廷之後的測試都不用；82 留下一把冷卻中的金鑰
+    // 只憑登入是「停用」（裁決 D84 (2)）；之後由登記人用通行金鑰撤銷（連停用中的），再走第一把金鑰的背書
     const holder = await login(app, 'p14');
+    const keeper = await registrar(app);
     await check('passkey_revocation_list', holder.session);
-    await check('passkey_revoke_self', holder.session, '契約測試：只憑登入撤銷');
-    holder.key = await registerPasskey(app, holder, newAuthenticator(), { endorser: await registrar(app) });
-    const listed = (await call(app, 'passkey_revocation_list', holder.session)).find((r) => r.display.person.id === holder.personId);
-    const revoke = await check('passkey_revoke_challenge', holder.session, holder.personId, '契約測試：用金鑰撤銷');
-    const r = holder.key.assert(
-        await challengeFor({
-            purpose: 'passkey.revocation',
-            ref: holder.personId,
-            content: { ...listed.display, reason: '契約測試：用金鑰撤銷' },
-            decision: 'revoke',
-            nonce: revoke.nonce,
-        }),
-    );
-    await check('passkey_revoke_passkey', revoke.challenge_id, r.credentialId, r.authenticatorData, r.clientDataJSON, r.signature);
+    await check('passkey_revoke_self', holder.session, '契約測試：只憑登入停用');
+    await check('passkey_suspension_list', holder.session);
+    const signRevoke = async (signer, reason) => {
+        const listed = (await call(app, 'passkey_revocation_list', signer.session)).find((x) => x.display.person.id === holder.personId);
+        const revoke = await check('passkey_revoke_challenge', signer.session, holder.personId, reason);
+        const r = signer.key.assert(
+            await challengeFor({
+                purpose: 'passkey.revocation',
+                ref: holder.personId,
+                content: { ...listed.display, reason },
+                decision: 'revoke',
+                nonce: revoke.nonce,
+            }),
+        );
+        await check('passkey_revoke_passkey', revoke.challenge_id, r.credentialId, r.authenticatorData, r.clientDataJSON, r.signature);
+    };
+    await signRevoke(keeper, '契約測試：登記人用金鑰撤銷');
+    holder.key = await registerPasskey(app, holder, newAuthenticator(), { endorser: keeper });
+    await signRevoke(holder, '契約測試：用金鑰撤銷');
+    // 恢復停用的金鑰：稽核主管（之後不再用）停用 → 本人用原金鑰簽 → 登記人背書
+    await call(app, 'passkey_revoke_self', auditHead.session, '契約測試：停用');
+    const suspension = (await call(app, 'passkey_suspension_list', auditHead.session))[0].display.suspension_id;
+    const restore = async (signer, purpose, decision) => {
+        const ch = await check('passkey_restore_challenge', signer.session, suspension);
+        const a = signer.key.assert(await challengeFor({ purpose, ref: suspension, content: ch.display, decision, nonce: ch.nonce }));
+        return check('passkey_restore_passkey', ch.challenge_id, a.credentialId, a.authenticatorData, a.clientDataJSON, a.signature);
+    };
+    assert.equal((await restore(auditHead, 'passkey.restore', 'restore')).status, 'self_confirmed');
+    assert.equal((await restore(keeper, 'passkey.restore_endorse', 'endorse')).status, 'restored');
     // 生效之後縮小、撤銷（D63）：資料授權的單經交付程式與模擬的外部系統生效之後
     const active = await activeSalesOrderCase(app, admin, applicant, 2008);
     await check('case_reduce', applicant.session, active, salesOrderContent(2008, ['amount', 'order_no']), null, '契約測試：縮小');

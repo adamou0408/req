@@ -107,7 +107,7 @@ test('K-CONFIRM 代填：申請人不是被授權者的負責人時，確認的�
     assert.equal((await confirmVerification(app, users.p05, caseId)).state, 'active');
 });
 
-test('K-CONFIRM 自動驗證還沒全部通過時不能確認、回報或撤銷（CONFIRMATION_NOT_OPEN）；驗證不一致的單不會開確認', async () => {
+test('K-CONFIRM 自動驗證還沒全部通過時不能確認或回報（CONFIRMATION_NOT_OPEN；撤銷可以，見下面 K-GRANT-REVOKE）；驗證不一致的單不會開確認', async () => {
     const caseId = await approved(2062);
     // 只送出套用，驗證還在排：狀態已經是驗證中
     const { deliverChannel } = await import('../../../../api/src/delivery.ts');
@@ -115,11 +115,11 @@ test('K-CONFIRM 自動驗證還沒全部通過時不能確認、回報或撤銷�
     let v = await view(caseId);
     assert.equal(v.state, 'verifying');
     assert.equal(v.confirmation, null);
-    assert.deepEqual(v.actions, []);
+    // 驗證中權限已在外部系統上：撤銷隨時可以（裁決 D84 (4)，原本這裡也是 CONFIRMATION_NOT_OPEN）；確認與回報不行
+    assert.deepEqual(v.actions, ['revoke']);
     // 列 3：跳過自動驗證直接確認
     await rejectsWith(confirmVerification(app, users.p04, caseId), 'CONFIRMATION_NOT_OPEN');
     await rejectsWith(call(app, 'case_dispute_verification', users.p04.session, caseId, 'x'), 'CONFIRMATION_NOT_OPEN');
-    await rejectsWith(call(app, 'case_revoke', users.p04.session, caseId, 'x'), 'CONFIRMATION_NOT_OPEN');
     // 列 4：外部系統查詢的結果和預期不同（範圍內查不到）→ 不一致，不開確認，申請人無從「確認」錯的結果
     const wrong = {
         kind: 'mock',
@@ -211,5 +211,99 @@ test('K-CONFIRM 等確認時也能撤銷（縮小到零）：確認作廢、規�
     assert.equal(v.confirmation.status, 'cancelled');
     assert.equal(v.delivery.ops.at(-1).kind, 'withdraw');
     await rejectsWith(confirmVerification(app, users.p04, caseId), 'STATE_TRANSITION');
+    await drain(delivery, dc);
+});
+
+// ── 紅隊第五輪 中-1（裁決 D84 (4)；redteam/exploits/36）：權限可能已在外部系統上時，有權撤銷的人都撤銷得了 ──
+
+const refused = { http_status: null, response: null, error: 'ECONNREFUSED' };
+const claimOf = async (caseNo) =>
+    (await one(delivery, 'select api_delivery.delivery_claim($1, 10) as r', [CHANNEL])).r.filter((x) => x.case_no === String(caseNo));
+const report = (it, outcome) => one(delivery, 'select api_delivery.delivery_report($1, $2, $3)', [it.op_id, it.lease_token, outcome]);
+
+test('K-GRANT-REVOKE 待套用：交付程式把套用照實送到外部系統、對平台謊稱連不上；申請人、負責人、簽核人、MIS 都撤銷得了，撤回並作廢未完成的交付', async () => {
+    for (const who of ['p04', 'p03', 'p11', 'p17']) {
+        const caseId = await approved(2070 + ['p04', 'p03', 'p11', 'p17'].indexOf(who));
+        const caseNo = (await view(caseId)).case_no;
+        const [apply] = await claimOf(caseNo);
+        assert.equal((await dc.send(apply)).http_status, 200, '外部系統真的套用了');
+        await report(apply, refused);
+        let v = await view(caseId, who);
+        assert.equal(v.state, 'pending_fulfilment');
+        assert.ok(v.actions.includes('revoke'), `${who} 看得到撤銷`);
+        v = await call(app, 'case_revoke', users[who].session, caseId, '紅隊第五輪：發現問題要立刻撤銷');
+        assert.equal(v.state, 'revoked');
+        assert.deepEqual(
+            v.delivery.ops.map((o) => [o.kind, o.status]),
+            [
+                ['apply', 'superseded'],
+                ['withdraw', 'queued'],
+            ],
+            '排回重送的套用作廢、撤回在排',
+        );
+        assert.ok(
+            v.stages.every((s) => s.status !== 'open'),
+            '執行關收掉',
+        );
+        await drain(delivery, dc);
+        assert.equal(dc.store.get(String(caseNo)).withdrawn, true, '外部系統上的規則撤回了');
+    }
+    // 拿掉防法（轉移表不開 pending_fulfilment → revoke）時，這裡會是 STATE_TRANSITION
+    await rejectsWith(call(app, 'case_revoke', users.p02.session, await approved(2074), '不相干的人'), 'NOT_REVOKER');
+    await drain(delivery, dc);
+});
+
+test('K-GRANT-REVOKE 驗證中、還沒開確認：交付程式領走驗證、謊稱連不上；撤銷得了，排著的驗證作廢、撤回送出', async () => {
+    const caseId = await approved(2075);
+    const caseNo = (await view(caseId)).case_no;
+    const [apply] = await claimOf(caseNo);
+    await report(apply, await dc.send(apply));
+    const verifies = await claimOf(caseNo);
+    assert.ok(verifies.length >= 1 && verifies.every((x) => x.kind === 'verify'));
+    for (const it of verifies) await report(it, refused);
+    let v = await view(caseId);
+    assert.equal(v.state, 'verifying');
+    assert.equal(v.confirmation, null);
+    v = await call(app, 'case_revoke', users.p17.session, caseId, '紅隊第五輪：驗證中撤銷');
+    assert.equal(v.state, 'revoked');
+    assert.ok(
+        v.delivery.ops.filter((o) => o.kind === 'verify').every((o) => o.status === 'superseded'),
+        JSON.stringify(v.delivery.ops),
+    );
+    assert.ok(v.delivery.verifications.every((r) => r.status === 'cancelled'));
+    await drain(delivery, dc);
+    assert.equal(dc.store.get(String(caseNo)).withdrawn, true);
+    const [ev] = await events(caseId, 'grant.revoked');
+    assert.equal(ev.data.from_state, 'verifying');
+});
+
+// ── 期限前的提醒（K-CONFIRM-REMIND；裁決 D84 (6)：站內待辦為主、郵件為輔）──
+
+test('K-CONFIRM-REMIND 期限前逐日提醒（進鏈、不重複）；最後一個工作天加上主管與被授權者負責人；首頁待辦從資料庫取剩幾天與「快到期」', async () => {
+    await setSetting(admin, 'confirmation.due_workdays', 1, `process:${DA}`);
+    const caseId = await awaiting(2076, 'p05');
+    await setSetting(admin, 'confirmation.due_workdays', 5, `process:${DA}`);
+    const mine = (await call(app, 'case_list_mine', users.p05.session)).find((c) => c.case_id === caseId);
+    assert.equal(mine.confirm_due.workdays_left, 1);
+    assert.equal(mine.confirm_due.reminding, true, '站內待辦標出快到期（不只靠郵件）');
+    assert.ok(mine.confirm_due.due_text);
+    const before = (await notified(caseId, 'confirmation.reminder')).length;
+    assert.ok((await one(job, 'select api_job.confirmation_remind_due() as r')).r.reminded >= 1);
+    const to = await notified(caseId, 'confirmation.reminder');
+    assert.equal(to.length - before, 3, '最後一個工作天：申請人、他的主管、被授權者負責人');
+    for (const who of ['p05', 'p04', 'p03']) assert.ok(to.includes(users[who].personId), who);
+    const [ev] = await events(caseId, 'confirmation.reminded');
+    assert.equal(ev.data.workdays_left, 1);
+    assert.deepEqual(ev.data.rules, ['K-CONFIRM-REMIND']);
+    assert.deepEqual(ev.data.settings, { 'confirmation.remind_workdays_before': 2 });
+    await one(job, 'select api_job.confirmation_remind_due() as r');
+    assert.equal((await notified(caseId, 'confirmation.reminder')).length, to.length, '同一天不重複提醒');
+    // 期限還遠的單：不在提醒期間，也不提醒
+    const far = await awaiting(2077);
+    const farMine = (await call(app, 'case_list_mine', users.p04.session)).find((c) => c.case_id === far);
+    assert.equal(farMine.confirm_due.reminding, false);
+    await one(job, 'select api_job.confirmation_remind_due() as r');
+    assert.deepEqual(await notified(far, 'confirmation.reminder'), []);
+    for (const id of [caseId, far]) await call(app, 'case_revoke', users.p04.session, id, '還原');
     await drain(delivery, dc);
 });

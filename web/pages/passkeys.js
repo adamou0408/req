@@ -207,7 +207,7 @@ function confirmRevoke(row, action) {
                 ? await api.call('passkey_revoke_self', { reason: reason.value })
                 : await revokeWithPasskey(row, reason.value);
             panel.remove();
-            go(self ? '#' : '#passkeys', { text: k.revoked(done.revoked), ok: true });
+            go('#passkeys', { text: self ? k.suspended(done.suspended) : k.revoked(done.revoked), ok: true });
         } catch (err) {
             error.textContent = explain(err);
             error.hidden = false;
@@ -242,11 +242,87 @@ function revocationCard(row) {
     );
 }
 
+// ── 停用的恢復（K-PASSKEY-SUSPEND）：本人用原金鑰簽、主管或登記人背書；簽的都是清單上的顯示摘要 ──
+
+async function restoreWithPasskey(row) {
+    const ch = await api.call('passkey_restore_challenge', { suspension_id: row.display.suspension_id });
+    const purpose = ch.decision === 'restore' ? 'passkey.restore' : 'passkey.restore_endorse';
+    const assertion = await signChallenge(
+        await signingChallenge({ purpose, ref: row.display.suspension_id, content: row.display, decision: ch.decision, nonce: ch.nonce }),
+    );
+    return api.call('passkey_restore_passkey', { challenge_id: ch.challenge_id, ...assertionArgs(assertion) });
+}
+
+function confirmRestore(row, action) {
+    const self = action === 'restore';
+    const error = el('p', { class: 'result bad', role: 'alert', hidden: true, 'data-testid': 'decision-error' });
+    const panel = sheet(
+        k.restoreConfirmTitle,
+        el('p', { 'data-testid': 'consequence' }, self ? k.restoreConsequence : k.endorseRestoreConsequence(row.display.person.name)),
+        error,
+        el(
+            'div',
+            { class: 'row sheet-buttons' },
+            el('button', { onclick: () => panel.remove() }, t.cancel),
+            el('button', { class: 'primary', 'data-testid': 'confirm-passkey', onclick: () => run() }, t.confirmWithPasskey),
+        ),
+    );
+    async function run() {
+        try {
+            await restoreWithPasskey(row);
+            panel.remove();
+            go('#passkeys', { text: self ? k.restoreRequested : k.restored, ok: true });
+        } catch (err) {
+            error.textContent = explain(err);
+            error.hidden = false;
+        }
+    }
+}
+
+function suspensionCard(row) {
+    const action = ['restore', 'endorse_restore'].find((a) => row.actions.includes(a));
+    return el(
+        'div',
+        { class: 'card', 'data-testid': 'suspension-item', 'data-person': row.display.person.name, 'data-status': row.status },
+        facts([
+            [k.person, row.display.person.name],
+            [k.suspendedAt, dateText(row.display.suspended_at)],
+            [
+                k.keys,
+                el(
+                    'ul',
+                    { class: 'mono' },
+                    row.display.credentials.map((c) => el('li', {}, k.keyLine(c))),
+                ),
+            ],
+        ]),
+        el('p', { class: 'muted' }, k.restoreStatus[row.status]),
+        action
+            ? el(
+                  'button',
+                  {
+                      class: 'primary wide',
+                      'data-testid': action === 'restore' ? 'restore' : 'endorse-restore',
+                      onclick: () => confirmRestore(row, action),
+                  },
+                  action === 'restore' ? k.restore : k.endorseRestore(row.display.person.name),
+              )
+            : null,
+    );
+}
+
 export async function renderPasskeys(ctx) {
-    const [list, revocable] = await Promise.all([api.call('passkey_enrollment_list'), api.call('passkey_revocation_list')]);
+    const [list, revocable, suspended] = await Promise.all([
+        api.call('passkey_enrollment_list'),
+        api.call('passkey_revocation_list'),
+        api.call('passkey_suspension_list'),
+    ]);
     return [
         el('a', { href: '#' }, `← ${t.home}`),
         passkeyNotice(ctx.me),
+        suspended.length
+            ? section('restore', k.restoreTitle, el('p', { class: 'muted' }, k.restoreHint), suspended.map(suspensionCard))
+            : null,
         section('passkeys', k.title, el('p', { class: 'muted' }, k.hint), list.length ? list.map(enrollmentCard) : empty(k.empty)),
         section(
             'revoke',

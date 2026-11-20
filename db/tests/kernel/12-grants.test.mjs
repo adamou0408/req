@@ -42,14 +42,49 @@ async function executable(db, role) {
     return rows.map((r) => r.fn);
 }
 
-test('架構：sgn_app、sgn_sync、sgn_job 能執行的 function 與路由表的允許清單完全相等（多一個或少一個都失敗）', async () => {
+test('架構：每個執行期帳號（sgn_app、sgn_sync、排程、對帳、錨定、寄信、交付、金鑰更新）能執行的 function 與路由表的允許清單完全相等（多一個或少一個都失敗）', async () => {
     for (const [database, db] of Object.entries(databases)) {
         for (const [key, { schema, fns }] of Object.entries(allowlist)) {
             const role = config.db[`SGN_ROLE_${key}`];
             const expected = [...new Set(fns.map((fn) => `${schema}.${fn}`))].sort();
             assert.deepEqual(await executable(db, role), expected, `${database}：${role}`);
         }
+        // 合併角色 sgn_job（只給操作者）：自己沒有授權，經由成員關係正好是四個程式的聯集
+        const union = ['SCHEDULER', 'RECONCILER', 'ANCHOR', 'MAILER'].flatMap((key) => allowlist[key].fns.map((fn) => `api_job.${fn}`));
+        assert.deepEqual(await executable(db, config.db.SGN_ROLE_JOB), [...new Set(union)].sort(), `${database}：sgn_job`);
+        const direct = await db.query(
+            `select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace, aclexplode(p.proacl) a
+             where n.nspname = 'api_job' and a.grantee = $1::regrole`,
+            [config.db.SGN_ROLE_JOB],
+        );
+        assert.deepEqual(direct.rows, [], `${database}：sgn_job 不得有直接授權`);
     }
+});
+
+test('架構（裁決 D84 (6)）：排程、對帳、錨定、寄信各用各的角色，彼此的入口互不相通（寄信讀不到稽核鏈、交不了對帳；錨定領不了通知；對帳跑不了排程）', async () => {
+    const cross = [
+        ['MAILER', 'events_after'],
+        ['MAILER', 'reconciliation_submit'],
+        ['ANCHOR', 'notification_claim'],
+        ['ANCHOR', 'notification_mark'],
+        ['RECONCILER', 'confirmation_expire_due'],
+        ['RECONCILER', 'chain_head'],
+        ['SCHEDULER', 'notification_mark'],
+        ['SCHEDULER', 'reconciliation_submit'],
+        ['SCHEDULER', 'anchor_recorded'],
+    ];
+    for (const [key, fn] of cross) {
+        const role = config.db[`SGN_ROLE_${key}`];
+        const { rows } = await admin.query(
+            `select has_function_privilege($1, p.oid, 'execute') as ok from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+             where n.nspname = 'api_job' and p.proname = $2`,
+            [role, fn],
+        );
+        assert.equal(rows.length, 1, `api_job.${fn} 存在`);
+        assert.equal(rows[0].ok, false, `${role} 不得執行 api_job.${fn}`);
+    }
+    const roles = new Set(['SCHEDULER', 'RECONCILER', 'ANCHOR', 'MAILER'].map((key) => config.db[`SGN_ROLE_${key}`]));
+    assert.equal(roles.size, 4, '四個不同的角色');
 });
 
 test('架構：路由表以外的 api function 一律不存在於正式建置；sgn_app 的允許清單沒有任何「只靠身分提供者」的決定入口', async () => {

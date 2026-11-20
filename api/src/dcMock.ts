@@ -137,6 +137,13 @@ function testQueries(store: Map<string, Stored>, item: DeliveryItem): Reply {
 
 type Request = { method: string; path: string; body: string; nonce: string | null };
 
+// 簽發時間嚴格遞增（同一毫秒內簽兩份時往後推 1 毫秒）：平台只收比上一份新的對帳回報（裁決 D84 (5)），真的外部系統每一輪間隔數十秒
+let lastIssuedMs = 0;
+function issuedAt(): string {
+    lastIssuedMs = Math.max(Date.now(), lastIssuedMs + 1);
+    return new Date(lastIssuedMs).toISOString();
+}
+
 /** 回應本文＝結果＋證明（和 sim/dc 的 signature.ts 同一個格式）。 */
 function attested(options: DcMockOptions, item: Request, r: Reply): DeliveryOutcome {
     const payload = JSON.stringify({
@@ -149,7 +156,7 @@ function attested(options: DcMockOptions, item: Request, r: Reply): DeliveryOutc
         request_sha256: createHash('sha256').update(item.body, 'utf8').digest('hex'),
         nonce: item.nonce,
         http_status: r.http_status,
-        issued_at: new Date().toISOString(),
+        issued_at: issuedAt(),
         result: r.result,
     });
     const sig = sign('sha256', Buffer.from(`sgn-dc-attestation/1\n${payload}`, 'utf8'), {

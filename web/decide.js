@@ -26,6 +26,15 @@ export function passkeyNotice(me) {
             saved ? enrollmentCode(saved) : el('p', {}, t.passkeyPendingNoCode),
         );
     }
+    // 停用中（K-PASSKEY-SUSPEND）：不能另登新的，要用原來的金鑰申請恢復
+    if (me.passkey_suspended > 0) {
+        return el(
+            'div',
+            { class: 'result warn', 'data-testid': 'passkey-suspended' },
+            el('p', {}, t.passkeySuspended),
+            el('a', { href: '#passkeys', 'data-testid': 'open-passkey-restore-self' }, t.passkeys.restore),
+        );
+    }
     if (me.passkey_cooling_until) {
         return el(
             'div',

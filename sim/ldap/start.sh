@@ -12,6 +12,10 @@ if sim_pid_alive "$SIM_LDAP_NAME"; then
     exit 0
 fi
 
+# 新產生的密碼和資料目錄裡的不同：清掉資料，下面重新載入種子。
+if sim_ldap_ensure_secrets; then
+    rm -rf "$(sim_run_dir "$SIM_LDAP_NAME")/data"
+fi
 sim_ldap_load_env
 "${here}/install.sh"
 sim_require_cmd node

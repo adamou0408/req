@@ -3,20 +3,20 @@
 //   - tools/run-all.sh 以該帳號啟動程式（tools/lib/as-program.sh）
 //   - db/tests/kernel/95-program-secrets.test.mjs 檢查每個檔案只有這裡列的鍵、別的程式讀不到、程式的記憶體裡沒有別人的密鑰
 // roleKey：連資料庫用的登入角色（sgn.env 的 SGN_ROLE_<鍵>），null＝不連資料庫。密鑰檔的 SGN_DB_PASSWORD 是那個角色的密碼。
-// 排程、對帳、錨點、寄信共用 sgn_job（同一個角色的密碼出現在四個檔案）：見 docs/handoff/redteam-fixes-4.md 的威脅表。
+// 排程、對帳、錨點、寄信各用各的角色（裁決 D84 (6)）；合併角色 sgn_job 只給操作者，沒有任何程式拿得到。
 export const PROGRAMS = {
     /** 後端（api/src/server.ts）：sgn_app、身分提供者的 client secret */
     api: { roleKey: 'APP', secrets: ['SGN_IDP_CLIENT_SECRET'], entry: 'api/src/server.ts' },
     /** 交付程式（api/src/delivery.ts）：sgn_delivery、外部系統的 platform 金鑰 */
     delivery: { roleKey: 'DELIVERY', secrets: ['SGN_DC_KEY'], entry: 'api/src/delivery.ts' },
-    /** 對帳程式（api/src/reconciler.ts）：sgn_job、外部系統的 auditor 唯讀金鑰 */
-    reconciler: { roleKey: 'JOB', secrets: ['SGN_DC_KEY'], entry: 'api/src/reconciler.ts' },
+    /** 對帳程式（api/src/reconciler.ts）：sgn_reconciler、外部系統的 auditor 唯讀金鑰 */
+    reconciler: { roleKey: 'RECONCILER', secrets: ['SGN_DC_KEY'], entry: 'api/src/reconciler.ts' },
     /** 排程（db/tools/jobs.mjs） */
-    jobs: { roleKey: 'JOB', secrets: [], entry: 'db/tools/jobs.mjs' },
+    jobs: { roleKey: 'SCHEDULER', secrets: [], entry: 'db/tools/jobs.mjs' },
     /** 通知寄送（api/src/mailer.ts） */
-    mailer: { roleKey: 'JOB', secrets: [], entry: 'api/src/mailer.ts' },
+    mailer: { roleKey: 'MAILER', secrets: [], entry: 'api/src/mailer.ts' },
     /** 錨定程式（db/tools/anchor.mjs）：讀鏈頭，寫到錨點存放處（寫入金鑰） */
-    anchor: { roleKey: 'JOB', secrets: ['SGN_ANCHOR_WRITE_KEY'], entry: 'db/tools/anchor.mjs' },
+    anchor: { roleKey: 'ANCHOR', secrets: ['SGN_ANCHOR_WRITE_KEY'], entry: 'db/tools/anchor.mjs' },
     /** 錨點存放處（db/tools/anchor-store.mjs）：只存寫入金鑰的雜湊，不連資料庫 */
     'anchor-store': { roleKey: null, secrets: ['SGN_ANCHOR_WRITE_KEY_SHA256'], entry: 'db/tools/anchor-store.mjs' },
     /** 身分提供者的金鑰更新（db/tools/idp-keys.mjs）：sgn_idp_keys */

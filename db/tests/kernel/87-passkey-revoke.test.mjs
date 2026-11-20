@@ -10,7 +10,6 @@ import {
     challengeFor,
     closePools,
     decidePasskey,
-    endorse,
     issueChallenge,
     login,
     newAuthenticator,
@@ -19,7 +18,6 @@ import {
     registerPasskey,
     rejectsWith,
     requestPasskey,
-    shownOn,
 } from './lib/harness.mjs';
 
 const app = pool('APP');
@@ -56,58 +54,103 @@ async function revokeSigned(revoker, target, reason, shown = null) {
     return call(app, 'passkey_revoke_passkey', ch.challenge_id, ...raw(revoker.key.assert(challenge)));
 }
 
-test('K-PASSKEY-REVOKE 本人遺失全部裝置：只憑登入撤銷自己的全部金鑰，立即生效（進行中的挑戰值也不能用）、沒被核准的登記作廢、進鏈、通知本人與主管', async () => {
+test('K-PASSKEY-SUSPEND 本人只憑登入只能「停用」全部金鑰（裁決 D84 (2)，原本是撤銷）：立即生效（進行中的挑戰值也不能用）、沒被核准的登記作廢、進鏈、通知本人與主管', async () => {
     const me = users.p35;
-    // 進行中的工作：本人送出的單，撤回要簽的挑戰值在撤銷之前就發了
+    // 進行中的工作：本人送出的單，撤回要簽的挑戰值在停用之前就發了
     const caseId = (await call(app, 'case_submit_new', me.session, PROBE, { dataset: 'revoke', n: Math.random() }, {}, null)).case_id;
     const pendingChallenge = await issueChallenge(app, me, caseId, 'recall', { reason: '撤回' });
-    // 列 4：撤銷前排著的登記（例如被入侵的後端趁機排的）
+    // 列 4：停用前排著的登記（例如被入侵的後端趁機排的）
     const queued = await requestPasskey(app, me, newAuthenticator());
     assert.equal(queued.status, 'pending');
     assert.deepEqual((await listed(me, me)).actions, ['revoke_self', 'revoke']);
     await rejectsWith(call(app, 'passkey_revoke_self', me.session, '  '), 'REASON_REQUIRED');
     const done = await call(app, 'passkey_revoke_self', me.session, '手機與筆電都遺失了');
     assert.equal(done.person.id, me.personId);
-    assert.equal(done.revoked, 1);
+    assert.equal(done.suspended, 1);
     assert.equal(done.cancelled_enrollments, 1);
-    // 列 5：撤銷前發的挑戰值、撤銷後的新挑戰值，都簽不了
+    // 列 5：停用前發的挑戰值、停用後的新挑戰值，都簽不了
     await rejectsWith(
         call(app, 'case_decide_passkey', pendingChallenge.challenge_id, 'recall', ...raw(me.key.assert(pendingChallenge.challenge))),
-        'PASSKEY_REVOKED',
+        'PASSKEY_SUSPENDED',
     );
-    assert.equal((await call(app, 'me', me.session)).passkeys, 0);
-    assert.deepEqual((await call(app, 'me', me.session)).passkey_pending, []);
+    const after = await call(app, 'me', me.session);
+    assert.equal(after.passkeys, 0);
+    assert.equal(after.passkey_suspended, 1);
+    assert.deepEqual(after.passkey_pending, []);
+    // 停用不是撤銷：金鑰還在（沒有 revoked_at），恢復要本人的原金鑰加上主管背書
+    assert.equal(
+        (
+            await one(admin, 'select count(*)::int as n from sgn.passkey_credential where person_id = $1 and revoked_at is null', [
+                me.personId,
+            ])
+        ).n,
+        1,
+    );
     // 列 7：進鏈（不放原因的原文）、通知本人與主管
     const event = await one(
         admin,
-        `select convert_from(body, 'UTF8')::jsonb as body from sgn.audit_event where event_type = 'passkey.revoked' and actor_person_id = $1 order by seq desc limit 1`,
+        `select convert_from(body, 'UTF8')::jsonb as body from sgn.audit_event where event_type = 'passkey.suspended' and actor_person_id = $1 order by seq desc limit 1`,
         [me.personId],
     );
-    assert.equal(event.body.data.by, 'self');
-    assert.equal(event.body.data.signed, false);
     assert.equal(event.body.data.credentials.length, 1);
+    assert.deepEqual(event.body.data.rules, ['K-PASSKEY-SUSPEND']);
     assert.ok(!JSON.stringify(event.body).includes('遺失'));
-    assert.equal(await notified('passkey.revoked', me.personId), 1);
-    assert.equal(await notified('passkey.revoked', users.p32.personId), 1);
-    // 沒有金鑰了：再撤一次沒有對象
+    assert.equal(await notified('passkey.suspended', me.personId), 1);
+    assert.equal(await notified('passkey.suspended', users.p32.personId), 1);
+    // 都停用了：再停一次沒有對象
     await rejectsWith(call(app, 'passkey_revoke_self', me.session, '再一次'), 'PASSKEY_NONE');
 });
 
-test('K-PASSKEY-REVOKE 只憑登入的撤銷之後，重新登記走第一把金鑰的背書，而且只能當面掃 QR 碼（電話念碼的降級路線關閉）', async () => {
+test('K-PASSKEY-SUSPEND 停用之後：不能只憑登入另登第一把；恢復要本人用原金鑰簽、再由主管或登記人背書（順序不能反、別的金鑰不行、無關的人不行）；每人每日停用有上限', async () => {
     const me = users.p35;
-    const device = newAuthenticator();
-    const enrollment = await requestPasskey(app, me, device);
-    const shown = (await call(app, 'passkey_enrollment_list', users.p32.session)).find((e) => e.enrollment_id === enrollment.enrollment_id);
-    // 列 2：被入侵的後端拿使用者的工作階段做「本人撤銷」，再排自己的金鑰、打電話請主管念碼——念碼這條路不通
-    assert.deepEqual(shown.methods, ['qr']);
-    assert.deepEqual(shown.actions, ['endorse']);
-    await rejectsWith(
-        call(app, 'passkey_endorse_challenge', users.p32.session, enrollment.enrollment_id, 'code'),
-        'PASSKEY_METHOD_NOT_ALLOWED',
+    // 推論未驗證 1（findings-5）：停用中的金鑰仍算「有金鑰」，主管不能替他背書一把新的
+    const enrollment = await requestPasskey(app, me, newAuthenticator());
+    await rejectsWith(call(app, 'passkey_endorse_challenge', users.p32.session, enrollment.enrollment_id, 'qr'), 'PASSKEY_SELF_ONLY');
+    const [row] = (await call(app, 'passkey_suspension_list', me.session)).filter((r) => r.display.person.id === me.personId);
+    assert.equal(row.status, 'suspended');
+    assert.deepEqual(row.actions, ['restore']);
+    // 主管不能先背書（本人還沒用原金鑰簽）；無關的人看不到、也做不了
+    assert.equal((await call(app, 'passkey_suspension_list', users.p32.session)).length, 0);
+    await rejectsWith(call(app, 'passkey_restore_challenge', users.p32.session, row.display.suspension_id), 'PASSKEY_NONE');
+    const sign = async (who, key, decision) => {
+        const ch = await call(app, 'passkey_restore_challenge', who.session, row.display.suspension_id);
+        assert.equal(ch.decision, decision);
+        const challenge = await challengeFor({
+            purpose: decision === 'restore' ? 'passkey.restore' : 'passkey.restore_endorse',
+            ref: row.display.suspension_id,
+            content: ch.display,
+            decision,
+            nonce: ch.nonce,
+        });
+        return call(app, 'passkey_restore_passkey', ch.challenge_id, ...raw(key.assert(challenge)));
+    };
+    // 拿到裝置的人以外（例如冒用登入的人）沒有原金鑰：用別的金鑰簽不行
+    await rejectsWith(sign(me, newAuthenticator(), 'restore'), 'PASSKEY_RESTORE_KEY');
+    assert.equal((await sign(me, me.key, 'restore')).status, 'self_confirmed');
+    assert.equal((await call(app, 'me', me.session)).passkeys, 0, '本人簽了還不夠');
+    await rejectsWith(call(app, 'passkey_restore_challenge', users.p33.session, row.display.suspension_id), 'PASSKEY_RESTORE_NOT_ALLOWED');
+    const forManager = await call(app, 'passkey_suspension_list', users.p32.session);
+    assert.deepEqual(
+        forManager.map((r) => [r.display.person.id, r.status, r.actions]),
+        [[me.personId, 'self_confirmed', ['endorse_restore']]],
     );
-    // 主管當面掃新裝置的 QR 碼（完整指紋）：可以
-    const done = await endorse(app, users.p32, enrollment.enrollment_id, await shownOn(device), 'qr');
-    assert.equal(done.status, 'approved');
+    assert.equal((await sign(users.p32, users.p32.key, 'endorse')).status, 'restored');
+    assert.equal((await call(app, 'me', me.session)).passkeys, 1, '恢復可用');
+    const chain = await admin.query(
+        `select event_type from sgn.audit_event where event_type in ('passkey.restore_requested', 'passkey.restored') and convert_from(body, 'UTF8')::jsonb #>> '{data,person}' = $1::text order by seq`,
+        [me.personId],
+    );
+    assert.deepEqual(
+        chain.rows.map((r) => r.event_type),
+        ['passkey.restore_requested', 'passkey.restored'],
+    );
+    // 恢復的金鑰可以再簽
+    const caseId = (await call(app, 'case_submit_new', me.session, PROBE, { dataset: 'restore', n: Math.random() }, {}, null)).case_id;
+    const ch = await issueChallenge(app, me, caseId, 'recall', { reason: '撤回' });
+    assert.ok(await decidePasskey(app, ch.challenge_id, 'recall', me.key.assert(ch.challenge)));
+    // 每人每 24 小時停用的上限（passkey.suspend_daily_max 預設 1）：冒用登入的人不能反覆停用
+    await rejectsWith(call(app, 'passkey_revoke_self', me.session, '又遺失了'), 'PASSKEY_SUSPEND_LIMIT');
+    assert.equal((await call(app, 'me', me.session)).passkeys, 1);
 });
 
 test('K-PASSKEY-REVOKE 主管替部屬撤銷：一律用自己的通行金鑰簽顯示摘要（本人、每一把金鑰、原因）；後端改寫摘要就對不上；部屬手上的工作不改派', async () => {

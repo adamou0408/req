@@ -38,6 +38,11 @@ export function simServiceEnv(name) {
     return readEnvFile(join(REPO_DIR, 'sim', name, 'service.env'));
 }
 
+/** sim 服務的執行期目錄（只有 root 讀得到的密碼檔在這裡）。 */
+export function simRunDir(name) {
+    return join(REPO_DIR, 'sim', '.run', name);
+}
+
 /** 外部系統（sim/dc）的實例：平台的資料庫測試（SGN_DB_TEST）連 unit，其他連 main（sim/dc/instances/）。 */
 export function dcInstance(db, database) {
     return database === db.SGN_DB_TEST ? 'unit' : 'main';
@@ -62,8 +67,9 @@ export function loadConfig() {
     const db = readEnvFile(join(DB_DIR, 'sgn.env'));
     const admin = readEnvFile(join(DB_DIR, 'admin.env'));
     const secrets = readIfExists(join(SECRETS_DIR, 'roles.env'));
-    const ldap = readEnvFile(join(REPO_DIR, 'sim/ldap/test-credentials.env'), simServiceEnv('ldap'));
-    const idp = readEnvFile(join(REPO_DIR, 'sim/idp/test-credentials.env'), simServiceEnv('idp'));
+    // sim 的密碼在第一次啟動時隨機產生，只有 root 讀得到（裁決 D84 (1)；sim/ldap/lib.sh、sim/idp/lib.sh）
+    const ldap = readIfExists(join(simRunDir('ldap'), 'secrets.env'), simServiceEnv('ldap'));
+    const idp = readIfExists(join(simRunDir('idp'), 'secrets.env'), simServiceEnv('idp'));
     const mail = simServiceEnv('mail');
     const database = process.env.SGN_DATABASE || db.SGN_DB_TEST;
     const instance = dcInstance(db, database);

@@ -20,7 +20,15 @@ export async function deliverChannel(db: pg.Pool, channel: string, port: Deliver
     ).rows[0].r;
     for (const item of claimed) {
         const outcome = await port.send(item);
-        await db.query(`select api_delivery.${deliveryCalls.deliveryReport.fn}($1, $2, $3)`, [item.op_id, item.lease_token, outcome]);
+        try {
+            await db.query(`select api_delivery.${deliveryCalls.deliveryReport.fn}($1, $2, $3)`, [item.op_id, item.lease_token, outcome]);
+        } catch (err) {
+            // 送的途中這筆被作廢（撤銷時正在送的套用與驗證，裁決 D84 (4)）：資料庫不收它的回報，這一輪的其他筆照常回報
+            if (!String((err as Error).message).startsWith('DELIVERY_LEASE:')) throw err;
+            console.log(
+                JSON.stringify({ at: new Date().toISOString(), op_id: item.op_id, report: 'not_accepted', reason: 'DELIVERY_LEASE' }),
+            );
+        }
     }
     return claimed.length;
 }

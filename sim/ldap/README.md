@@ -17,21 +17,22 @@ sim/ldap/reset.sh       # 清除資料並重新載入種子（做過異動後回
 
 ## 怎麼連
 
-位址與 DN 的唯一來源是 `service.env`；密碼的唯一來源是 `test-credentials.env`（只供 sim 使用，不是真實的機密）。
+位址與 DN 的唯一來源是 `service.env`。密碼在第一次啟動時隨機產生，唯一來源是 `sim/.run/ldap/secrets.env`（目錄 0700、檔案 0600，只有 root 讀得到；裁決 D84 (1)：沒有可用的已知密碼）。第五輪之前 repo 裡的固定密碼已經不能用；改了密碼檔或刪掉它，下一次 `start.sh` 會重新產生並重新載入種子。
 
 | 項目 | 值 |
 |---|---|
 | 位址 | `ldap://127.0.0.1:3890`（明文，沒有 TLS） |
 | base DN | `dc=sim,dc=example` |
-| 管理者（腳本用，可寫） | `cn=admin,dc=sim,dc=example`／`sim-admin-pass` |
-| 唯讀服務帳號（adapter 與 IdP 用） | `cn=reader,ou=services,dc=sim,dc=example`／`sim-reader-pass` |
-| 人員 | `uid=<代號>,ou=people,dc=sim,dc=example`，例如 `uid=p04,...`／密碼一律 `sim-user-pass` |
+| 管理者（腳本用，可寫） | `cn=admin,dc=sim,dc=example`／`SIM_LDAP_ADMIN_PASSWORD` |
+| 唯讀服務帳號（adapter 與 IdP 用） | `cn=reader,ou=services,dc=sim,dc=example`／`SIM_LDAP_READER_PASSWORD` |
+| 人員 | `uid=<代號>,ou=people,dc=sim,dc=example`，例如 `uid=p04,...`／密碼一律 `SIM_LDAP_USER_PASSWORD`（模擬「每個人知道自己的密碼」；只有 root 的測試工具讀得到） |
 
 匿名連線查不到任何資料；人員只讀得到自己。
 
 ```bash
+source sim/.run/ldap/secrets.env   # 以 root
 ldapsearch -x -LLL -H ldap://127.0.0.1:3890 \
-  -D cn=reader,ou=services,dc=sim,dc=example -w sim-reader-pass \
+  -D cn=reader,ou=services,dc=sim,dc=example -w "$SIM_LDAP_READER_PASSWORD" \
   -b ou=people,dc=sim,dc=example '(uid=p04)' '*' memberOf
 ```
 

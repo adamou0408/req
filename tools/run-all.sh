@@ -15,6 +15,7 @@ run="$repo/.run"
 keep=0
 [[ "${1:-}" == "--keep" ]] && keep=1
 mkdir -p "$run"
+chmod 711 "$run"
 # shellcheck source=../db/sgn.env
 source "$repo/db/sgn.env"
 export PLAYWRIGHT_BROWSERS_PATH="${PLAYWRIGHT_BROWSERS_PATH:-/opt/pw-browsers}"
@@ -24,6 +25,11 @@ log() { printf '[run-all] %s\n' "$*"; }
 stop_bg() {
     local name
     for name in api anchor anchor-store jobs mailer delivery reconciler idp-keys web; do
+        # 先停監看（否則它會把程式重新啟動），再停程式
+        if [[ -f "$run/$name.supervisor.pid" ]]; then
+            kill "$(cat "$run/$name.supervisor.pid")" 2>/dev/null || true
+            rm -f "$run/$name.supervisor.pid"
+        fi
         if [[ -f "$run/$name.pid" ]]; then
             kill -CONT "$(cat "$run/$name.pid")" 2>/dev/null || true
             kill "$(cat "$run/$name.pid")" 2>/dev/null || true
@@ -44,13 +50,35 @@ log "2/6 建置資料庫（$SGN_DB_TEST、$SGN_DB_E2E）並跑資料庫測試"
 log "3/6 通行金鑰的 Node 對照組（e2e/reference/passkey，不在執行路徑）"
 (cd "$repo/e2e/reference/passkey" && FRONTDOOR_PORT=0 node --test --test-concurrency=1 passkey.test.ts vectors.test.ts)
 
-# 以程式自己的作業系統帳號（sgn-<程式>）啟動，環境變數只留 PATH 與要連的資料庫；log 與 pid 檔由 root 寫。
+# 以程式自己的作業系統帳號（sgn-<程式>）啟動，環境變數只留 PATH 與要連的資料庫；log 與 pid 檔由 root 寫，log 只有 root 讀得到。
+# 監看（裁決 D84 (7)）：程式結束（例如錨定程式遇到不一致、被殺掉）就在 1 秒後以同一個帳號重新啟動，並在 log 記下結束碼；
+# $name.pid 一律是目前那個程式的 pid（暫停、恢復都對它），$name.supervisor.pid 是監看本身。
+supervise() {
+    local name="$1" status
+    shift
+    while :; do
+        setpriv --reuid "sgn-$name" --regid "sgn-$name" --clear-groups -- \
+            env -i PATH="$PATH" SGN_DATABASE="$SGN_DB_E2E" node "$@" >>"$run/$name.log" 2>&1 &
+        echo $! >"$run/$name.pid"
+        status=0
+        wait $! || status=$?
+        printf '[run-all] %s 結束（結束碼 %s），1 秒後重新啟動\n' "$name" "$status" >>"$run/$name.log"
+        sleep 1
+    done
+}
+
 start_program() {
     local name="$1"
     shift
-    setpriv --reuid "sgn-$name" --regid "sgn-$name" --clear-groups -- \
-        env -i PATH="$PATH" SGN_DATABASE="$SGN_DB_E2E" node "$@" >"$run/$name.log" 2>&1 &
-    echo $! >"$run/$name.pid"
+    rm -f "$run/$name.log"
+    (umask 077 && : >"$run/$name.log")
+    rm -f "$run/$name.pid"
+    supervise "$name" "$@" &
+    echo $! >"$run/$name.supervisor.pid"
+    for _ in $(seq 1 50); do
+        [[ -s "$run/$name.pid" ]] && break
+        sleep 0.1
+    done
 }
 
 log "4/6 錨點存放處（$SGN_ANCHOR_ORIGIN）與錨定程式（每 2 秒把 $SGN_DB_E2E 的鏈頭寫到存放處）"

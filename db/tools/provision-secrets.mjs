@@ -69,6 +69,6 @@ const file = anchorFile(config, config.db.SGN_DB_E2E);
 closeSync(openSync(file, 'w', 0o644));
 chmodSync(file, 0o644);
 chownSync(file, store.uid, store.gid);
-chmodSync(RUN_DIR, 0o755);
+chmodSync(RUN_DIR, 0o711);
 
 console.log(JSON.stringify({ secrets: written, anchor_store_file: file }));

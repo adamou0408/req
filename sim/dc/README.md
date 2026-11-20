@@ -20,7 +20,7 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 
 - 需要 Node 22.18 以上（直接執行 TypeScript）、npm、curl、jq，以及一個 PostgreSQL 16（與開發環境共用，連線見下）。
 - 程式與 `node_modules` 安裝在 `sim/.run/dc/app/`（repo 可能以唯讀掛載）；log 在 `sim/.run/dc/dc.log`。
-- 設定的唯一來源是 `service.env`、`instances/<實例>.env`（非機密）與實例的 `keys/secrets.env`（執行期產生）。superuser 連線沒有另外設定時讀 `db/admin.env` 的 `SGN_PG_ADMIN_URL`，只用來建立本服務的登入角色與資料庫。
+- 設定的唯一來源是 `service.env`、`instances/<實例>.env`（非機密）與實例的 `keys/secrets.env`（執行期產生）。superuser 連線沒有另外設定時讀 `db/admin.env` 的 `SGN_PG_ADMIN_URL`，只用來建立本服務的登入角色與資料庫。那是本機 unix socket 的 peer 連線（以 root 執行；裁決 D84 (1)：superuser 不得經 TCP 以密碼登入，`db/build.sh` 在 `pg_hba.conf` 拒絕）。
 - **測試不占用 7001、7002**：`test.sh` 另外啟動一份服務，聽 `sim/.run/dc/test/dc.sock`，用資料庫 `sim_dc_check`、`sim_dc_check_test`、服務角色 `simdc_t_service`、角色前綴 `simdc_t_`，以及自己產生的密鑰與兩把平台測試金鑰（正式與遮罩環境各一把）。開發用的服務在跑也不受影響。
 
 ## 資料庫

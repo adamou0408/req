@@ -1,7 +1,7 @@
 // 通知寄送程式的入口（裁決 D76）：每一輪由 api/src/notify.ts 領走待寄的通知、經 SMTP adapter 寄出、回報結果。
 // 用法：node api/src/mailer.ts              寄一輪
 //       node api/src/mailer.ts --every 5    每 5 秒寄一輪（常駐；tools/run-all.sh 啟動）
-// 設定只讀自己的（裁決 D81 (1)）：.run/secrets/mailer.env（sgn_job 的密碼）與 sim/mail 的位址。
+// 設定只讀自己的（裁決 D81 (1)）：.run/secrets/mailer.env（sgn_mailer 的密碼）與 sim/mail 的位址。
 import pg from 'pg';
 import { loadProgramConfig, programDbUrl, simServiceEnv } from '../../db/tools/lib/env.mjs';
 import { PROGRAMS } from '../../db/tools/lib/programs.mjs';

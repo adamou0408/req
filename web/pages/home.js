@@ -23,6 +23,18 @@ async function caseCard(c, testid) {
         el('span', { class: 'line' }, cat ? pack.packagesLine(cat, c.content) : c.process_type),
         el('span', { class: 'line muted' }, `${c.terms.principal?.name ?? '—'}・${t.validRange(c.terms.valid_from, c.terms.valid_to)}`),
         stage ? el('span', { class: 'line muted' }, `${stage.name}${waiting ? `・${waiting}` : ''}`) : null,
+        // 等確認的站內待辦：剩幾個工作天、快到期（資料庫算好；不只靠郵件，K-CONFIRM-REMIND）
+        c.confirm_due
+            ? el(
+                  'span',
+                  {
+                      class: c.confirm_due.reminding ? 'line warn-text' : 'line muted',
+                      'data-testid': 'confirm-due',
+                      'data-reminding': String(c.confirm_due.reminding),
+                  },
+                  t.confirmation.due(c.confirm_due),
+              )
+            : null,
     );
 }
 
@@ -102,20 +114,28 @@ async function auditExceptions() {
 export async function renderHome(ctx) {
     const can = (c) => ctx.me.capabilities.includes(c);
     const parts = [];
+    // 停用中的通行金鑰：沒有待簽清單的人也要在首頁看到（待簽清單裡已經有同一個提示）
+    if (!can('inbox') && ctx.me.passkey_suspended > 0) parts.push(Promise.resolve(passkeyNotice(ctx.me)));
     if (can('inbox')) parts.push(fillInbox(ctx));
     if (can('case.submit')) parts.push(fillMine());
     if (can('audit')) parts.push(Promise.resolve(auditSearch()), auditExceptions());
-    // 通行金鑰：待核准的登記（我可以背書的，或我自己用舊金鑰核准的，依資料庫回傳的 actions）；遺失裝置或撤銷人人都要找得到
+    // 通行金鑰：待核准的登記（我可以背書的，或我自己用舊金鑰核准的，依資料庫回傳的 actions）、等我背書恢復的停用；
+    // 遺失裝置、停用或撤銷人人都要找得到
     const endorse = can('passkey.endorse') || ctx.me.passkey_pending.some((e) => e.actions.includes('endorse'));
     parts.push(
-        Promise.resolve(
-            section(
-                'passkey-endorse',
-                t.passkeys.title,
-                endorse ? el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkeys' }, t.passkeys.open) : null,
-                el('a', { href: '#passkeys', 'data-testid': 'open-passkey-manage' }, t.passkeys.manage),
+        api
+            .call('passkey_suspension_list')
+            .then((suspensions) =>
+                section(
+                    'passkey-endorse',
+                    t.passkeys.title,
+                    endorse ? el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkeys' }, t.passkeys.open) : null,
+                    suspensions.some((r) => r.actions.includes('endorse_restore'))
+                        ? el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkey-restore' }, t.passkeys.restoreOpen)
+                        : null,
+                    el('a', { href: '#passkeys', 'data-testid': 'open-passkey-manage' }, t.passkeys.manage),
+                ),
             ),
-        ),
     );
     if (can('role_change'))
         parts.push(

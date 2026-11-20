@@ -32,7 +32,9 @@ psql_admin() { local db="$1"; shift; psql -X -q -v ON_ERROR_STOP=1 "$(admin_url_
 
 # 登入角色（sgn.env 的鍵名後綴）。每次建置每個角色一組新的隨機密碼（裁決 D81 (1)），寫在只有 root 讀得到的 .run/secrets/roles.env；
 # 各程式只拿到自己那一份（db/tools/provision-secrets.mjs）。
-login_keys=(APP SYNC JOB DELIVERY IDP_KEYS TEST_VERIFIER)
+login_keys=(APP SYNC JOB SCHEDULER RECONCILER ANCHOR MAILER DELIVERY IDP_KEYS TEST_VERIFIER)
+# 合併角色 JOB（操作者用）是這幾個角色的成員
+job_members=(SCHEDULER RECONCILER ANCHOR MAILER)
 secrets_dir="$repo/.run/secrets"
 
 role_of() { local var="SGN_ROLE_$1"; printf '%s' "${!var}"; }
@@ -56,13 +58,16 @@ recreate_roles() {
         psql_admin postgres -c "create role \"$(role_of "$key")\" login password '$password'"
         printf 'SGN_ROLE_PASSWORD_%s=%s\n' "$key" "$password" >>"$roles_file"
     done
+    for key in "${job_members[@]}"; do
+        psql_admin postgres -c "grant \"$(role_of "$key")\" to \"$(role_of JOB)\""
+    done
 }
 
 # 建一個資料庫的 schema：核心 migration（依版本序）→ 各流程包（依版本序）→ 測試資料庫另加 db/testing/ → 權限
 # （90_grants.sql，再由 db/tools/grants-sql.mjs 收斂成路由表的允許清單）→ 環境設定。新建的 function 預設不對 PUBLIC 開放。
 # 套用順序依骨幹第 1.1 節：核心全部 → 各流程包。90_grants.sql 帶變數，最後單獨套用。
 build_schema() {
-    local db="$1" with_testing="$2" connect="$SGN_ROLE_APP\", \"$SGN_ROLE_SYNC\", \"$SGN_ROLE_JOB\", \"$SGN_ROLE_DELIVERY\", \"$SGN_ROLE_IDP_KEYS"
+    local db="$1" with_testing="$2" connect="$SGN_ROLE_APP\", \"$SGN_ROLE_SYNC\", \"$SGN_ROLE_JOB\", \"$SGN_ROLE_SCHEDULER\", \"$SGN_ROLE_RECONCILER\", \"$SGN_ROLE_ANCHOR\", \"$SGN_ROLE_MAILER\", \"$SGN_ROLE_DELIVERY\", \"$SGN_ROLE_IDP_KEYS"
     (( with_testing )) && connect="$connect\", \"$SGN_ROLE_TEST_VERIFIER"
     psql_admin postgres -c "create database \"$db\" owner \"$SGN_ROLE_OWNER\""
     psql_admin "$db" -c "revoke all on database \"$db\" from public" -c "grant connect on database \"$db\" to \"$connect\"" \
@@ -149,10 +154,38 @@ run_plpgsql_check() {
     log "plpgsql_check：沒有問題（$(psql_admin "$db" -t -A -c "select count(*) from pg_proc p join pg_language l on l.oid = p.prolang where l.lanname = 'plpgsql' and (p.pronamespace::regnamespace::text in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_delivery', 'api_idp', 'api_verified') or p.pronamespace::regnamespace::text like 'pack\\_%')") 個 PL/pgSQL function）"
 }
 
+# 管理者連線只限本機 peer（裁決 D84 (1)）：以作業系統帳號 postgres（peer）建立和本程序帳號同名的 superuser 角色（db/admin.env），
+# 清掉所有 superuser 的密碼（環境原有的帳號 das_dev 的密碼是已知值），並在 pg_hba.conf 最前面拒絕 superuser 經 TCP 登入。
+# 新增的 superuser 下一次建置時一併處理；架構測試 97 以後端帳號實際試連。
+hba_begin='# >>> sgn：superuser 只限本機 peer（db/build.sh 寫入，請勿手動修改）'
+hba_end='# <<< sgn'
+secure_admin() {
+    local admin superusers hba
+    admin="$(id -un)"
+    runuser -u postgres -- psql -X -q -v ON_ERROR_STOP=1 -d postgres -v admin="$admin" >/dev/null <<'SQL'
+select format('create role %I superuser login', :'admin') where not exists (select 1 from pg_roles where rolname = :'admin') \gexec
+select format('alter role %I with password null', rolname) from pg_authid where rolsuper and rolpassword is not null \gexec
+SQL
+    superusers="$(runuser -u postgres -- psql -X -q -t -A -d postgres -c "select string_agg(quote_ident(rolname), ',' order by rolname) from pg_roles where rolsuper")"
+    hba="$(runuser -u postgres -- psql -X -q -t -A -d postgres -c 'show hba_file')"
+    {
+        printf '%s\n' "$hba_begin"
+        printf 'host all %s all reject\n' "$superusers"
+        printf '%s\n' "$hba_end"
+        sed "/^${hba_begin//\//\\/}\$/,/^${hba_end}\$/d" "$hba"
+    } >"$hba.sgn-new"
+    cat "$hba.sgn-new" >"$hba"
+    rm -f "$hba.sgn-new"
+    runuser -u postgres -- psql -X -q -t -A -d postgres -c 'select pg_reload_conf()' >/dev/null
+}
+
 log "檢查 PostgreSQL"
-if ! psql -X -q "$SGN_PG_ADMIN_URL" -c 'select 1' >/dev/null 2>&1; then
+(( EUID == 0 )) || { echo "db/build.sh 要以 root 執行（管理者連線是 root 的本機 peer；各程式的作業系統帳號）" >&2; exit 1; }
+if ! pg_ctlcluster 16 main status >/dev/null 2>&1; then
     pg_ctlcluster 16 main start
 fi
+secure_admin
+chmod 600 "$here/admin.env"
 [[ -d "$repo/node_modules/pg" ]] || { echo "缺少套件，請先在根目錄 npm ci" >&2; exit 1; }
 
 log "重建資料庫與角色"
@@ -168,6 +201,7 @@ log "檢查 sim（ldap、idp、mail）"
 "$repo/sim/status.sh" --strict ldap idp mail >/dev/null || { echo "sim 沒有在跑，請先 sim/up.sh" >&2; exit 1; }
 
 mkdir -p "$repo/.run"
+chmod 711 "$repo/.run"
 log "sim/dc 的兩個實例（main、unit）"
 start_dc
 for db in "$SGN_DB_TEST" "$SGN_DB_E2E"; do

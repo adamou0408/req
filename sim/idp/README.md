@@ -16,14 +16,14 @@ sim/idp/stop.sh
 
 ## 給平台後端的 OIDC 設定值
 
-唯一來源是 `service.env`（非機密）與 `test-credentials.env`（只供 sim 的測試用 secret）；下表是目前的值。
+唯一來源是 `service.env`（非機密）與第一次啟動時隨機產生的 `sim/.run/idp/secrets.env`（client secret；目錄 0700，連同 Dex 的私鑰 `dex.db` 只有 root 讀得到，裁決 D84 (1)）。後端拿到的是 `db/tools/provision-secrets.mjs` 抄進它自己密鑰檔的那一份。
 
 | 項目 | 值 |
 |---|---|
 | issuer | `http://127.0.0.1:5556/dex` |
 | discovery | `http://127.0.0.1:5556/dex/.well-known/openid-configuration` |
 | client id | `sgn-api` |
-| client secret | `sim-idp-client-secret` |
+| client secret | `SIM_IDP_CLIENT_SECRET`（`sim/.run/idp/secrets.env`） |
 | redirect URI（已登記） | `http://127.0.0.1:3000/auth/oidc/callback`、`http://localhost:3000/auth/oidc/callback` |
 | scopes | `openid profile email groups federated:id` |
 | 流程 | authorization code（可加 PKCE S256）；token 端點用 HTTP Basic 帶 client 帳密 |
@@ -43,7 +43,7 @@ ID token（與 userinfo）的欄位對應：
 
 ## 登入帳號
 
-`docs/contract/seed-directory.md` 的每個人都能登入：帳號填代號（`p01`…`p26`）或 email（`p01@sim.example`），兩者得到同一個 `sub`；密碼是 `sim/ldap` 的人員測試密碼 `sim-user-pass`。
+`docs/contract/seed-directory.md` 的每個人都能登入：帳號填代號（`p01`…`p26`）或 email（`p01@sim.example`），兩者得到同一個 `sub`；密碼是 `sim/ldap` 的人員測試密碼（`sim/.run/ldap/secrets.env` 的 `SIM_LDAP_USER_PASSWORD`，只有 root 讀得到）。
 
 登入頁的欄位（給 Playwright 用）：帳號 `#login`、密碼 `#password`、送出 `#submit-login`、錯誤訊息 `#login-error`。
 
