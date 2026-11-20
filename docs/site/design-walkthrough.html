@@ -1,0 +1,303 @@
+<title>簽核平台設計導讀</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one reading column. Each section answers one question a newcomer asks, in the order they ask it. Layers are drawn top to bottom so the picture reads the same on a phone. */
+:root { --bg:#F4F6F9; --surface:#FFFFFF; --fg:#1B2330; --muted:#566070; --line:#C9D1DB; --accent:#0B5CAD; --accent-soft:#E6EFF9;
+  --ok:#17663A; --ok-soft:#E1F3E7; --wip:#8A4500; --wip-soft:#FFF0D9; --todo:#566070; --todo-soft:#EDF0F4; --trust:#A32A1B;
+  --font:'Noto Sans TC','PingFang TC','Microsoft JhengHei',system-ui,sans-serif; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#10151C; --surface:#18202A; --fg:#E6EBF2; --muted:#9AA6B5; --line:#33404F; --accent:#6FB1F5; --accent-soft:#16304D;
+  --ok:#6FD39A; --ok-soft:#143524; --wip:#F2B866; --wip-soft:#3B2A10; --todo:#9AA6B5; --todo-soft:#212B37; --trust:#F28B7D; color-scheme:dark } }
+:root[data-theme="dark"] { --bg:#10151C; --surface:#18202A; --fg:#E6EBF2; --muted:#9AA6B5; --line:#33404F; --accent:#6FB1F5; --accent-soft:#16304D;
+  --ok:#6FD39A; --ok-soft:#143524; --wip:#F2B866; --wip-soft:#3B2A10; --todo:#9AA6B5; --todo-soft:#212B37; --trust:#F28B7D; color-scheme:dark }
+body { background:var(--bg); color:var(--fg); font-family:var(--font); font-size:16px; line-height:1.7;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); padding-block:24px 64px; }
+.page { max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:40px; }
+h1 { font-size:1.7rem; line-height:1.3; margin:0; text-wrap:balance; }
+h2 { font-size:1.25rem; line-height:1.4; margin:0; text-wrap:balance; }
+h3 { font-size:1rem; margin:0; }
+p { margin:0; } .muted { color:var(--muted); font-size:.92rem; }
+a { color:var(--accent); }
+a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+section { display:flex; flex-direction:column; gap:14px; scroll-margin-top:16px; }
+header { display:flex; flex-direction:column; gap:10px; }
+.lede { font-size:1.05rem; }
+.toc { display:flex; flex-direction:column; gap:2px; margin:0; padding:14px 16px 14px 2.4em; background:var(--surface); border:1px solid var(--line); border-radius:10px; font-size:.95rem; }
+.toc a { display:inline-block; padding:5px 0; text-decoration:none; }
+.toc a:hover { text-decoration:underline; }
+.tag { display:inline-flex; align-items:center; padding:1px 10px; border-radius:999px; font-size:.8rem; font-weight:500; white-space:nowrap; }
+.tag.ok { background:var(--ok-soft); color:var(--ok); } .tag.wip { background:var(--wip-soft); color:var(--wip); } .tag.todo { background:var(--todo-soft); color:var(--todo); }
+.stack { display:flex; flex-direction:column; align-items:stretch; }
+.layer { display:flex; flex-wrap:wrap; gap:12px; align-items:stretch; }
+.box { flex:3 1 280px; min-width:0; background:var(--surface); border:1.5px solid var(--line); border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; gap:6px; }
+.box.side { flex:1 1 180px; border-style:dashed; }
+.box.core { border-color:var(--accent); border-width:2px; }
+.box ul, .plain { margin:0; padding-left:1.2em; font-size:.95rem; }
+.plain { display:flex; flex-direction:column; gap:6px; }
+.arrow { align-self:center; color:var(--muted); font-size:.85rem; padding:6px 0; text-align:center; }
+.arrow b { display:block; font-size:1.1rem; line-height:1; color:var(--fg); }
+.boundary { border:2px dashed var(--trust); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:10px; }
+.boundary > .cap { color:var(--trust); font-size:.85rem; font-weight:700; }
+.steps { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; counter-reset:s; }
+.steps li { counter-increment:s; display:grid; grid-template-columns:28px minmax(0,1fr); gap:10px; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:.95rem; }
+.steps li::before { content:counter(s); width:28px; height:28px; border-radius:50%; background:var(--fg); color:var(--bg); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.85rem; font-variant-numeric:tabular-nums; }
+.steps .who { display:block; color:var(--muted); font-size:.85rem; }
+.pair { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:12px; }
+.pair > div { min-width:0; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; gap:6px; }
+.why { border-left:3px solid var(--accent); padding:2px 0 2px 12px; color:var(--muted); font-size:.93rem; }
+.scroll { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; font-size:.92rem; }
+th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:500; white-space:nowrap; }
+td:first-child { white-space:nowrap; }
+td.wrap { white-space:normal; }
+code { font-family:var(--mono); font-size:.88em; }
+.nums { display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:10px; }
+.nums div { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
+.nums b { display:block; font-size:1.35rem; line-height:1.3; font-variant-numeric:tabular-nums; }
+.nums span { color:var(--muted); font-size:.85rem; }
+</style>
+<div class="page">
+
+<header>
+<h1>簽核平台設計導讀</h1>
+<p class="lede">這個平台要讓公司的簽核與權限經得起稽核，而且每種使用者都願意用。這份導讀說明它怎麼組成、每個設計決定背後的理由，以及目前做到哪裡。</p>
+<p class="muted">2026-11-20。對象：第一次接觸這個專案的工程師、稽核與資安人員。讀完大約 10 分鐘。</p>
+<ol class="toc">
+<li><a href="#idea">一句話說完整個設計</a></li>
+<li><a href="#layers">三層，以及信任邊界畫在哪裡</a></li>
+<li><a href="#kernel">核心與流程包怎麼分工</a></li>
+<li><a href="#life">一張申請單的一生</a></li>
+<li><a href="#sign">一次核准是怎麼被保護的</a></li>
+<li><a href="#audit">稽核紀錄為什麼改不了</a></li>
+<li><a href="#delivery">核准之後，權限怎麼真的生效</a></li>
+<li><a href="#accounts">每個程式各用各的帳號</a></li>
+<li><a href="#swap">會變的東西都做成可以換</a></li>
+<li><a href="#verify">怎麼知道它是對的</a></li>
+<li><a href="#limits">已知的限制</a></li>
+<li><a href="#map">程式碼地圖</a></li>
+</ol>
+</header>
+
+<section id="idea">
+<h2>1. 一句話說完整個設計</h2>
+<p><strong>所有規則和證據都放在資料庫裡，資料庫不相信任何替別人傳話的程式。</strong></p>
+<p>一般的簽核系統把規則寫在後端程式裡，資料庫只負責存。這樣一來，誰拿到後端或資料庫的權限，誰就能偽造「某人核准了」。稽核人員也只能相信系統管理員沒有動手腳。</p>
+<p>這個平台反過來做：</p>
+<ul class="plain">
+<li>核准要用簽核人自己裝置上的通行金鑰簽章，資料庫自己驗章。後端只是傳話，偽造不了。</li>
+<li>每個動作寫進一條只增不改的紀錄鏈，鏈的摘要定期送到資料庫以外保存。連資料庫管理員改了紀錄也會被發現。</li>
+<li>稽核人員在自己的瀏覽器裡重算整條鏈、重驗每個簽章，不需要相信平台的畫面。</li>
+</ul>
+<p class="why">為什麼這樣選：稽核要的是「不必相信任何人也查得出來」。把信任集中在最小的一塊（資料庫裡的函式），其他部分被攻破也造不出假的核准。</p>
+</section>
+
+<section id="layers">
+<h2>2. 三層，以及信任邊界畫在哪裡</h2>
+<p class="muted">依賴方向只有一個：頁面 → 後端 → 資料庫。越往下責任越重。</p>
+<div class="stack">
+<div class="layer">
+<div class="box"><h3>使用者的瀏覽器</h3>
+<ul><li>手機寬度優先：登入、送申請、待簽、核准、確認、稽核查看</li><li>通行金鑰在使用者的裝置上簽章</li><li>顯示哪些按鈕，完全依資料庫回傳的「可執行動作」</li></ul></div>
+</div>
+<div class="arrow"><b>↓</b>只呼叫後端</div>
+<div class="layer">
+<div class="box"><h3>後端（很薄）</h3>
+<ul><li>把請求轉成資料庫的函式呼叫，不含任何業務判斷</li><li>一張路由表是唯一來源，後端和頁面共用</li></ul></div>
+<div class="box side"><h3>登入服務</h3><p class="muted">公司的單一登入（OIDC）。平台只取它簽發的身分憑證。</p></div>
+</div>
+<div class="arrow"><b>↓</b>用只能呼叫函式的帳號連線</div>
+<div class="boundary">
+<span class="cap">信任邊界：邊界以內的才算數</span>
+<div class="layer">
+<div class="box core"><h3>資料庫（核心）</h3>
+<ul>
+<li><strong>對外函式</strong>：每個動作一個。後端碰不到任何資料表</li>
+<li><strong>自己驗證身分</strong>：登入憑證的簽章、通行金鑰的簽章都在這裡驗</li>
+<li><strong>授權、狀態轉移、稽核寫入、丟錯</strong>：各只有一個入口</li>
+<li><strong>業務規則</strong>：全部是資料庫函式，後端和頁面不重寫</li>
+</ul></div>
+<div class="box side"><h3>人員與組織</h3><p class="muted">從公司目錄同步進來，用另一個只能同步的帳號。異動也進紀錄鏈。</p></div>
+</div>
+</div>
+<div class="arrow"><b>↓</b>定期把鏈的摘要送出去</div>
+<div class="layer">
+<div class="box"><h3>資料庫以外的錨點存放處</h3>
+<p class="muted">只收序號更大的摘要。稽核頁會直接讀它來比對，不經過後端。</p></div>
+</div>
+</div>
+<p class="why">為什麼後端這麼薄：後端是最容易被攻破的一層。它不做判斷，被拿下時能做的事就只剩「替經過它的人呼叫函式」，而重要的動作還需要那個人的通行金鑰。</p>
+</section>
+
+<section id="kernel">
+<h2>3. 核心與流程包怎麼分工</h2>
+<p>平台是通用的。核心不知道「資料授權」是什麼；每一種申請是一個流程包，掛在核心上。</p>
+<div class="pair">
+<div><h3>核心（kernel）</h3>
+<ul class="plain"><li>申請單、關卡、決定、狀態轉移</li><li>找出每一關該由誰簽（主管、角色持有人、被授權者的負責人）</li><li>通行金鑰、驗章、稽核紀錄鏈</li><li>參數、角色、通知、交付、對帳</li></ul></div>
+<div><h3>流程包（pack）</h3>
+<ul class="plain"><li>申請內容長什麼樣子、怎麼顯示給簽核人看</li><li>這種申請走哪條簽核路徑</li><li>核准之後要交付什麼給外部系統</li><li>自己的業務規則（寫在該流程包的規則文件）</li></ul></div>
+</div>
+<p>第一個流程包是資料授權：申請讀取哪些資料、哪些欄位、多久，分 L3 與 L4 兩個級別。核准的結果輸出成規則，由外部的資料平台套用。</p>
+<p class="why">為什麼這樣分：稽核級的保護（驗章、紀錄鏈、職責分離）做一次就好。新增一種申請只需要寫流程包，不用重新證明整套安全性。</p>
+</section>
+
+<section id="life">
+<h2>4. 一張申請單的一生</h2>
+<p class="muted">以資料授權為例。每一步都寫進紀錄鏈。</p>
+<ol class="steps">
+<li><span><strong>送出申請</strong><span class="who">申請人。可以替團隊或專案代填。</span>內容被標準化並算出雜湊；送出時綁定當時的簽核路徑版本。</span></li>
+<li><span><strong>逐關簽核</strong><span class="who">被授權者的負責人（代填時）→ 主管 → 資料擁有者 → 視級別加上其他角色</span>每一關都用通行金鑰簽。同一個人不能簽兩關，申請人不能簽自己的單。可以退回或要求縮小範圍。</span></li>
+<li><span><strong>交付</strong><span class="who">交付程式，或人工執行</span>核准結果由資料庫簽章後送給外部系統套用。系統對系統是預設。</span></li>
+<li><span><strong>自動驗證</strong><span class="who">交付程式</span>實際向外部系統查詢：該放行的有放行、不該放行的有擋下。外部系統的回應也要帶簽章。</span></li>
+<li><span><strong>申請人確認</strong><span class="who">申請人，5 個工作天內</span>確認「實際拿到的和核准的一樣」才生效。回報不對就撤回並開例外；逾期自動撤銷。</span></li>
+<li><span><strong>生效中</strong><span class="who">申請人、主管、資料擁有者</span>可以縮小或撤銷。定期對帳會比對外部系統上實際的權限。</span></li>
+<li><span><strong>結束</strong><span class="who">到期自動，或有人撤銷</span>撤回外部系統上的權限；整張單在外部系統封存，之後晚到的套用一律被拒。</span></li>
+</ol>
+<p class="why">為什麼核准之後還要確認：核准回答「該不該給」，確認回答「實際給的對不對」。兩件事分開，人工執行或外部系統出錯才抓得到。</p>
+</section>
+
+<section id="sign">
+<h2>5. 一次核准是怎麼被保護的</h2>
+<ol class="steps">
+<li><span>簽核人點開一張單。畫面顯示的摘要由資料庫產生，不是後端組的。</span></li>
+<li><span>瀏覽器自己算出挑戰值，內容包含：這張單、這個內容版本、要做的動作、畫面上顯示的摘要。</span></li>
+<li><span>簽核人的裝置用通行金鑰簽這個挑戰值（需要指紋或臉部辨識）。</span></li>
+<li><span>後端把簽章原封不動交給資料庫。</span></li>
+<li><span>資料庫自己驗章，並檢查：是這個人的金鑰、沒用過、單號與版本相符、他有資格簽這一關、不是申請人本人。</span></li>
+<li><span>通過才寫入決定，同一筆交易內寫進紀錄鏈。</span></li>
+</ol>
+<p>登入只證明「是這個帳號」。做決定一定要通行金鑰，所以就算登入服務整個被冒用，也核准不了任何東西。</p>
+<p class="muted">只憑登入能做的動作都是「收回」方向的：確認驗證結果、回報不對、撤銷、縮小。最壞的結果是已核准的那一版生效，或授權被收回；都會通知當事人。</p>
+<h3>第一把金鑰從哪裡來</h3>
+<p>新金鑰要由另一個人當面背書：掃申請人裝置上的 QR 碼，或核對 12 位數的碼。只憑登入不能替自己登記金鑰，也不能撤銷金鑰，只能停用；恢復要本人的原金鑰加上主管或登記人背書。</p>
+</section>
+
+<section id="audit">
+<h2>6. 稽核紀錄為什麼改不了</h2>
+<ul class="plain">
+<li><strong>只增不改</strong>：紀錄表擋下修改、刪除、清空，連資料表的擁有者也擋。</li>
+<li><strong>雜湊鏈</strong>：每一筆包含前一筆的雜湊。改任何一筆，後面全部對不上。</li>
+<li><strong>外部錨定</strong>：鏈的最新摘要定期送到資料庫以外。有人用最高權限把整條鏈重算，和外面的摘要一比對就露出來。</li>
+<li><strong>自己驗</strong>：稽核頁在瀏覽器裡重算整條鏈、重驗每個簽章，並直接向錨點存放處取摘要。錨定落後太久會顯示為失敗。</li>
+</ul>
+<p>每筆決定的紀錄裡有當時用到的規則代碼和參數值，事後查得出「當時為什麼可以」。</p>
+</section>
+
+<section id="delivery">
+<h2>7. 核准之後，權限怎麼真的生效</h2>
+<p>平台只決定「誰可以做什麼」並保存證據；實際擋下存取的是外部系統自己。兩邊之間不靠人傳話。</p>
+<div class="stack">
+<div class="layer"><div class="box core"><h3>資料庫</h3><p class="muted">用自己保管的私鑰簽出要交付的內容。私鑰只有資料庫擁有者讀得到，後端和交付程式都拿不到。</p></div></div>
+<div class="arrow"><b>↓</b>交付程式領走已簽的內容</div>
+<div class="layer"><div class="box"><h3>交付程式</h3><p class="muted">只是郵差。它改不了內容（簽章會失效），也不能謊報結果（回應要有外部系統的簽章）。失敗會退避重送，卡住會開例外。</p></div></div>
+<div class="arrow"><b>↓</b>套用、撤回、查詢</div>
+<div class="layer"><div class="box side"><h3>外部系統</h3><p class="muted">驗平台的簽章才套用。每個回應帶自己的簽章，綁定這次請求。撤回等於封存整張單。</p></div></div>
+</div>
+<h3>三道互相獨立的檢查</h3>
+<ul class="plain">
+<li><strong>自動驗證</strong>：套用後實際查詢，正例與反例都要對。</li>
+<li><strong>申請人確認</strong>：當事人自己確認拿到的對不對。</li>
+<li><strong>定期對帳</strong>：外部系統簽出目前實際的權限清單，平台比對出多的、少的、不一樣的。回報的簽發時間必須比上一份新；發現要連續三輪沒看到才結案。</li>
+</ul>
+<p class="muted">外部系統不支援系統對系統時，可以退回人工執行：執行人用通行金鑰簽「已套用」，之後一樣要申請人確認。</p>
+</section>
+
+<section id="accounts">
+<h2>8. 每個程式各用各的帳號</h2>
+<p class="muted">每個背景程式有自己的作業系統帳號、自己的密鑰檔、自己的資料庫帳號，只能呼叫自己那幾個函式。拿下其中一個，碰不到其他的。</p>
+<div class="scroll"><table>
+<thead><tr><th>資料庫帳號</th><th>誰在用</th><th>只能做什麼</th></tr></thead>
+<tbody>
+<tr><td><code>sgn_app</code></td><td>後端</td><td class="wrap">呼叫對外函式；讀寫不了任何資料表</td></tr>
+<tr><td><code>sgn_sync</code></td><td>人員同步</td><td class="wrap">寫入人員與主管關係；異動留紀錄，可疑的開例外</td></tr>
+<tr><td><code>sgn_idp_keys</code></td><td>登入金鑰同步</td><td class="wrap">交上登入服務目前公布的金鑰清單</td></tr>
+<tr><td><code>sgn_delivery</code></td><td>交付程式</td><td class="wrap">領取已簽的交付內容、回報結果</td></tr>
+<tr><td><code>sgn_scheduler</code></td><td>排程</td><td class="wrap">到期、逾期、催辦、卡住檢查</td></tr>
+<tr><td><code>sgn_reconciler</code></td><td>對帳</td><td class="wrap">交上外部系統簽出的權限清單</td></tr>
+<tr><td><code>sgn_anchor</code></td><td>錨定</td><td class="wrap">讀紀錄鏈、回報已送出的摘要</td></tr>
+<tr><td><code>sgn_mailer</code></td><td>寄信</td><td class="wrap">領取通知、回報寄出</td></tr>
+<tr><td><code>sgn_owner</code></td><td>升版</td><td class="wrap">擁有全部物件；平常不使用</td></tr>
+</tbody></table></div>
+<p>資料庫管理者只能從本機連線，沒有可用的密碼。自動測試會用每個程式的帳號實際探測：讀得到哪些檔案、連得上什麼。</p>
+</section>
+
+<section id="swap">
+<h2>9. 會變的東西都做成可以換</h2>
+<p class="muted">程式只認抽象，不認具體的值、人名或系統。換的時候改資料或換轉接器，不改規則。</p>
+<div class="scroll"><table>
+<thead><tr><th>會變的東西</th><th>怎麼做</th></tr></thead>
+<tbody>
+<tr><td>時限、上限、開關</td><td class="wrap">參數表。可以依全域、級別、部門設不同的值，帶生效時間，只增不改。規則裡沒有寫死的天數</td></tr>
+<tr><td>誰是誰</td><td class="wrap">內部編號。外部帳號（單一登入、人資、目錄）只是對應，可以同時存在多個來源</td></tr>
+<tr><td>誰簽哪一關</td><td class="wrap">每一關只宣告「用哪種方式找人」，由同一個入口解析出實際的人</td></tr>
+<tr><td>簽核路徑</td><td class="wrap">是資料，有版本。申請單送出時綁定當時的版本</td></tr>
+<tr><td>角色</td><td class="wrap">資安長、稽核、系統管理員、資料擁有者都是角色指派。程式不寫死任何人或部門</td></tr>
+<tr><td>外部系統</td><td class="wrap">登入、郵件、目錄、資料平台各有轉接器，換系統只換轉接器</td></tr>
+<tr><td>通知文字、介面文案</td><td class="wrap">範本與文案檔，改字不用重新部署規則</td></tr>
+</tbody></table></div>
+<p class="why">每一種資訊只有一個來源。規則代碼、錯誤訊息、路由、狀態列舉都由資料庫或一張表產生到其他地方，不手抄。</p>
+</section>
+
+<section id="verify">
+<h2>10. 怎麼知道它是對的</h2>
+<div class="nums">
+<div><b>274</b><span>資料庫測試</span></div>
+<div><b>30</b><span>瀏覽器端對端測試</span></div>
+<div><b>94</b><span>規則代碼，每個都有測試</span></div>
+<div><b>45</b><span>可重跑的攻擊腳本</span></div>
+<div><b>6</b><span>輪獨立紅隊</span></div>
+</div>
+<ul class="plain">
+<li><strong>一個入口</strong>：<code>tools/check.sh</code>。格式、型別、靜態分析、弱點掃描、全部測試，本機和 CI 跑同一支。</li>
+<li><strong>真的協定</strong>：整合與端對端測試對著模擬環境跑——真的 LDAP、真的 OIDC 登入頁、真的 SMTP、會把規則套成真正資料庫權限的資料平台模擬器。</li>
+<li><strong>架構測試</strong>：直接查資料庫的系統表，確認每個對外函式的寫法、後端帳號沒有任何資料表權限、紀錄表擋下修改。</li>
+<li><strong>紅隊</strong>：沒參與開發的攻擊者對著執行中的系統打。每個成立的攻擊留下一支腳本，修好之後每一輪都重跑。</li>
+</ul>
+<h3>六輪紅隊學到的事</h3>
+<p>核心（驗章、紀錄鏈、授權、競態）沒有被打穿過。被打穿的都是修復時新加的機制。所以現在每個新機制動手前先寫一張威脅表，逐項回答：誰能寫它、能不能回捲、空值或零筆會怎樣、舊但仍有效的輸入會怎樣、它停掉時誰會知道。</p>
+<p class="muted">目前 45 支腳本中 43 支擋下，2 支仍成立，都列在下一節。</p>
+</section>
+
+<section id="limits">
+<h2>11. 已知的限制</h2>
+<div class="scroll"><table>
+<thead><tr><th>限制</th><th>影響與現在的防線</th></tr></thead>
+<tbody>
+<tr><td class="wrap">登入金鑰同步帳號被拿下，可以讓平台信任假的登入金鑰</td><td class="wrap">攻擊者可冒用任何人登入，但做不了簽核決定。事後有例外與通知。正式部署必須加上傳輸加密與憑證釘選</td></tr>
+<tr><td class="wrap">寄信程式可以把通知標成已寄而不寄</td><td class="wrap">郵件會漏。待辦與剩餘天數由資料庫算、顯示在首頁，不受影響</td></tr>
+<tr><td class="wrap">錨定帳號可以寫入極大的序號讓錨定停擺</td><td class="wrap">資料庫會開例外、稽核頁顯示失敗；但要有人手動清掉</td></tr>
+<tr><td class="wrap">同一台主機的最高權限</td><td class="wrap">不在防禦範圍內。外部錨定只能讓竄改事後被發現</td></tr>
+<tr><td class="wrap">外部系統自己說謊</td><td class="wrap">平台無法強制外部系統照規則執行；對帳只能發現外部系統願意回報的差異</td></tr>
+<tr><td class="wrap">模擬環境的傳輸是明文</td><td class="wrap">正式部署必須全程加密</td></tr>
+</tbody></table></div>
+<h3>還沒做</h3>
+<ul class="plain">
+<li>紅隊還沒打完：人工執行關、排程與交付同時停擺、錨定停擺期間、金鑰撤銷的殘餘項。</li>
+<li>簽核前的測試報告、催辦升級、代理、批次、續期、定期複查、稽核資料包、管理畫面。</li>
+<li>驗證失敗後的補救流程、對帳發現的處理畫面。</li>
+<li>第二個流程包、多公司、正式部署（容器、加密、CI）。</li>
+<li>真機測試（目前只在模擬的手機瀏覽器上驗過）。</li>
+</ul>
+</section>
+
+<section id="map">
+<h2>12. 程式碼地圖</h2>
+<div class="scroll"><table>
+<thead><tr><th>位置</th><th>內容</th></tr></thead>
+<tbody>
+<tr><td><code>db/kernel/</code></td><td class="wrap">核心：依編號順序套用的資料庫腳本。後面的可以呼叫前面的，反過來不行</td></tr>
+<tr><td><code>db/packs/data_access/</code></td><td class="wrap">資料授權流程包</td></tr>
+<tr><td><code>db/tests/</code></td><td class="wrap">資料庫測試。測試名稱含規則代碼</td></tr>
+<tr><td><code>packages/contract/</code></td><td class="wrap">路由表：哪個網址對應哪個資料庫函式，以及每個背景程式能呼叫什麼</td></tr>
+<tr><td><code>api/</code></td><td class="wrap">後端、交付程式、對帳、寄信，以及外部系統的轉接器</td></tr>
+<tr><td><code>web/</code></td><td class="wrap">頁面。稽核驗證（<code>verify.js</code>）與通行金鑰（<code>webauthn.js</code>）在這裡</td></tr>
+<tr><td><code>sim/</code></td><td class="wrap">模擬環境：目錄、登入、郵件、資料平台</td></tr>
+<tr><td><code>e2e/</code></td><td class="wrap">瀏覽器端對端測試，手機寬度</td></tr>
+<tr><td><code>redteam/</code></td><td class="wrap">每一輪的報告與可重跑的攻擊腳本</td></tr>
+<tr><td><code>docs/</code></td><td class="wrap">工程規範、契約、各流程包的規則、決定紀錄、交接紀錄</td></tr>
+</tbody></table></div>
+<p class="muted">想知道某個設計為什麼是現在這樣，查 <code>docs/decision-log.md</code>：每個決定都記了當時的情境、選了什麼、學到什麼。</p>
+</section>
+
+</div>
