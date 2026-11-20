@@ -98,17 +98,18 @@ export async function renderHome(ctx) {
     if (can('inbox')) parts.push(fillInbox(ctx));
     if (can('case.submit')) parts.push(fillMine());
     if (can('audit')) parts.push(Promise.resolve(auditSearch()), auditExceptions());
-    // 待核准的通行金鑰登記：我可以背書的，或我自己用舊金鑰核准的（依資料庫回傳的 actions）
-    if (can('passkey.endorse') || ctx.me.passkey_pending.some((e) => e.actions.includes('endorse')))
-        parts.push(
-            Promise.resolve(
-                section(
-                    'passkey-endorse',
-                    t.passkeys.title,
-                    el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkeys' }, t.passkeys.open),
-                ),
+    // 通行金鑰：待核准的登記（我可以背書的，或我自己用舊金鑰核准的，依資料庫回傳的 actions）；遺失裝置或撤銷人人都要找得到
+    const endorse = can('passkey.endorse') || ctx.me.passkey_pending.some((e) => e.actions.includes('endorse'));
+    parts.push(
+        Promise.resolve(
+            section(
+                'passkey-endorse',
+                t.passkeys.title,
+                endorse ? el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkeys' }, t.passkeys.open) : null,
+                el('a', { href: '#passkeys', 'data-testid': 'open-passkey-manage' }, t.passkeys.manage),
             ),
-        );
+        ),
+    );
     if (can('role_change'))
         parts.push(
             Promise.resolve(

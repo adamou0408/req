@@ -3,6 +3,7 @@
 // 認領不是決定，不需要通行金鑰。
 import { api } from './api.js';
 import { t } from './i18n.js';
+import { fingerprintPayload, qrMatrix, qrPath } from './lib/qr.js';
 import { decisionContent, groupedCode, keyFingerprint, shortCode, signingChallenge } from './lib/signing.js';
 import { el, explain, flash, go, sheet } from './ui.js';
 import { createPasskey, signChallenge, unb64url } from './webauthn.js';
@@ -10,8 +11,9 @@ import { createPasskey, signChallenge, unb64url } from './webauthn.js';
 const PENDING_KEY = 'sgn.passkey-pending';
 
 /**
- * 通行金鑰的狀態提示：沒有金鑰就提示登記；登記了在等核准就顯示 12 位數核對碼（這個瀏覽器從自己保存的新金鑰指紋算，
- * 不用後端給的；裁決 D76）；核准了在冷卻期就顯示什麼時候生效。都依 me 的欄位，不自己推斷。
+ * 通行金鑰的狀態提示：沒有金鑰就提示登記；登記了在等核准就顯示 QR 碼（完整指紋）與 12 位數核對碼（這個瀏覽器從自己保存的
+ * 新金鑰指紋產生，不用後端給的；裁決 D76）；核准了在冷卻期就顯示什麼時候生效。都依 me 的欄位，不自己推斷。
+ * 這筆登記只能當面核對（methods 只有 qr：本人只憑登入撤銷了金鑰）時不顯示核對碼。
  */
 export function passkeyNotice(me) {
     if (me.passkeys > 0) return null;
@@ -20,8 +22,8 @@ export function passkeyNotice(me) {
         return el(
             'div',
             { class: 'result warn', 'data-testid': 'passkey-pending' },
-            el('p', {}, t.passkeyPending),
-            saved ? enrollmentCode(saved.fingerprint, saved.cost) : el('p', {}, t.passkeyPendingNoCode),
+            el('p', {}, saved && !saved.methods.includes('code') ? t.passkeyQrOnly : t.passkeyPending),
+            saved ? enrollmentCode(saved) : el('p', {}, t.passkeyPendingNoCode),
         );
     }
     if (me.passkey_cooling_until) {
@@ -39,8 +41,31 @@ export function passkeyNotice(me) {
     );
 }
 
-/** 新裝置畫面上的核對碼與完整指紋。核對碼要一秒左右才算得出來，先顯示「計算中」。成本不在允許範圍就不顯示。 */
-function enrollmentCode(fingerprint, cost) {
+const SVG = 'http://www.w3.org/2000/svg';
+
+/** 新裝置畫面上的 QR 碼（背書人的相機掃它取得完整指紋）。 */
+function fingerprintQr(fingerprint) {
+    const { path, size } = qrPath(qrMatrix(fingerprintPayload(fingerprint)));
+    const svg = document.createElementNS(SVG, 'svg');
+    svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+    svg.setAttribute('class', 'qr');
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', t.passkeyQrLabel);
+    svg.setAttribute('data-testid', 'device-qr');
+    svg.setAttribute('shape-rendering', 'crispEdges');
+    const background = document.createElementNS(SVG, 'rect');
+    background.setAttribute('width', String(size));
+    background.setAttribute('height', String(size));
+    background.setAttribute('fill', '#fff');
+    const modules = document.createElementNS(SVG, 'path');
+    modules.setAttribute('d', path);
+    modules.setAttribute('fill', '#000');
+    svg.append(background, modules);
+    return svg;
+}
+
+/** 核對碼要一秒左右才算得出來，先顯示「計算中」。成本不在允許範圍就不顯示。 */
+function codeLine(fingerprint, cost) {
     const code = el('p', { class: 'code', 'data-testid': 'short-code' }, t.passkeyCodeComputing);
     try {
         shortCode(fingerprint, cost).then(
@@ -50,7 +75,16 @@ function enrollmentCode(fingerprint, cost) {
     } catch {
         code.textContent = t.passkeyCodeUnavailable;
     }
-    return [code, el('p', { class: 'muted mono', 'data-testid': 'device-fingerprint' }, t.passkeyFingerprint(fingerprint))];
+    return code;
+}
+
+/** 新裝置畫面上的 QR 碼、核對碼（這筆登記允許念碼時）與完整指紋。 */
+function enrollmentCode({ fingerprint, cost, methods }) {
+    return [
+        methods.includes('qr') ? fingerprintQr(fingerprint) : null,
+        methods.includes('code') ? codeLine(fingerprint, cost) : null,
+        el('p', { class: 'muted mono', 'data-testid': 'device-fingerprint' }, t.passkeyFingerprint(fingerprint)),
+    ];
 }
 
 /** 這個瀏覽器登記的新金鑰（自己保存的指紋）；只有它還在待核准清單裡才回傳，成本取那一筆登記的。 */
@@ -58,7 +92,7 @@ function savedEnrollment(pending) {
     try {
         const saved = JSON.parse(localStorage.getItem(PENDING_KEY) ?? 'null');
         const entry = pending.find((e) => e.credential_id === saved?.credentialId);
-        return entry ? { fingerprint: saved.fingerprint, cost: entry.code_cost } : null;
+        return entry ? { fingerprint: saved.fingerprint, cost: entry.code_cost, methods: entry.methods } : null;
     } catch {
         return null;
     }
@@ -110,8 +144,19 @@ async function sign(c, decision, typed, issued) {
     });
 }
 
-function reasonBox() {
+function reasonBox(quickReasons, submit) {
     return [
+        quickReasons.length
+            ? el(
+                  'div',
+                  { class: 'quick-reasons', 'data-testid': 'quick-reasons' },
+                  el('p', {}, t.quickReasons),
+                  quickReasons.map((r) =>
+                      el('button', { type: 'button', 'data-testid': 'quick-reason', onclick: () => submit(r) }, t.quickReturn(r)),
+                  ),
+                  el('p', {}, t.orTypeReason),
+              )
+            : null,
         el('label', { for: 'decision-reason' }, t.reasonLabel),
         el('textarea', { id: 'decision-reason', rows: 3, 'data-testid': 'decision-reason', required: true }),
     ];
@@ -119,15 +164,20 @@ function reasonBox() {
 
 /**
  * 打開確認面板。needsReason：退回、駁回、撤回要填原因；input：縮小後核准的內容（先請資料庫整理，面板上顯示整理後要簽的那一份）。
- * shown：面板上顯示要簽的內容（縮小後核准用）。成功時呼叫 done(結果)；失敗時面板留著並顯示錯誤，可以修正後再按。
+ * shown：面板上顯示要簽的內容（縮小後核准用）。quickReasons：常見原因（流程包提供；按一下就以它為原因簽，退回用）。
+ * 成功時呼叫 done(結果)；失敗時面板留著並顯示錯誤，可以修正後再按。
  */
-export function confirmDecision(c, decision, { input = {}, needsReason = false, consequence, issued = null, shown = null, done }) {
+export function confirmDecision(
+    c,
+    decision,
+    { input = {}, needsReason = false, quickReasons = [], consequence, issued = null, shown = null, done },
+) {
     const error = el('p', { class: 'result bad', role: 'alert', hidden: true, 'data-testid': 'decision-error' });
     const panel = sheet(
         t.confirmTitle[decision],
         el('p', { 'data-testid': 'consequence' }, consequence),
         shown,
-        needsReason ? reasonBox() : null,
+        needsReason ? reasonBox(quickReasons, (r) => run(r)) : null,
         el('p', { class: 'muted mono' }, t.binding(c.display.case_no, c.display.version, c.display.version_sha256.slice(0, 12))),
         error,
         el(
@@ -137,8 +187,8 @@ export function confirmDecision(c, decision, { input = {}, needsReason = false, 
             el('button', { class: 'primary', 'data-testid': 'confirm-passkey', onclick: () => run() }, t.confirmWithPasskey),
         ),
     );
-    async function run() {
-        const reason = needsReason ? { reason: panel.querySelector('#decision-reason').value } : {};
+    async function run(quick = null) {
+        const reason = needsReason ? { reason: quick ?? panel.querySelector('#decision-reason').value } : {};
         try {
             const result = await sign(c, decision, { ...input, ...reason }, issued);
             panel.remove();

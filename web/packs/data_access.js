@@ -15,6 +15,9 @@ export async function catalog() {
     return cached;
 }
 
+/** 退回時的常見原因（按一下就用它當原因）。 */
+export const returnReasons = tx.returnReasons;
+
 /** 給清單卡片與新申請畫面用的一行：哪些主題包（不是決定畫面）。 */
 export const packagesLine = (cat, content) =>
     (content.scope ?? []).map((s) => cat.packages.find((p) => p.code === s.package)?.name ?? s.package).join('、');

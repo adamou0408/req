@@ -62,11 +62,13 @@ async function afterDecision(c, decision, result) {
     return result;
 }
 
-function decide(ctx, c, decision, input = {}) {
+function decide(ctx, c, pack, decision, input = {}) {
     const consequence = consequenceOf(c, decision);
     confirmDecision(c, decision, {
         input,
         needsReason: REASON_ACTIONS.has(decision),
+        // 退回：常見原因按一下就簽（T4 的步數）；也可以自己寫
+        quickReasons: decision === 'return' ? (pack.returnReasons ?? []) : [],
         consequence,
         done: (r) => afterDecision(c, decision, r),
     });
@@ -142,7 +144,7 @@ function actionButton(ctx, c, pack, cat, action) {
         revise: () => go(`#edit/${c.case_id}`),
         approve_reduced: () => reduceSheet(ctx, c, pack, cat),
     };
-    const onclick = handlers[action] ?? (() => decide(ctx, c, action));
+    const onclick = handlers[action] ?? (() => decide(ctx, c, pack, action));
     return el(
         'button',
         { class: action === 'approve' || action === 'fulfil' || action === 'claim' ? 'primary' : '', 'data-action': action, onclick },

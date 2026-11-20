@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { after, before, test } from 'node:test';
 import { RUN_DIR, adminUrl, loadConfig } from '../../db/tools/lib/env.mjs';
 import { decisionChallenge, pool as dbPool } from '../../db/tests/kernel/lib/harness.mjs';
+import { fingerprintFromPayload, fingerprintPayload } from '../../web/lib/qr.js';
 import {
     API,
     ORIGIN,
@@ -19,6 +20,7 @@ import {
     decide,
     decideHere,
     ensurePasskey,
+    fakeBarcodeDetector,
     fillApplication,
     flashAfter,
     home,
@@ -26,7 +28,10 @@ import {
     loggedIn,
     openFromHome,
     openNew,
+    openPackage,
+    openSegment,
     person,
+    readDeviceQr,
     login,
     requestPasskeyInUi,
     sessionOf,
@@ -229,6 +234,8 @@ test('K-DECISION-PROOF 沒有通行金鑰的證明就核准不了', async () => 
     const applicant = await loggedIn('p04');
     const manager = await loggedIn('p03');
     const pending = await apply('p04', l3({ principal: '季度業績看板', description: '測試沒有證明' }));
+    // 代填（季度業績看板的負責人是蔡佩珊）：第一關負責人確認先過，主管關才開（D79 (2)）
+    await decide('p06', pending.caseNo);
     const caseId = (await caseByNo(applicant, pending.caseNo)).case_id;
     const outcomes = {};
 
@@ -344,7 +351,9 @@ test('DA-PATH-L4 L4 多一關資安長，且不能申請匯出：畫面提示已
 test('K-CHANGE-REDUCE 簽核人縮短授權迄日後核准：不用重簽，申請人看得到「已縮小」的標示（T3 步數）', async () => {
     const applicant = await loggedIn('p04');
     const { caseNo } = await apply('p04', l3({ principal: '業務分析部', to: day(4), description: '縮小測試' }));
+    // 業務分析部的負責人陳建宏是林怡君的主管：他先簽負責人確認，主管關因此往上給方國華（D79 (2)、K-SOD-DISTINCT）
     await decide('p03', caseNo);
+    await decide('p02', caseNo);
     const owner = await loggedIn('p11');
     await home(owner);
     const steps = [];
@@ -384,8 +393,9 @@ test('K-CHANGE-REDUCE 簽核人縮短授權迄日後核准：不用重簽，申�
 test('K-RETURN 退回後只做縮小：從退回那關繼續；做其他修改：從第一關重簽（含 T4 步數）', async () => {
     const applicant = await loggedIn('p04');
     const { caseNo } = await apply('p04', l3({ principal: '通路業務組', description: '退回測試' }));
+    await decide('p07', caseNo); // 代填：通路業務組的負責人劉俊傑先確認（D79 (2)）
     await decide('p03', caseNo);
-    // 張美玲退回並填原因：數步數（T4）
+    // 張美玲退回並填原因：數步數（T4）。常見原因按一下就用通行金鑰確認（自己寫原因的路線見下面第二次退回）
     const owner = await loggedIn('p11');
     await home(owner);
     const steps = [];
@@ -395,10 +405,10 @@ test('K-RETURN 退回後只做縮小：從退回那關繼續；做其他修改�
     await owner.page.click('[data-action=return]');
     steps.push('按「退回」');
     assert.match(await owner.page.textContent('[data-testid=consequence]'), /只做縮小會從你這一關繼續/);
-    await owner.page.fill('[data-testid=decision-reason]', '銷售訂單只能給北區，客戶主檔請拿掉');
-    steps.push('填原因');
-    await owner.page.click('[data-testid=confirm-passkey]');
-    steps.push('按「用通行金鑰確認」');
+    const quick = owner.page.locator('[data-testid=quick-reason]').first();
+    const reasonText = (await quick.textContent()).replace(/^退回：/, '');
+    await quick.click();
+    steps.push('按一個常見原因（同時是「用通行金鑰確認」）');
     steps.push('裝置上的使用者驗證');
     await owner.page.waitForSelector('#flash.ok:not([hidden])');
     assert.equal((await caseByNo(applicant, caseNo)).state, 'returned');
@@ -407,9 +417,15 @@ test('K-RETURN 退回後只做縮小：從退回那關繼續；做其他修改�
     await openFromHome(applicant, caseNo);
     await applicant.page.click('[data-action=revise]');
     await applicant.page.waitForSelector('[data-testid=returned-note]');
-    assert.match(await applicant.page.textContent('[data-testid=returned-note]'), /張美玲.*銷售訂單只能給北區/);
+    assert.match(await applicant.page.textContent('[data-testid=returned-note]'), new RegExp(`張美玲.*${reasonText}`));
+    await openSegment(applicant.page, 'data');
+    await openPackage(applicant.page, 'customer_master');
     for (const f of ['customer_id', 'customer_name']) await applicant.page.uncheck(`#f-customer_master-f-${f}`);
+    await openSegment(applicant.page, 'review');
     await checkSettled(applicant.page);
+    // 送出前就看得到：這次是縮小、從退回的那一關繼續
+    await applicant.page.waitForSelector('[data-testid=resubmit][data-change=reduce][data-mode=resume]');
+    assert.match(await applicant.page.textContent('[data-testid=resubmit]'), /縮小.*不用重簽/);
     await submitForm(applicant);
     let c = await caseByNo(applicant, caseNo);
     assert.equal(c.current_stage.code, 'data_owner');
@@ -421,9 +437,18 @@ test('K-RETURN 退回後只做縮小：從退回那關繼續；做其他修改�
     await openFromHome(applicant, caseNo);
     await applicant.page.click('[data-action=revise]');
     await applicant.page.waitForSelector('[data-testid=apply-form]');
+    await openSegment(applicant.page, 'purpose');
     await applicant.page.fill('#f-purpose-text', '退回測試（補充用途：每月檢視北區訂單）');
+    await openSegment(applicant.page, 'review');
     await checkSettled(applicant.page);
+    await applicant.page.waitForSelector('[data-testid=resubmit][data-change=expand][data-mode=restart]');
+    assert.match(await applicant.page.textContent('[data-testid=resubmit]'), /擴大.*從第一關重簽/);
     await submitForm(applicant);
+    c = await caseByNo(applicant, caseNo);
+    // 第一關是負責人確認（D79 (2)）：擴大後負責人要重新確認，之後才是主管
+    assert.equal(c.current_stage.code, 'principal_owner');
+    assert.deepEqual(c.waiting_on, ['劉俊傑']);
+    await decide('p07', caseNo);
     c = await caseByNo(applicant, caseNo);
     assert.equal(c.current_stage.code, 'manager');
     assert.deepEqual(c.waiting_on, ['陳建宏']);
@@ -440,6 +465,7 @@ test('K-RETURN 退回後只做縮小：從退回那關繼續；做其他修改�
     assert.equal(returns.length, 2);
     assert.ok(returns.every((x) => /張美玲.*通行金鑰簽章/.test(x)));
     results.tests.return = { case_no: caseNo, return_steps_from_inbox: steps.length, steps, t4_limit: 4 };
+    assert.ok(steps.length <= 4, `步數 ${steps.length} 超過 T4 上限 4`);
 });
 
 test('DA-OVERLAP-COVERED 被有效授權完全涵蓋：擋下；DA-OVERLAP-PARTIAL 部分重疊：要填理由', async () => {
@@ -462,7 +488,9 @@ test('DA-OVERLAP-COVERED 被有效授權完全涵蓋：擋下；DA-OVERLAP-PARTI
     const layout = await layoutProblems(applicant.page, '新申請（完全涵蓋）');
 
     // 多要一個欄位（客戶編號）→ 部分重疊：沒填理由送不出，填了才送出，簽核人看得到理由
+    await openSegment(applicant.page, 'data');
     await applicant.page.check('#f-sales_order-f-customer_id');
+    await openSegment(applicant.page, 'review');
     await checkSettled(applicant.page);
     assert.equal(await applicant.page.getAttribute('[data-testid=check] [data-testid=overlap]', 'data-level'), 'partial');
     assert.equal(await applicant.page.isVisible('#f-overlap-reason'), true);
@@ -526,7 +554,8 @@ test('尚未錨定：錨定程式暫停時，稽核畫面明確標示「尚未�
     let caseNo;
     try {
         caseNo = (await apply('p04', l3({ principal: '季度業績看板', to: day(2), description: '測試尚未錨定' }))).caseNo;
-        await decide('p03', caseNo);
+        await decide('p06', caseNo); // 第一關（代填時是被授權者負責人確認，D79 (2)）的決定
+
         await auditor.page.goto(`${ORIGIN}/#audit/${caseNo}`);
         await auditor.page.reload();
         await auditor.page.waitForSelector('[data-testid=audit-result]:not([data-status=pending])');
@@ -620,13 +649,10 @@ test('K-PASSKEY-ENROLL 第一把通行金鑰由主管背書：鄭雅文的新裝
     layout.push(...(await layoutProblems(owner.page, '背書通行金鑰')));
     // 念錯一碼：頁面算出來的不一樣，不簽
     await item.locator('[data-testid=endorse-code]').fill(code.replace(/\d$/, (d) => String((Number(d) + 1) % 10)));
-    await item.locator('[data-testid=endorse]').click();
     await item.locator('[data-testid=endorse-check].bad').waitFor();
     assert.equal(await owner.page.locator('[data-testid=confirm-passkey]').count(), 0);
     await item.locator('[data-testid=endorse-code]').fill(code);
-    steps.push('輸入本人念的核對碼');
-    await item.locator('[data-testid=endorse]').click();
-    steps.push('按「核對」（頁面從指紋算核對碼，約一秒）');
+    steps.push('輸入本人念的核對碼（滿 12 位數，頁面自動從指紋算一次，約一秒）');
     await owner.page.waitForSelector('[data-testid=confirm-passkey]');
     assert.match(await owner.page.textContent('[data-testid=consequence]'), new RegExp(code));
     const done = await flashAfter(owner.page, () => owner.page.click('[data-testid=confirm-passkey]'));
@@ -639,11 +665,91 @@ test('K-PASSKEY-ENROLL 第一把通行金鑰由主管背書：鄭雅文的新裝
     await staff.page.waitForSelector('[data-testid=passkey-cooling]');
     assert.equal(await staff.page.locator('[data-action=recall]').count(), 1, '按鈕依資料庫的 actions 顯示');
     results.tests.passkey_enroll = { code_matches: true, endorse_steps_from_home: steps.length, steps, layout_problems: layout };
+    assert.ok(steps.length <= 4, `步數 ${steps.length}`);
+    assert.deepEqual(layout, []);
+});
+
+/** 從首頁打開通行金鑰頁（待核准的登記、撤銷）。 */
+async function openPasskeys(p) {
+    await home(p);
+    await p.page.click('[data-testid=open-passkey-manage]');
+    await p.page.waitForSelector('[data-testid=section-revoke]');
+}
+
+test('K-PASSKEY-REVOKE 遺失全部裝置：渡邊翔自己撤銷全部金鑰，重新登記只能當面核對；田中美咲用手機掃新裝置畫面上的 QR 碼背書（掃到別的指紋不簽）', async () => {
+    const boss = await person('p32');
+    await fakeBarcodeDetector(boss);
+    await loggedIn('p32');
+    const staff = await loggedIn('p35');
+    // 渡邊翔原本有一把金鑰（登記人背書）
+    await openPasskeys(staff);
+    assert.equal(await ensurePasskey(staff), true);
+    // 裝置全部遺失：只憑登入撤銷自己的全部金鑰
+    await openPasskeys(staff);
+    const mine = staff.page.locator('[data-testid=revocation-item]', { hasText: '渡邊翔' });
+    await mine.locator('[data-testid=revoke-self]').click();
+    assert.match(await staff.page.textContent('[data-testid=consequence]'), /立即失效.*當面掃 QR 碼/);
+    await staff.page.fill('[data-testid=revoke-reason]', '手機與筆電都遺失了');
+    const revoked = await flashAfter(staff.page, () => staff.page.click('[data-testid=confirm-revoke]'));
+    assert.equal(revoked.ok, true, revoked.text);
+    assert.equal((await callApi(staff.page, '/api/me')).result.passkeys, 0);
+    const admin = dbPool('ADMIN');
+    const mailed = await admin.query(
+        `select i.external_id from sgn.notification_outbox n join sgn.person_identity i on i.person_id = n.person_id
+         where n.event_code = 'passkey.revoked' and i.external_id in ('p35', 'p32') order by 1`,
+    );
+    assert.deepEqual(
+        mailed.rows.map((r) => r.external_id),
+        ['p32', 'p35'],
+        '通知本人與主管',
+    );
+    // 重新登記：新裝置只顯示 QR 碼（不能念碼）
+    await openPasskeys(staff);
+    const shown = await requestPasskeyInUi(staff, { withCode: false });
+    assert.equal(await staff.page.locator('[data-testid=passkey-pending] [data-testid=short-code]').count(), 0);
+    const layout = await layoutProblems(staff.page, '新裝置的 QR 碼');
+    // 測試的「相機」：從新裝置畫面的 QR 碼讀出來的就是畫面上的完整指紋
+    const seen = await readDeviceQr(staff.page);
+    assert.equal(fingerprintFromPayload(seen), shown.fingerprint);
+    // 田中美咲：從首頁開始數步數
+    await openPasskeys(boss);
+    await ensurePasskey(boss);
+    await home(boss);
+    const steps = [];
+    await boss.page.click('[data-testid=open-passkeys]');
+    steps.push('點「待核准的通行金鑰登記」');
+    const item = boss.page.locator('[data-testid=enrollment-item]', { hasText: '渡邊翔' });
+    await item.waitFor();
+    assert.equal(await item.locator('[data-testid=endorse-code]').count(), 0, '本人只憑登入撤銷過：不能用念碼的方式');
+    layout.push(...(await layoutProblems(boss.page, '背書通行金鑰（掃描）')));
+    // 掃到別的指紋（例如被入侵的後端換掉的金鑰）：警告，不簽
+    await boss.page.evaluate((text) => (window.__seenQr = text), fingerprintPayload('ab'.repeat(32)));
+    await item.locator('[data-testid=endorse-scan]').click();
+    await boss.page.waitForSelector('[data-testid=scan-mismatch]');
+    assert.equal(await boss.page.locator('[data-testid=confirm-passkey]').count(), 0);
+    await boss.page.click('.sheet button');
+    // 掃新裝置畫面上的 QR 碼
+    await boss.page.evaluate((text) => (window.__seenQr = text), seen);
+    await item.locator('[data-testid=endorse-scan]').click();
+    steps.push('按「當面掃描新裝置的 QR 碼」（相機對準，自動辨識）');
+    await boss.page.waitForSelector('[data-testid=confirm-passkey]');
+    layout.push(...(await layoutProblems(boss.page, '掃描後確認')));
+    assert.match(await boss.page.textContent('[data-testid=consequence]'), /完整指紋和這筆登記一致/);
+    const done = await flashAfter(boss.page, () => boss.page.click('[data-testid=confirm-passkey]'));
+    steps.push('按「用通行金鑰確認」');
+    steps.push('裝置上的使用者驗證');
+    assert.equal(done.ok, true, done.text);
+    await staff.page.reload();
+    await waitPage(staff.page);
+    await staff.page.waitForSelector('[data-testid=passkey-cooling]');
+    results.tests.passkey_qr = { endorse_steps_from_home: steps.length, steps, layout_problems: layout };
+    assert.ok(steps.length <= 4, `步數 ${steps.length}`);
     assert.deepEqual(layout, []);
 });
 
 test('K-DISPLAY-SIGNED 紅隊第三輪 高-1：後端改寫目錄與單上的其他欄位，決定畫面不跟著變；改寫顯示摘要的任何一個字，簽章被拒', async () => {
     const { caseNo } = await apply('p04', l3({ principal: '季度業績看板', description: '顯示摘要端對端' }));
+    await decide('p06', caseNo); // 代填：負責人確認先過，主管關才開（D79 (2)）
     const manager = await loggedIn('p03');
     await ensurePasskey(manager);
     const context = manager.page.context();

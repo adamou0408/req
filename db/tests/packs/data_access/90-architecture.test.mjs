@@ -86,7 +86,7 @@ test('架構：應用程式角色對流程包的 schema 與 sgn_sdk 沒有任何
     assert.deepEqual(open.rows, []);
 });
 
-test('架構：資料授權登記了八個 hook（簽章由核心檢查；顯示的兩個是 D75 新增），路徑的關卡與 resolver 是資料', async () => {
+test('架構：資料授權登記了八個 hook（簽章由核心檢查；顯示的兩個是 D75 新增），路徑的關卡與 resolver 是資料；第 2 版路徑多了代填時的負責人確認（K-PRINCIPAL-OWNER-CONFIRM）', async () => {
     const pt = (await admin.query(`select hooks from sgn.process_type where code = 'data_access'`)).rows[0];
     assert.deepEqual(Object.keys(pt.hooks).sort(), [
         'build_fulfilment',
@@ -99,21 +99,27 @@ test('架構：資料授權登記了八個 hook（簽章由核心檢查；顯示
         'stage_scopes',
     ]);
     const { rows } = await admin.query(
-        `select s.seq, s.code, s.phase, s.resolver_kind, s.resolver_role, s.mode, s.applies_when, p.top_resolver_role
+        `select p.version, s.seq, s.code, s.phase, s.resolver_kind, s.resolver_role, s.mode, s.applies_when, p.top_resolver_role
          from sgn.policy_stage s join sgn.approval_policy p on p.id = s.policy_id
-         where p.process_type = 'data_access' order by s.seq`,
+         where p.process_type = 'data_access' order by p.version, s.seq`,
     );
-    assert.deepEqual(
-        rows.map((r) => [r.code, r.phase, r.resolver_kind, r.resolver_role, r.mode, r.applies_when]),
-        [
-            ['manager', 'approval', 'applicant_manager', null, 'one', null],
-            ['data_owner', 'approval', 'scoped_role', 'data_owner', 'all', null],
-            ['ciso', 'approval', 'role_holder', 'ciso', 'one', { tier_in: ['L4'] }],
-            ['mis', 'approval', 'role_group_claim', 'mis', 'one', null],
-            ['fulfil', 'fulfilment', 'system_custodian', 'system_custodian', 'one', null],
-        ],
-    );
-    assert.equal(rows[0].top_resolver_role, 'board_chair');
+    const v1 = [
+        ['manager', 'approval', 'applicant_manager', null, 'one', null],
+        ['data_owner', 'approval', 'scoped_role', 'data_owner', 'all', null],
+        ['ciso', 'approval', 'role_holder', 'ciso', 'one', { tier_in: ['L4'] }],
+        ['mis', 'approval', 'role_group_claim', 'mis', 'one', null],
+        ['fulfil', 'fulfilment', 'system_custodian', 'system_custodian', 'one', null],
+    ];
+    const of = (version) =>
+        rows.filter((r) => r.version === version).map((r) => [r.code, r.phase, r.resolver_kind, r.resolver_role, r.mode, r.applies_when]);
+    // 已送審的單綁定送審當時的版本：第 1 版不變（只增不改）
+    assert.deepEqual(of(1), v1);
+    assert.deepEqual(of(2), [
+        ['principal_owner', 'approval', 'principal_owner', null, 'one', { applicant_not_principal_owner: true }],
+        ...v1,
+    ]);
+    assert.deepEqual([...new Set(rows.map((r) => r.version))], [1, 2]);
+    assert.ok(rows.every((r) => r.top_resolver_role === 'board_chair'));
 });
 
 let user;

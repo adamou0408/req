@@ -5,6 +5,7 @@ import { chromium } from 'playwright';
 import { approveEnrollment, call, closePools, pool, rememberKey, settlePasskey } from '../../../db/tests/kernel/lib/harness.mjs';
 import { loadConfig } from '../../../db/tools/lib/env.mjs';
 import { groupedCode, shortCode } from '../../../web/lib/signing.js';
+import { readQr } from './qr-read.mjs';
 
 const config = loadConfig();
 /** 頁面的來源（瀏覽器開的網址）；後端在另一個來源，只回 JSON（裁決 D68）。 */
@@ -18,7 +19,8 @@ let browser;
 const people = {};
 
 export async function startBrowser() {
-    browser = await chromium.launch();
+    // 假的相機（Chromium 內建的測試畫面），掃 QR 碼的畫面才打得開相機；條碼偵測由 fakeBarcodeDetector 扮演
+    browser = await chromium.launch({ args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'] });
     return browser;
 }
 
@@ -127,18 +129,20 @@ export async function layoutProblems(page, label) {
 
 /**
  * 在畫面上登記通行金鑰：瀏覽器建立金鑰 → Dex 再驗證一次 → 資料庫建立待核准的登記。
- * 回傳新裝置畫面上顯示的 12 位數核對碼（分組的樣子）與完整指紋（QR 碼的內容；裁決 D76）。
+ * 回傳新裝置畫面上顯示的 12 位數核對碼（分組的樣子；只能當面核對時為 null）與完整指紋（QR 碼的內容；裁決 D76）。
  */
-export async function requestPasskeyInUi(p) {
+export async function requestPasskeyInUi(p, { withCode = true } = {}) {
     await p.page.locator('[data-testid=passkey-missing] button').first().click();
     await dexLogin(p.page, p.uid);
     await p.page.waitForSelector('#flash.ok');
     await waitPage(p.page);
-    const code = p.page.locator('[data-testid=passkey-pending] [data-testid=short-code]');
-    await code.filter({ hasText: /^\d{4} \d{4} \d{4}$/ }).waitFor();
+    await p.page.waitForSelector('[data-testid=passkey-pending] [data-testid=device-qr]');
     const fingerprint = (await p.page.textContent('[data-testid=passkey-pending] [data-testid=device-fingerprint]'))
         .replace(/^[^：]*：/, '')
         .replace(/\s/g, '');
+    if (!withCode) return { code: null, fingerprint };
+    const code = p.page.locator('[data-testid=passkey-pending] [data-testid=short-code]');
+    await code.filter({ hasText: /^\d{4} \d{4} \d{4}$/ }).waitFor();
     return { code: (await code.textContent()).trim(), fingerprint };
 }
 
@@ -173,6 +177,45 @@ export async function ensurePasskey(p) {
     return true;
 }
 
+/**
+ * 新裝置畫面上的 QR 碼：從頁面的 SVG 讀出矩陣（每個深色模組是 path 裡的一個 1×1 方塊，四周留 4 格），解成文字。
+ * 這是端對端測試的「相機」：讀的是畫面畫出來的東西，不是頁面程式裡的變數。
+ */
+export async function readDeviceQr(page) {
+    const d = await page.getAttribute('[data-testid=device-qr] path', 'd');
+    const size = Number((await page.getAttribute('[data-testid=device-qr]', 'viewBox')).split(' ')[2]) - 8;
+    const matrix = Array.from({ length: size }, () => new Array(size).fill(false));
+    for (const [, x, y] of d.matchAll(/M(\d+) (\d+)h1v1h-1z/g)) matrix[Number(y) - 4][Number(x) - 4] = true;
+    return readQr(matrix);
+}
+
+/**
+ * 背書人手機的條碼偵測替身：Linux 上的 Chromium 沒有內建的 BarcodeDetector。替身「看到」的是 seen() 回傳的文字
+ * （測試從新裝置畫面的 QR 碼讀出來的），頁面照常打開相機、比對指紋、簽章。要在載入頁面之前呼叫。
+ */
+export async function fakeBarcodeDetector(p) {
+    await p.page.context().grantPermissions(['camera'], { origin: ORIGIN });
+    await p.page.addInitScript(() => {
+        window.BarcodeDetector = class {
+            async detect() {
+                return window.__seenQr ? [{ rawValue: window.__seenQr, format: 'qr_code' }] : [];
+            }
+        };
+    });
+}
+
+/** 新申請畫面的四段：切到某一段。 */
+export async function openSegment(page, key) {
+    await page.click(`[data-segment-tab=${key}]`);
+    await page.waitForSelector(`[data-segment=${key}]:not([hidden])`);
+}
+
+/** 打開收合的主題包（新申請畫面）。 */
+export async function openPackage(page, pkg) {
+    const block = page.locator(`details.package-wrap[data-package=${pkg}]`);
+    if (!(await block.evaluate((d) => d.open))) await block.locator('summary').click();
+}
+
 export const principalIds = async (page) =>
     Object.fromEntries((await callApi(page, '/api/principal_list')).result.map((x) => [x.name, x.principal_id]));
 
@@ -183,10 +226,13 @@ export const principalIds = async (page) =>
 export async function fillApplication(p, spec) {
     const { page } = p;
     const ids = await principalIds(page);
+    await openSegment(page, 'who');
     await page.selectOption('#f-principal', ids[spec.principal]);
     await page.fill('#f-valid-from', spec.from);
     await page.fill('#f-valid-to', spec.to);
+    await openSegment(page, 'data');
     for (const [pkg, item] of Object.entries(spec.packages)) {
+        await openPackage(page, pkg);
         for (const field of item.fields) await page.check(`#f-${pkg}-f-${field}`);
         for (const [filter, values] of Object.entries(item.filters ?? {}))
             for (const value of values) await page.check(`#f-${pkg}-r-${filter}-${value}`);
@@ -195,9 +241,11 @@ export async function fillApplication(p, spec) {
         await page.fill('#f-period-from', spec.period.from);
         await page.fill('#f-period-to', spec.period.to);
     }
+    await openSegment(page, 'purpose');
     await page.selectOption('#f-purpose', spec.purpose ?? 'reporting');
     await page.fill('#f-purpose-text', spec.description ?? '例行分析');
     if (spec.exportAllowed) await page.check('#f-export');
+    await openSegment(page, 'review');
     await checkSettled(page);
 }
 
@@ -225,8 +273,10 @@ export async function flashAfter(page, action) {
     return { ok: (await page.locator('#flash.ok').count()) > 0, text: await page.textContent('#flash') };
 }
 
-/** 按「送出申請」，回傳單號與提示文字；送不出時拋出畫面上的錯誤訊息。 */
+/** 按「送出申請」（在「檢查並送出」那一段），回傳單號與提示文字；送不出時拋出畫面上的錯誤訊息。 */
 export async function submitForm(p, reason = null) {
+    if (!(await p.page.isVisible('[data-segment=review]'))) await openSegment(p.page, 'review');
+    await checkSettled(p.page);
     if (reason) await p.page.fill('#f-overlap-reason', reason);
     const { ok, text } = await flashAfter(p.page, () => p.page.click('[data-testid=submit]'));
     if (!ok) throw new Error(`送不出：${text}`);

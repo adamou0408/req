@@ -8,6 +8,7 @@ import { after, before, test } from 'node:test';
 import { backendCalls, jobCalls, packRoutes, routes, shapeProblems, syncCalls } from '../../../packages/contract/src/routes.ts';
 import {
     call,
+    challengeFor,
     closePools,
     decisionChallenge,
     endorsementChallenge,
@@ -311,6 +312,23 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     };
     assert.equal((await changeRole('grant')).status, 'approved');
     assert.equal((await changeRole('revoke')).status, 'approved');
+    // 撤銷通行金鑰（K-PASSKEY-REVOKE）：邱冠廷之後的測試都不用（撤銷後他的舊金鑰就不能用了）；82 留下一把冷卻中的金鑰
+    const holder = await login(app, 'p14');
+    await check('passkey_revocation_list', holder.session);
+    await check('passkey_revoke_self', holder.session, '契約測試：只憑登入撤銷');
+    holder.key = await registerPasskey(app, holder, newAuthenticator(), { endorser: await registrar(app) });
+    const listed = (await call(app, 'passkey_revocation_list', holder.session)).find((r) => r.display.person.id === holder.personId);
+    const revoke = await check('passkey_revoke_challenge', holder.session, holder.personId, '契約測試：用金鑰撤銷');
+    const r = holder.key.assert(
+        await challengeFor({
+            purpose: 'passkey.revocation',
+            ref: holder.personId,
+            content: { ...listed.display, reason: '契約測試：用金鑰撤銷' },
+            decision: 'revoke',
+            nonce: revoke.nonce,
+        }),
+    );
+    await check('passkey_revoke_passkey', revoke.challenge_id, r.credentialId, r.authenticatorData, r.clientDataJSON, r.signature);
     // 登出
     await check('session_close', opened.session_token);
 

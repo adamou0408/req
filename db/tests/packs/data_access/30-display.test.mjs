@@ -147,14 +147,19 @@ test('K-SOD-ROLE-ESCALATED 角色關卡的持有人因職責分離不合格：�
                 [caseId],
             )
         ).rows;
-    const toCiso = async (caseId) => {
+    const toCiso = async (c) => {
+        const caseId = c.case_id;
+        // 資安長替林怡君負責的被授權者申請＝代填：第一關是負責人確認（D79 (2)），由林怡君簽
+        assert.equal(c.current_stage.code, 'principal_owner');
+        assert.equal(c.display.principal.owner.id, users.p04.personId);
+        await decide(app, users.p04, caseId);
         await decide(app, users.p01, caseId); // 申請人 p19 的主管
         await decide(app, users.p15, caseId); // 薪資的資料擁有者
         return view('p19', caseId);
     };
     // 唯一的資安長就是申請人：沒有其他持有人 → 升級（主管線走到頂，交給最終決定者）並開例外
     const first = await submit('p19', l4Content({ purpose_description: `ciso ${Math.random()}` }));
-    let v = await toCiso(first.case_id);
+    let v = await toCiso(first);
     assert.equal(v.current_stage.code, 'ciso');
     assert.deepEqual(v.waiting_on, ['郭永昌']);
     const [ex] = await exceptions(first.case_id);
@@ -167,7 +172,7 @@ test('K-SOD-ROLE-ESCALATED 角色關卡的持有人因職責分離不合格：�
     );
     try {
         const second = await submit('p19', l4Content({ purpose_description: `ciso2 ${Math.random()}` }));
-        v = await toCiso(second.case_id);
+        v = await toCiso(second);
         assert.deepEqual(v.waiting_on, ['葉佳蓉']);
         assert.deepEqual(await exceptions(second.case_id), []);
         const basis = await one(

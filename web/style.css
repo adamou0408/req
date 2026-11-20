@@ -374,3 +374,72 @@ pre {
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.2em;
 }
+
+/* 新申請分段：上方四段切換（手機上兩欄兩列），最上面一行是判定的級別與關卡 */
+.segments {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin: 8px 0;
+}
+.segments button {
+    width: 100%;
+    font-size: 14px;
+}
+.segments button[aria-current='step'] {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+}
+.summary-line {
+    margin: 4px 0;
+    padding: 6px 10px;
+    border-radius: 6px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    overflow-wrap: anywhere;
+}
+.segment > button.wide {
+    margin-top: 12px;
+}
+details.package-wrap {
+    margin: 8px 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--card);
+}
+details.package-wrap > summary {
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 12px;
+    font-weight: 600;
+}
+details.package-wrap > fieldset.package {
+    margin: 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+    border-radius: 0 0 8px 8px;
+}
+
+/* 退回的常見原因：每個都是一個按鈕（按一下就用通行金鑰確認） */
+.quick-reasons button {
+    display: block;
+    width: 100%;
+    margin: 6px 0;
+    text-align: left;
+}
+
+/* 通行金鑰登記的 QR 碼（新裝置畫面）與掃描畫面（背書人的手機） */
+svg.qr {
+    display: block;
+    width: min(240px, 100%);
+    height: auto;
+    margin: 8px auto;
+}
+video.scanner {
+    display: block;
+    width: 100%;
+    max-height: 50vh;
+    background: #000;
+    border-radius: 8px;
+}

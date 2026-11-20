@@ -1,5 +1,7 @@
 // 新申請、修改（草稿、退回、撤回後）：填內容時即時存成草稿版本，顯示資料庫判定的級別、會經過的關卡、
 // 提示、要修正的地方與重疊檢查；送出時把重疊理由交給資料庫。畫面不自己判斷任何規則。
+// 分成四段（給誰・多久／哪些資料／用途／檢查並送出），手機上一段一個畫面；最上面一行隨時顯示判定的級別與關卡。
+// 關卡（含代填時的「被授權者負責人確認」）與「這次修改是縮小還是擴大、要不要重簽」都只取資料庫回傳的申請單。
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { packOf } from '../packs/index.js';
@@ -7,25 +9,32 @@ import { el, explain, flash, go, tierBadge } from '../ui.js';
 
 const SAVE_DELAY_MS = 500;
 
+const principalOption = (p, terms) =>
+    el('option', { value: p.principal_id, selected: p.principal_id === terms.principal?.principal_id }, t.principalOption(p));
+
+/** 被授權者選單：自己負責的排在前面（送出後不必多一關負責人確認），別人負責的另一組。分組依資料庫回傳的 mine。 */
+function principalSelect(principals, terms) {
+    const groups = [
+        [t.principalMine, principals.filter((p) => p.mine)],
+        [t.principalOthers, principals.filter((p) => !p.mine)],
+    ].filter(([, list]) => list.length);
+    return el(
+        'select',
+        { id: 'f-principal' },
+        el('option', { value: '' }, t.choose),
+        groups.map(([label, list]) =>
+            el(
+                'optgroup',
+                { label },
+                list.map((p) => principalOption(p, terms)),
+            ),
+        ),
+    );
+}
+
 function termsInputs(principals, terms, options) {
     return [
-        options.uses_principal
-            ? [
-                  el('label', { for: 'f-principal' }, t.principal),
-                  el(
-                      'select',
-                      { id: 'f-principal' },
-                      el('option', { value: '' }, t.choose),
-                      principals.map((p) =>
-                          el(
-                              'option',
-                              { value: p.principal_id, selected: p.principal_id === terms.principal?.principal_id },
-                              t.principalOption(p),
-                          ),
-                      ),
-                  ),
-              ]
-            : null,
+        options.uses_principal ? [el('label', { for: 'f-principal' }, t.principal), principalSelect(principals, terms)] : null,
         options.has_validity
             ? el(
                   'div',
@@ -55,8 +64,8 @@ function readTerms(form, options) {
     };
 }
 
-function pathView(type, tier) {
-    const stages = type.tiers.find((x) => x.code === tier)?.stages ?? [];
+/** 這張單會經過的關卡（資料庫依這張單算的 path）。 */
+function pathView(detail) {
     return el(
         'div',
         {},
@@ -64,11 +73,39 @@ function pathView(type, tier) {
         el(
             'ol',
             { class: 'path', 'data-testid': 'path' },
-            stages.map((s) =>
+            detail.path.map((s) =>
                 el('li', { 'data-stage': s.code }, s.name, s.mode === 'all' ? el('small', { class: 'muted' }, t.parallel) : null),
             ),
         ),
     );
+}
+
+/** 退回後修改：這次修改和退回當時比是縮小還是擴大、送出後從哪裡繼續（資料庫的 resubmit）。 */
+function resubmitView(resubmit) {
+    if (!resubmit) return null;
+    const text =
+        resubmit.mode === 'restart'
+            ? resubmit.change_kind === 'expand'
+                ? t.resubmit.expand
+                : t.resubmit.restartPolicy
+            : t.resubmit[resubmit.change_kind];
+    return el(
+        'div',
+        {
+            class: `result ${resubmit.mode === 'restart' ? 'warn' : 'ok'}`,
+            'data-testid': 'resubmit',
+            'data-change': resubmit.change_kind,
+            'data-mode': resubmit.mode,
+        },
+        el('h4', {}, t.resubmitTitle),
+        el('p', {}, text),
+    );
+}
+
+/** 最上面的一行：判定的級別與會經過的關卡（每一段都看得到）。 */
+function summaryLine(detail) {
+    if (!detail) return t.summaryIdle;
+    return t.summaryLine(detail.tier, detail.path.map((s) => s.name).join(' → '));
 }
 
 function overlapView(pack, cat, overlap) {
@@ -89,10 +126,11 @@ function overlapView(pack, cat, overlap) {
 }
 
 /** 即時檢查的結果：級別、路徑、提示、錯誤、重疊。全部來自資料庫回傳的申請單。 */
-function checkView(type, pack, cat, detail) {
+function checkView(pack, cat, detail) {
     return [
         el('p', {}, `${t.tierLabel}：`, tierBadge(detail.tier) ?? '—'),
-        pathView(type, detail.tier),
+        pathView(detail),
+        resubmitView(detail.resubmit),
         detail.notices.length
             ? el(
                   'div',
@@ -144,6 +182,35 @@ async function loadForm(caseId) {
     return { type, principals, existing, pack, cat: await pack.catalog() };
 }
 
+const SEGMENTS = ['who', 'data', 'purpose', 'review'];
+
+/** 四段與上方的分段切換。回傳 { nav, sections, open(段) }；一次只顯示一段。 */
+function segmented(contents) {
+    const tabs = SEGMENTS.map((key, i) =>
+        el('button', { type: 'button', 'data-segment-tab': key, onclick: () => open(key) }, `${i + 1}. ${t.segments[key]}`),
+    );
+    const sections = SEGMENTS.map((key, i) =>
+        el(
+            'section',
+            { class: 'segment', 'data-segment': key, 'aria-label': t.segments[key] },
+            contents[key],
+            i + 1 < SEGMENTS.length
+                ? el(
+                      'button',
+                      { type: 'button', class: 'wide', 'data-testid': 'next-segment', onclick: () => open(SEGMENTS[i + 1]) },
+                      t.nextSegment(t.segments[SEGMENTS[i + 1]]),
+                  )
+                : null,
+        ),
+    );
+    function open(key) {
+        sections.forEach((s) => (s.hidden = s.dataset.segment !== key));
+        tabs.forEach((b) => b.setAttribute('aria-current', b.dataset.segmentTab === key ? 'step' : 'false'));
+        window.scrollTo(0, 0);
+    }
+    return { nav: el('nav', { class: 'segments', 'aria-label': t.segmentNav }, tabs), sections, open };
+}
+
 export async function renderApply(ctx, caseId = null) {
     const { type, principals, existing, pack, cat } = await loadForm(caseId);
     const base = existing?.content ?? {};
@@ -154,6 +221,7 @@ export async function renderApply(ctx, caseId = null) {
         el('h3', {}, t.checkTitle),
         el('p', { class: 'muted' }, t.checkIdle),
     );
+    const summary = el('p', { class: 'summary-line', 'data-testid': 'check-summary', 'aria-live': 'polite' }, summaryLine(null));
     const reason = el('textarea', { id: 'f-overlap-reason', rows: 2 }, existing?.overlap?.reason ?? '');
     const reasonBlock = el(
         'div',
@@ -162,25 +230,35 @@ export async function renderApply(ctx, caseId = null) {
         reason,
     );
     const submit = el('button', { class: 'primary', type: 'submit', 'data-testid': 'submit', disabled: true }, t.submit);
+    const parts = segmented({
+        who: el('div', { class: 'card' }, termsInputs(principals, existing?.terms ?? {}, type.options)),
+        data: editor.parts.scope,
+        purpose: editor.parts.purpose,
+        review: [
+            check,
+            reasonBlock,
+            el(
+                'div',
+                { class: 'actions' },
+                el('button', { type: 'button', onclick: () => go(existing ? `#case/${existing.case_id}` : '#') }, t.cancel),
+                submit,
+            ),
+        ],
+    });
     const form = el(
         'form',
         { 'data-testid': 'apply-form', novalidate: true },
         el('h2', {}, existing ? t.editTitle(existing.case_no) : t.newTitle),
         existing ? returnedNote(existing) : null,
-        el('div', { class: 'card' }, termsInputs(principals, existing?.terms ?? {}, type.options)),
-        editor.node,
-        check,
-        reasonBlock,
-        el(
-            'div',
-            { class: 'actions' },
-            el('button', { type: 'button', onclick: () => go(existing ? `#case/${existing.case_id}` : '#') }, t.cancel),
-            submit,
-        ),
+        summary,
+        parts.nav,
+        parts.sections,
     );
+    parts.open('who');
     const state = { caseId: existing?.case_id ?? null, saved: null, chain: Promise.resolve(), timer: null };
     const show = (detail) => {
-        check.replaceChildren(el('h3', {}, t.checkTitle), ...checkView(type, pack, cat, detail).filter(Boolean));
+        check.replaceChildren(el('h3', {}, t.checkTitle), ...checkView(pack, cat, detail).filter(Boolean));
+        summary.textContent = summaryLine(detail);
         reasonBlock.hidden = detail.overlap?.level !== 'partial';
         submit.disabled = !detail.actions.includes('submit');
     };

@@ -20,9 +20,17 @@ const exceptionRef: Shape = { object: { id: 'int', rule_code: 'text', opened_at:
 const message: Shape = { object: { code: 'text', message: 'text' } };
 const contentError: Shape = { object: { path: 'text', code: 'text', message: 'text' } };
 
-const principal: Shape = {
-    object: { principal_id: 'uuid', kind: 'text', name: 'text', owner_name: 'text', ends_on: { nullable: 'date' } },
-};
+const principalFields = {
+    principal_id: 'uuid',
+    kind: 'text',
+    name: 'text',
+    owner_name: 'text',
+    ends_on: { nullable: 'date' },
+} as const satisfies Record<string, Shape>;
+const principal: Shape = { object: principalFields };
+
+/** 新申請畫面的被授權者選項：mine＝看的人就是負責人（送審時不必多一關「被授權者負責人確認」，裁決 D79 (2)） */
+const principalChoice: Shape = { object: { ...principalFields, mine: 'bool' } };
 
 const pathStage: Shape = { object: { seq: 'int', code: 'text', name: 'text', phase: 'text', mode: 'text' } };
 
@@ -143,6 +151,13 @@ export const caseDetail: Shape = {
         display: caseDisplay,
         /** 內容完全相同的其他進行中申請（裁決 D79 (6)：送出時提示並連到既有的那張） */
         duplicates: { array: { object: { case_id: 'uuid', case_no: 'int' } } },
+        /** 這張單會經過的關卡（依這張單算，含代填時的「被授權者負責人確認」）；新申請畫面只畫它 */
+        path: { array: pathStage },
+        /**
+         * 退回後修改中的單：這次修改和退回當時那一版比是 reduce（縮小）、same（沒改）還是 expand（擴大），
+         * 送出後 resume（從退回的那一關繼續）還是 restart（從第一關重簽）。其他的單為 null。
+         */
+        resubmit: { nullable: { object: { change_kind: 'text', mode: 'text' } } },
     },
 };
 
@@ -172,10 +187,29 @@ const enrollmentFields = {
     status: 'text',
     requested_at: 'timestamp',
     code_cost: 'int',
+    /** 背書可以用的核對方式（qr、code）；本人只憑登入撤銷全部金鑰之後只有參數列的方式（預設只有 qr） */
+    methods: { array: 'text' },
     display: { object: { person: personRef, credential_id: 'b64url', public_key_sha256: 'hex' } },
     actions: { array: 'text' },
 } as const satisfies Record<string, Shape>;
 const enrollment: Shape = { object: enrollmentFields };
+
+/** 撤銷的顯示摘要：本人與每一把沒撤銷的金鑰。撤銷畫面只從它畫，簽的是它加上原因。 */
+const revocationDisplay: Shape = {
+    object: {
+        person: personRef,
+        credentials: { array: { object: { credential_id: 'b64url', public_key_sha256: 'hex', usable_from: 'timestamp' } } },
+    },
+};
+const revocationResult: Shape = {
+    object: {
+        person: personRef,
+        revoked: 'int',
+        cancelled_enrollments: 'int',
+        revoked_at: 'timestamp',
+        reenroll_methods: { array: 'text' },
+    },
+};
 
 const auditCase: Shape = {
     object: {
@@ -279,7 +313,7 @@ export const routes = [
             },
         },
     },
-    { fn: 'principal_list', params: ['session'], returns: { array: principal } },
+    { fn: 'principal_list', params: ['session'], returns: { array: principalChoice } },
     { fn: 'case_create', params: ['session', 'process_type', 'content', 'terms'], returns: caseDetail },
     { fn: 'case_submit_new', params: ['session', 'process_type', 'content', 'terms', 'overlap_reason'], returns: caseDetail },
     { fn: 'case_revise', params: ['session', 'case_id', 'content', 'terms'], returns: caseDetail },
@@ -303,6 +337,23 @@ export const routes = [
         fn: 'passkey_endorse_passkey',
         params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
         returns: { object: { ...enrollmentFields, usable_from: 'timestamp' } },
+    },
+    /** 撤銷通行金鑰：actions 是 revoke_self（本人只憑登入，遺失全部裝置）或 revoke（用自己的通行金鑰簽） */
+    {
+        fn: 'passkey_revocation_list',
+        params: ['session'],
+        returns: { array: { object: { display: revocationDisplay, actions: { array: 'text' } } } },
+    },
+    { fn: 'passkey_revoke_self', params: ['session', 'reason'], returns: revocationResult },
+    {
+        fn: 'passkey_revoke_challenge',
+        params: ['session', 'holder_id', 'reason'],
+        returns: { object: { challenge_id: 'uuid', nonce: 'b64url', expires_at: 'timestamp', display: revocationDisplay } },
+    },
+    {
+        fn: 'passkey_revoke_passkey',
+        params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
+        returns: revocationResult,
     },
     { fn: 'audit_case', params: ['session', 'case_no'], returns: auditCase },
     { fn: 'audit_chain', params: ['session', 'after_seq', 'limit'], returns: { array: chainEvent } },
@@ -434,4 +485,6 @@ export const jobCalls = {
     /** 通知的寄送（裁決 D76）：寄送程式 api/src/mailer.ts 領走一批、寄出後回報 */
     notificationClaim: { fn: 'notification_claim', params: ['limit'] },
     notificationMark: { fn: 'notification_mark', params: ['id', 'sent', 'error'] },
+    /** 超過時間還沒寄出的通知開例外 K-NOTIFY-STUCK（寫入通知的交易也會檢查，不只靠排程） */
+    notificationStuckCheck: { fn: 'notification_stuck_check', params: [] },
 } as const satisfies Record<string, Grant>;
