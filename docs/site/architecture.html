@@ -1,0 +1,149 @@
+<title>簽核平台架構現況</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap">
+<style>
+/* Layout: one column. The system is drawn as stacked layers top to bottom so it reads the same on a phone; side systems sit beside the layer they talk to and wrap underneath on narrow screens. */
+:root { --bg:#F4F6F9; --surface:#FFFFFF; --fg:#1B2330; --muted:#566070; --line:#C9D1DB; --accent:#0B5CAD; --accent-soft:#E6EFF9;
+  --ok:#17663A; --ok-soft:#E1F3E7; --wip:#8A4500; --wip-soft:#FFF0D9; --todo:#566070; --todo-soft:#EDF0F4; --trust:#A32A1B;
+  --font:'Noto Sans TC','PingFang TC','Microsoft JhengHei',system-ui,sans-serif; --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#10151C; --surface:#18202A; --fg:#E6EBF2; --muted:#9AA6B5; --line:#33404F; --accent:#6FB1F5; --accent-soft:#16304D;
+  --ok:#6FD39A; --ok-soft:#143524; --wip:#F2B866; --wip-soft:#3B2A10; --todo:#9AA6B5; --todo-soft:#212B37; --trust:#F28B7D; color-scheme:dark } }
+:root[data-theme="dark"] { --bg:#10151C; --surface:#18202A; --fg:#E6EBF2; --muted:#9AA6B5; --line:#33404F; --accent:#6FB1F5; --accent-soft:#16304D;
+  --ok:#6FD39A; --ok-soft:#143524; --wip:#F2B866; --wip-soft:#3B2A10; --todo:#9AA6B5; --todo-soft:#212B37; --trust:#F28B7D; color-scheme:dark }
+body { background:var(--bg); color:var(--fg); font-family:var(--font); font-size:16px; line-height:1.65;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px)); padding-block:24px 64px; }
+.page { max-width:760px; margin:0 auto; display:flex; flex-direction:column; gap:36px; }
+h1 { font-size:1.6rem; line-height:1.3; margin:0; text-wrap:balance; }
+h2 { font-size:1.2rem; line-height:1.4; margin:0; }
+h3 { font-size:1rem; margin:0; }
+p { margin:0; } .muted { color:var(--muted); font-size:.9rem; }
+section { display:flex; flex-direction:column; gap:14px; }
+.legend { display:flex; flex-wrap:wrap; gap:8px; }
+.tag { display:inline-flex; align-items:center; padding:1px 10px; border-radius:999px; font-size:.8rem; font-weight:500; white-space:nowrap; }
+.tag.ok { background:var(--ok-soft); color:var(--ok); } .tag.wip { background:var(--wip-soft); color:var(--wip); } .tag.todo { background:var(--todo-soft); color:var(--todo); }
+.stack { display:flex; flex-direction:column; align-items:stretch; }
+.layer { display:flex; flex-wrap:wrap; gap:12px; align-items:stretch; }
+.box { flex:3 1 280px; min-width:0; background:var(--surface); border:1.5px solid var(--line); border-radius:10px; padding:14px 16px; display:flex; flex-direction:column; gap:6px; }
+.box.side { flex:1 1 180px; border-style:dashed; }
+.box.core { border-color:var(--accent); border-width:2px; }
+.box ul { margin:0; padding-left:1.2em; font-size:.93rem; }
+.head { display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between; }
+.arrow { align-self:center; color:var(--muted); font-size:.85rem; padding:6px 0; text-align:center; }
+.arrow b { display:block; font-size:1.1rem; line-height:1; color:var(--fg); }
+.boundary { border:2px dashed var(--trust); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:10px; }
+.boundary > .cap { color:var(--trust); font-size:.85rem; font-weight:700; }
+.steps { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; counter-reset:s; }
+.steps li { counter-increment:s; display:grid; grid-template-columns:28px minmax(0,1fr); gap:10px; background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 12px; font-size:.95rem; }
+.steps li::before { content:counter(s); width:28px; height:28px; border-radius:50%; background:var(--fg); color:var(--bg); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:.85rem; }
+.scroll { overflow-x:auto; }
+table { border-collapse:collapse; width:100%; font-size:.92rem; }
+th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+th { color:var(--muted); font-weight:500; white-space:nowrap; }
+code { font-family:var(--mono); font-size:.88em; }
+</style>
+<div class="page">
+<header style="display:flex;flex-direction:column;gap:8px">
+<h1>簽核平台架構現況</h1>
+<p>目前已經做出來、驗證過的部分，以及正在做和還沒做的部分。</p>
+<p class="muted">2026-11-20。已驗證的範圍：102 個自動測試，從乾淨狀態全部通過。</p>
+<div class="legend"><span class="tag ok">已驗證</span><span class="tag wip">進行中</span><span class="tag todo">還沒做</span></div>
+</header>
+
+<section>
+<h2>整體：由上往下三層</h2>
+<p class="muted">依賴方向只有一個：頁面 → 後端 → 資料庫。越往下責任越重；所有規則都在資料庫裡。</p>
+<div class="stack">
+<div class="layer">
+<div class="box"><div class="head"><h3>使用者的瀏覽器</h3><span class="tag ok">已驗證</span></div>
+<ul><li>手機寬度優先的頁面：登入、送出申請、待簽、核准、稽核查看</li><li>通行金鑰在使用者的裝置上簽署</li><li>稽核畫面在瀏覽器裡自己重算雜湊鏈、重驗簽章</li></ul></div>
+</div>
+<div class="arrow"><b>↓</b>只呼叫後端</div>
+<div class="layer">
+<div class="box"><div class="head"><h3>後端（很薄）</h3><span class="tag ok">已驗證</span></div>
+<ul><li>只做傳話：把請求轉成資料庫的函式呼叫</li><li>不含任何業務判斷</li><li>路由表是唯一來源，後端與頁面共用</li></ul></div>
+<div class="box side"><div class="head"><h3>登入服務</h3><span class="tag ok">模擬環境</span></div>
+<p class="muted">真的 OIDC 登入頁；帳號來自 LDAP。</p></div>
+</div>
+<div class="arrow"><b>↓</b>用權限最小的帳號連線</div>
+<div class="boundary">
+<span class="cap">信任邊界：資料庫不相信後端說「這是誰」</span>
+<div class="layer">
+<div class="box core"><div class="head"><h3>資料庫（核心）</h3><span class="tag ok">已驗證</span></div>
+<ul>
+<li><strong>對外函式</strong>：每個使用者動作一個；後端只能呼叫這些，碰不到任何資料表</li>
+<li><strong>驗證身分</strong>：自己驗證登入憑證與通行金鑰的簽章</li>
+<li><strong>授權檢查</strong>：只有一個入口</li>
+<li><strong>申請單</strong>：內容有版本與標準化的雜湊</li>
+<li><strong>稽核紀錄</strong>：只增不改，用雜湊鏈串接</li>
+<li><strong>人員與主管關係</strong>：從 LDAP 同步，異動也進雜湊鏈</li>
+</ul></div>
+<div class="box side"><div class="head"><h3>LDAP</h3><span class="tag ok">模擬環境</span></div>
+<p class="muted">35 人、組織與角色群組。用另一個只能同步的帳號寫入。</p></div>
+</div>
+</div>
+<div class="arrow"><b>↓</b>定期把鏈的摘要送出去</div>
+<div class="layer">
+<div class="box"><div class="head"><h3>資料庫以外的摘要檔</h3><span class="tag ok">已驗證</span></div>
+<p class="muted">由獨立的程式用另一個帳號寫出。有人用資料庫最高權限改紀錄、甚至整條重算，和這份摘要一比對就會被發現。</p></div>
+</div>
+</div>
+</section>
+
+<section>
+<h2>資料庫裡的四種帳號</h2>
+<p class="muted">每種帳號只能做自己的事。這是「拿到後端帳號也冒用不了別人」的基礎。</p>
+<div class="scroll"><table>
+<thead><tr><th>帳號</th><th>誰在用</th><th>能做什麼</th></tr></thead>
+<tbody>
+<tr><td><code>sgn_app</code></td><td>後端</td><td>只能呼叫對外函式；讀寫不了任何資料表</td></tr>
+<tr><td><code>sgn_sync</code></td><td>人員同步</td><td>只能寫入人員與主管關係；異動會留紀錄並開出例外</td></tr>
+<tr><td><code>sgn_job</code></td><td>排程</td><td>只能產生外部摘要與驗證雜湊鏈</td></tr>
+<tr><td><code>sgn_owner</code></td><td>升版</td><td>擁有全部物件；平常不使用</td></tr>
+</tbody></table></div>
+</section>
+
+<section>
+<h2>一次核准是怎麼被保護的</h2>
+<ol class="steps">
+<li><span>主管在待簽清單點開一張單，按核准。</span></li>
+<li><span>資料庫產生一個挑戰值，綁定這張單、這個內容版本、「核准」這個動作。</span></li>
+<li><span>主管的裝置用通行金鑰簽署這個挑戰值（需要指紋或臉部辨識）。</span></li>
+<li><span>後端把簽署結果原封不動交給資料庫。</span></li>
+<li><span>資料庫自己驗證簽章，並檢查：是這個人的金鑰、挑戰值沒用過、單號與內容版本相符、他有資格簽、不是申請人本人。</span></li>
+<li><span>通過才寫入核准，同一筆交易內寫進雜湊鏈。</span></li>
+</ol>
+<p class="muted">測試過擋得住的攻擊：偽造簽章、拿別人的證明、重放舊的證明、把甲單的證明用在乙單、改過內容再用舊證明。</p>
+</section>
+
+<section>
+<h2>功能的進度</h2>
+<div class="scroll"><table>
+<thead><tr><th>功能</th><th>狀態</th><th>說明</th></tr></thead>
+<tbody>
+<tr><td>登入、通行金鑰</td><td><span class="tag ok">已驗證</span></td><td>真的登入服務與 LDAP</td></tr>
+<tr><td>送出申請、主管核准、退回</td><td><span class="tag ok">已驗證</span></td><td>單一關卡</td></tr>
+<tr><td>稽核查看與驗證</td><td><span class="tag ok">已驗證</span></td><td>含竄改偵測</td></tr>
+<tr><td>品質關卡</td><td><span class="tag ok">已驗證</span></td><td>型別、lint、資料庫靜態分析、全部測試，一支指令</td></tr>
+<tr><td>資料授權的完整流程</td><td><span class="tag wip">進行中</span></td><td>多關卡、並行、職責分離、縮小與重簽、重複檢查、執行</td></tr>
+<tr><td>核心與流程包分開</td><td><span class="tag wip">進行中</span></td><td>核心不含資料授權專屬的東西</td></tr>
+<tr><td>催辦、升級、代理、批次、續期、到期</td><td><span class="tag todo">還沒做</span></td><td></td></tr>
+<tr><td>外部系統的模擬與自動驗證</td><td><span class="tag todo">還沒做</span></td><td>把規則套用成真正的資料庫權限</td></tr>
+<tr><td>對外的權限查詢、事件、對帳、複查</td><td><span class="tag todo">還沒做</span></td><td>契約已寫好</td></tr>
+<tr><td>其他四種流程</td><td><span class="tag todo">還沒做</span></td><td>合約用印、程式變更、系統帳號、供應商帳號變更</td></tr>
+<tr><td>稽核資料包、管理畫面、通知、多公司</td><td><span class="tag todo">還沒做</span></td><td></td></tr>
+<tr><td>部署設定</td><td><span class="tag todo">還沒做</span></td><td></td></tr>
+</tbody></table></div>
+</section>
+
+<section>
+<h2>已知的限制</h2>
+<div class="box">
+<ul>
+<li>有資料庫最高權限的人可以換掉驗證程式；只能事後偵測，要靠職務分離與資料庫稽核日誌外送。</li>
+<li>最後一次外部摘要之後的紀錄，被改了抓不到。稽核畫面會明確標示「尚未有外部摘要涵蓋」。</li>
+<li>人員同步的帳號若被濫用，目前只做到「看得到」；加上冷卻期的修正正在做。</li>
+<li>還沒有在真的手機上操作過，用的是電腦瀏覽器模擬手機寬度。</li>
+</ul>
+</div>
+</section>
+</div>

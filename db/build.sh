@@ -43,7 +43,8 @@ recreate_roles() {
     done
 }
 
-# 建一個資料庫的 schema：核心 migration（依檔名順序），測試資料庫另加 db/testing/，最後是權限與環境設定。
+# 建一個資料庫的 schema：核心 migration（依版本序）→ 各流程包（依版本序）→ 測試資料庫另加 db/testing/ → 權限 → 環境設定。
+# 套用順序依骨幹第 1.1 節：核心全部 → 各流程包。90_grants.sql 帶變數，最後單獨套用。
 build_schema() {
     local db="$1" with_testing="$2" connect="$SGN_ROLE_APP\", \"$SGN_ROLE_SYNC\", \"$SGN_ROLE_JOB"
     (( with_testing )) && connect="$connect\", \"$SGN_ROLE_TEST_VERIFIER"
@@ -53,9 +54,9 @@ build_schema() {
     local args=(-c "set role \"$SGN_ROLE_OWNER\"" -f "$here/kernel/01_core.sql" -c "reset role"
         -c "create extension pgcrypto schema sgn_internal" -c "set role \"$SGN_ROLE_OWNER\"")
     local file
-    for file in "$here"/kernel/[0-8]*.sql; do
-        [[ "$file" == */01_core.sql ]] || args+=(-f "$file")
-    done
+    while IFS= read -r file; do
+        args+=(-f "$file")
+    done < <(migration_files)
     if (( with_testing )); then
         for file in "$here"/testing/*.sql; do
             args+=(-v verifier="$SGN_ROLE_TEST_VERIFIER" -f "$file")
@@ -63,9 +64,27 @@ build_schema() {
     fi
     args+=(-c "reset role" -v owner="$SGN_ROLE_OWNER" -v app="$SGN_ROLE_APP" -v sync="$SGN_ROLE_SYNC" -v job="$SGN_ROLE_JOB" -f "$here/kernel/90_grants.sql")
     psql_admin "$db" "${args[@]}"
-    psql_admin "$db" \
-        -c "update sgn.setting set value = to_jsonb('$SGN_RP_ID'::text) where key = 'webauthn.rp_id'" \
-        -c "update sgn.setting set value = to_jsonb('$SGN_RP_ORIGIN'::text) where key = 'webauthn.origin'"
+    psql_admin "$db" -c "set role \"$SGN_ROLE_OWNER\"" \
+        -c "select sgn_internal.register_setting_value('webauthn.rp_id', 'global', to_jsonb('$SGN_RP_ID'::text), 'db/build.sh：開發環境')" \
+        -c "select sgn_internal.register_setting_value('webauthn.origin', 'global', to_jsonb('$SGN_RP_ORIGIN'::text), 'db/build.sh：開發環境')"
+}
+
+# 核心（不含 01_core 與 90_grants）與各流程包的 migration，各自依檔名的版本序。
+migration_files() {
+    find "$here/kernel" -maxdepth 1 -name '*.sql' ! -name '01_core.sql' ! -name '90_grants.sql' | sort -V
+    local pack
+    for pack in "$here"/packs/*/; do
+        find "$pack" -maxdepth 1 -name '*.sql' | sort -V
+    done
+}
+
+# 示範與驗收用的種子資料（db/seed/，不進正式環境）：要在人員同步之後，才對得到人。
+load_seed() {
+    local db="$1" file args=(-c "set role \"$SGN_ROLE_OWNER\"")
+    while IFS= read -r file; do
+        args+=(-f "$file")
+    done < <(find "$here/seed" -name '*.sql' | sort -V)
+    psql_admin "$db" "${args[@]}"
 }
 
 # 登記身分提供者的公開金鑰，並從 LDAP 做第一次（基準）同步。
@@ -86,7 +105,7 @@ run_plpgsql_check() {
         echo "plpgsql_check 發現問題" >&2
         return 1
     fi
-    log "plpgsql_check：沒有問題（$(psql_admin "$db" -t -A -c "select count(*) from pg_proc p join pg_language l on l.oid = p.prolang where l.lanname = 'plpgsql' and p.pronamespace::regnamespace::text in ('sgn_internal', 'api', 'api_sync', 'api_job', 'api_verified')") 個 PL/pgSQL function）"
+    log "plpgsql_check：沒有問題（$(psql_admin "$db" -t -A -c "select count(*) from pg_proc p join pg_language l on l.oid = p.prolang where l.lanname = 'plpgsql' and (p.pronamespace::regnamespace::text in ('sgn_internal', 'sgn_sdk', 'api', 'api_sync', 'api_job', 'api_verified') or p.pronamespace::regnamespace::text like 'pack\\_%')") 個 PL/pgSQL function）"
 }
 
 log "檢查 PostgreSQL"
@@ -114,6 +133,7 @@ for db in "$SGN_DB_TEST" "$SGN_DB_E2E"; do
     [[ "$db" == "$SGN_DB_TEST" ]] && with_testing=1
     build_schema "$db" "$with_testing"
     seed_from_sim "$db"
+    load_seed "$db"
     rm -f "$repo/.run/anchors-$db.jsonl"
 done
 
@@ -129,7 +149,7 @@ if [[ "$mode" == full ]]; then
     log "檢查每個規則代碼都有測試"
     SGN_DATABASE="$SGN_DB_TEST" node "$here/tools/rule-coverage.mjs"
     log "跑資料庫測試（$SGN_DB_TEST）"
-    (cd "$here" && SGN_DATABASE="$SGN_DB_TEST" node --test --test-concurrency=1 "tests/kernel/*.test.mjs")
+    (cd "$here" && SGN_DATABASE="$SGN_DB_TEST" node --test --test-concurrency=1 "tests/kernel/*.test.mjs" "tests/packs/*/*.test.mjs")
 fi
 if (( run_bench )); then
     log "效能量測"
