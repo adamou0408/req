@@ -2368,19 +2368,21 @@ rules.md 的預設時限由流程包在升版時登記成「流程類型」或�
 
 ## 8. 執行、驗證與 DC adapter
 
-### 8.1 執行內容的格式（`dc_rule_set/1`）
+### 8.1 執行內容的格式（`data_access_rule_set/1`）
 
-`build_fulfilment`（§5.10）的回傳值，也是核心保存在 `fulfilment` 的內容、MIS 在執行畫面看到與下載的檔案、交給 DC adapter 的規則。
+`build_fulfilment`（§5.10）的回傳值，也是核心保存在 `fulfilment` 的內容、MIS 在執行畫面看到與下載的檔案、交給外部系統的規則（`build_delivery` 只留某一組受管系統的規則）。送出時包在 §8.8 的信封裡。
 
 | 鍵 | 型別 | 意義 |
 |---|---|---|
-| `format` | 字串 | 固定 `dc_rule_set/1`。格式改變時升版號 |
+| `format` | 字串 | 固定 `data_access_rule_set/1`（實作的格式代碼；原寫 `dc_rule_set/1`）。格式改變時升版號 |
+| `catalog` | `{"version_no","sha256"}` | 這一版綁定的資料目錄版本（§8.6；舊單是事後基準）。使用方系統照自己的目錄執行，回應裡回報自己用的版本 |
 | `case_no`、`case_version_no` | 字串、整數 | 這份規則出自哪張單的哪個內容版本 |
 | `grantee` | `{"type","principal_id","name"}` | 被授權者：類型（`team`、`project`、`agent`）、本站的內部 id、名稱 |
 | `valid` | `{"from","to"}` | 授權起迄（日期，含頭尾）。DC 在這段期間以外不放行 |
 | `export` | 布林或 `null` | `true`＝可以匯出；`false`＝只能查詢；`null`＝不設定匯出的限制 |
 | `rules` | 陣列 | 每個主題包一條規則 |
 | `rules[].rule_id` | 字串 | `{單號}-{序號}`，例如 `DA-2026-0142-1`。同一張單重新執行時不變 |
+| `rules[].system` | 字串 | 這條規則所在的受管系統（使用方系統只收自己負責的系統的規則） |
 | `rules[].package` | 字串 | 主題包代碼 |
 | `rules[].fields` | 字串陣列 | 可以查看的欄位代碼 |
 | `rules[].row_filter` | 陣列 | 列條件，全部都要成立；空陣列＝不限制。元素格式同 §2.1 |
@@ -2438,7 +2440,10 @@ rules.md 的預設時限由流程包在升版時登記成「流程類型」或�
 
 ### 8.5 DC adapter 的介面
 
-後端的 port（`api/src/packs/data_access/dcPort.ts`）：
+> 已由實作取代：交付與對帳的 port 是 `api/src/deliveryPort.ts`（一筆交付＝資料庫決定好的方法、路徑、本文與簽章；adapter 原樣送出、原樣交回回應），
+> 信封與回應證明的格式見 §8.8。下面的三個方法與 `manual_required` 是設計階段的寫法，只留「規則的語意」與結果欄位的意義（`results[].actual`、`reason`）有效。
+
+後端的 port（設計階段，`api/src/packs/data_access/dcPort.ts`）：
 
 ```ts
 export interface DcPort {
@@ -2516,9 +2521,105 @@ evaluate_dc_query(rule_set, query) → {"actual", "reason"}
 
 這個演算法有兩份實作：`mock` adapter（TypeScript，模擬外部系統）與資料庫測試的輔助 function（`db/tests/packs/data_access/helpers/dc_reference.sql`）。兩者都用同一份固定資料（`db/tests/packs/data_access/fixtures/dc_evaluation.json`：上表的 8 列，加上 §5.11 範例 1 的 9 個案例）驗證。資料庫測試另外檢查自我一致：對任何核准的內容，`build_verification_cases` 產生的每個案例，用 `build_fulfilment` 的規則計算出來的結果都等於它的 `expected`。
 
-### 8.6 資料目錄 adapter
+### 8.6 資料目錄的版本（裁決 D92 (1)）
 
-後端的 port（`api/src/packs/data_access/catalogPort.ts`）只有一個動作：`fetch(): Promise<CatalogSnapshot>`，回傳 §4.2 的快照。後端不解讀內容，整份交給 `api.data_access_catalog_sync`。第一版的 adapter 讀取匯入檔案（open-questions M1）；排程每天執行一次，系統管理員也可以在設定頁上傳檔案。
+資料目錄由平台維護（D92 事實）。實作：`db/packs/data_access/130_catalog_version.sql`；威脅與測試：`docs/handoff/closed-loop-1.md`。
+
+**快照與雜湊（平台與使用方系統的同一個演算法）**
+
+```json
+{"format": "data_access_catalog/1",
+ "packages": [{"code", "name", "system", "period_field", "resource",
+               "fields":  [{"code", "name", "classification", "resource"}],
+               "filters": [{"code", "name", "value_type", "resource", "values": [{"value", "label"}]}]}]}
+```
+
+- 只列啟用中的項目；主題包、欄位、列條件依 `code`、列舉值依 `value` 的位元組順序排序。欄位包含 L1、L2（全部目錄上的欄位），不含只給列條件用的欄。
+- `resource` 是「代碼 → 實體資源」的對照：主題包 → 資料表（例如 `data.sales_order`），欄位與列條件 → 欄。沒有給是 `null`，也算進雜湊。
+- 不含擁有者（角色指派另有紀錄）、排序欄位與說明文字。
+- 雜湊＝RFC 8785 標準化後的 SHA-256，小寫十六進位。測試向量：`db/tests/packs/data_access/fixtures/catalog-vectors.json`（平台 `60-catalog-version`、`sim/dc` `11-catalog-version` 都要算出相同的值）。
+
+**版本**：`catalog_load` 套用快照後算雜湊，和目前版本不同才產生新版本（序號遞增、只增不改、寫稽核事件 `data_access.catalog_versioned`）。改回原樣也是新的序號（雜湊和舊的相同）。
+
+**綁定**：每個內容版本整理時帶上當下的版本（內容的 `catalog` 鍵），所以版本雜湊與顯示摘要（「資料目錄第 N 版（雜湊前 12 碼）」）都涵蓋它；比較內容時忽略它（DA-CATALOG-BOUND）。舊單（沒有這個鍵）不重算，升版時記事後基準（`catalog_baseline`）。
+
+**使用方的回報**：套用（`PUT /rule-sets/{case_no}`）與驗證（`POST /test-queries`）的結果、對帳回報（`GET /reconciliation`）都帶 `catalog_sha256`，在 §8.8 的證明涵蓋的範圍內。對照有變動時使用方的版本必須跟著變（它用同一個演算法從自己的對照算）。
+
+**平台的判定**（核心的 hook `check_delivery_result`、`check_reconciliation_report`）：比較的是「這張單引用的部分」（引用摘要：引用到的主題包、欄位與期間欄位、列條件與列舉值）在兩個版本上是否相同。
+
+| 情況 | 處理 |
+|---|---|
+| 回報的版本平台認得，引用摘要和綁定（或資料擁有者確認過）的版本相同 | 接受 |
+| 認得但引用摘要不同 | 不生效、撤回、開 `DA-CATALOG-MISMATCH`；對帳時每張單一筆 |
+| 不認得（或沒有回報） | 寬限 `data_access.catalog_unknown_grace_minutes` 內當成沒送到（重送）；逾時不生效並開 `DA-CATALOG-UNKNOWN`；對帳時每個通道一筆 |
+
+**目錄改版時**（同一個交易，逐張比較引用摘要，相同就不動）：簽核中的以新版本重新整理成新的一版、從第一關重簽（核心 `K-CONTENT-REBIND`；整理後有錯就退回申請人）；待套用、驗證中、生效中的開 `DA-CATALOG-DRIFT` 並通知受影響主題包的資料擁有者；只改名稱時資料擁有者在 `data_access.catalog_rename_confirm_workdays` 個工作天內確認意義沒變（`api.data_access_catalog_confirm`，進鏈；之後兩個版本都接受），逾期升級（核心 `K-EXCEPTION-FOLLOWUP`），不撤銷（D92 (6)）。草稿與退回的單下次儲存時自然綁新版本。
+
+### 8.7 使用紀錄的批次摘要（裁決 D92 (4)）
+
+實作：`db/kernel/545_usage_summary.sql`（核心，與流程包無關）；`sim/dc/src/usage.ts`。
+
+使用方系統提供 `GET {base}/usage-summaries`（唯讀稽核金鑰），回應是 §8.8 的證明包住的：
+
+```json
+{"format": "usage_summary_batch/1", "database": "sim_dc", "period_seconds": 3600,
+ "items": [{"case_no": "1042", "actor": {"provider": "sim-ldap", "external_id": "p04"},
+            "period": {"from": "2026-11-21T08:00:00.000Z", "to": "2026-11-21T09:00:00.000Z"},
+            "queries": 12, "exports": 0, "blocked": 1, "last_used_at": "2026-11-21T08:41:07.000Z"}]}
+```
+
+- 一筆＝一張單 × 一個實際操作的人 × 一個時段。`actor` 是人在身分來源上的帳號（平台以 `person_identity` 對到人；對不到照樣保存）。`queries`、`exports` 是放行的查詢與匯出次數，`blocked` 是被擋下的次數，`last_used_at` 在時段內（次數全為 0 時可以是 `null`）。
+- 同一個鍵（單、人、時段）可以在之後的批次再出現（時段還沒結束時次數增加）；平台以簽發時間最新的那一批為準，所以重送不重複計算。
+- 平台的檢查（`K-USAGE-ATTESTED`）：證明的方法 `GET`、路徑 `/usage-summaries`、請求摘要（空本文）、通道與環境都相符；簽發時間在 `usage.max_batch_age_seconds` 內、比這個通道已收下的最新一批新、同一批只收一次；筆數不超過 `usage.max_items`；每一筆都對得到這個通道交付過的單、次數是 0 到 `usage.max_count` 的整數、時段合理。任何一筆不合格整批不收（`K-USAGE-UNVERIFIED`）。
+- 整批的雜湊與筆數寫一筆稽核事件 `usage.batch_received`，摘要不逐筆進鏈（`K-USAGE-BATCH-AUDIT`）。
+- 由對帳程式在每一輪對帳之後拉取（D92 (3) 的做法：平台拉取帶證明的回報）。
+
+### 8.8 交付信封與回應證明（裁決 D81 (2)、D92 (8)；唯一來源）
+
+這一節是外部系統交付介面的格式唯一來源；`sim/dc/README.md` 與 `docs/contract/06-consumer-obligations.md` 引用這裡。實作：`db/kernel/405_external_attestation.sql`、`410_delivery.sql`（平台）；`sim/dc/src/signature.ts`（使用方的示範）。
+
+**平台送出的請求**
+
+| 方法與路徑（環境前綴 `{base}` 之後） | 種類 | 本文 | 簽章 |
+|---|---|---|---|
+| `PUT /rule-sets/{case_no}` | 套用 | 信封，`payload`＝§8.1 的規則 | 要 |
+| `DELETE /rule-sets/{case_no}` | 撤回 | 信封，`payload`＝`{"request_id","case_no","rule_ids"?}`（省略 `rule_ids`＝整張撤回＝封存） | 要 |
+| `POST /test-queries` | 驗證 | `{"request_id","run_id","rule_set","cases":[{"code","expected","query"}]}` | 不要（不改權限） |
+| `POST /maintenance/purge-expired` | 清除到期 | `{}` | 不要（只會收回已過期的） |
+| `GET /reconciliation` | 對帳回報 | 空 | 不要（唯讀稽核金鑰） |
+| `GET /usage-summaries` | 使用紀錄（§8.7） | 空 | 不要（唯讀稽核金鑰） |
+
+信封（被簽的就是這串文字的 UTF-8 位元組，送出時不得重新序列化）：
+
+```json
+{"format": "sgn_dc_request/1", "channel": "dc", "environment": "sim_dc", "method": "PUT",
+ "path": "/rule-sets/1042", "not_after": "2026-11-21T03:05:00Z", "payload": { … }}
+```
+
+- 標頭 `Sgn-Signature: keyid="<金鑰代號>", alg="ed25519", sig="<標準 base64>"`。被簽的位元組＝`delivery.signature_context`（預設 `sgn-dc-sig/1`）＋換行＋本文的原始位元組。Ed25519（RFC 8032，不先雜湊）。私鑰只在平台資料庫裡（`sgn.signing_key`）。
+- 使用方先驗章，再要求 `channel`、`environment`（這個環境的代碼，平台參數 `delivery.target_environment`）、`method`、`path` 等於這次請求，現在還沒過 `not_after`（`delivery.signature_ttl_seconds`）。信任清單依環境分開，可以同時有幾把（輪替）。
+- 標頭 `Sgn-Nonce`：平台每次領取給一個一次性亂數；`X-Request-Id`：冪等鍵（撤回與驗證的本文裡也有）。
+- 套用的語意：同一張單只收更新的版本；同版同內容冪等；同版不同內容、較舊版本、已撤回的同一版拒絕（409 `conflict`）；整張撤回後封存，任何版本都拒絕（409 `archived`）。
+
+**使用方的回應**：環境前綴底下的每個回應（含失敗）＝結果＋`attestation`：
+
+```json
+{"status": "applied", "dc_ref": "DC-1042-v1", "catalog_sha256": "8880fedf…",
+ "attestation": {"payload": "<文字>", "key_id": "simdc-…", "alg": "es256", "sig": "<DER，標準 base64>"}}
+```
+
+- `payload` 是一段 JSON 文字：`{"format":"sgn_dc_attestation/1","channel","environment","method","path","query","request_sha256","nonce","http_status","issued_at","result"}`。`request_sha256`＝使用方收到的請求本文的 SHA-256；`nonce`＝`Sgn-Nonce` 的值（沒給是 `null`）；`result`＝這個回應的結果。
+- 被簽的位元組＝`delivery.attestation_context`（預設 `sgn-dc-attestation/1`）＋換行＋`payload` 的 UTF-8；ECDSA P-256＋SHA-256。回應金鑰和驗平台簽章的金鑰分開，公鑰登記在平台（`sgn.channel_key`，可以幾把並存）。
+- 平台只採信 `payload` 裡的結果：驗章、通道、環境、方法、路徑、一次性亂數都相符才採信（`K-DELIVERY-ATTESTED`）；請求摘要不符＝送出途中被改過，一律當成拒絕。對帳回報與使用摘要另外要求簽發時間在新鮮度內、嚴格遞增、同一份只收一次。回應的其他欄位只是可讀副本。
+- 失敗一律是 `{"status":"failed","code","error"}`：401 `signature_invalid`／`signature_expired`、403、404、409 `conflict`／`archived`／`target_mismatch`、422 `invalid_envelope` 等。
+
+各結果的 `result`：套用 `{"status":"applied","dc_ref","catalog_sha256"}`；撤回 `{"status":"withdrawn"}`；驗證 `{"status":"completed","results":[{"code","actual","reason","detail"}],"catalog_sha256"}`；對帳 `dc_reconciliation_report/1`（項目格式 05 §8.3，另有 `catalog_sha256`）；使用紀錄 §8.7。
+
+### 8.9 資料目錄 adapter
+
+> 已由 D92 (1) 改變：資料目錄由平台維護，沒有從使用方同步的 adapter；目錄只經 `catalog_load` 載入（目前是種子與 migration），每次載入產生版本（§8.6）。
+
+設計階段的寫法：後端的 port（`api/src/packs/data_access/catalogPort.ts`）只有一個動作：`fetch(): Promise<CatalogSnapshot>`，回傳 §4.2 的快照。後端不解讀內容，整份交給 `api.data_access_catalog_sync`。第一版的 adapter 讀取匯入檔案（open-questions M1）；排程每天執行一次，系統管理員也可以在設定頁上傳檔案。
 
 ## 9. 規則對照表
 

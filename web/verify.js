@@ -141,12 +141,12 @@ async function verifyPasskeyProof(proof, event, events) {
 // 決定的種類（事件類型 case.<決定>）；撤回只能由申請人，其餘必須是鏈上指派或認領了這張單工作的人。
 const DECISIONS = ['approve', 'approve_reduced', 'return', 'reject', 'recall', 'fulfil'].map((d) => `case.${d}`);
 
-/** 鏈上記下的每一版內容指紋（建立、修改、縮小都會記）。 */
+/** 鏈上記下的每一版內容指紋（建立、修改、縮小、依新的定義重新綁定都會記）。 */
 function versionHashes(ownEvents) {
     const map = new Map();
     for (const e of ownEvents) {
         const d = e.parsed.data ?? {};
-        if (['case.created', 'case.revised', 'case.reduced'].includes(e.parsed.type)) map.set(d.version, d.content_sha256);
+        if (['case.created', 'case.revised', 'case.reduced', 'case.rebound'].includes(e.parsed.type)) map.set(d.version, d.content_sha256);
     }
     return map;
 }

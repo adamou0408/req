@@ -121,6 +121,13 @@ export const t = {
     verificationCase: (expected, actual) =>
         `應該${t.verificationResult[expected] ?? expected}${actual ? `，實際${t.verificationResult[actual] ?? actual}` : ''}`,
     verificationResult: { allow: '查得到', deny: '查不到', error: '無法執行' },
+    verificationSkipped: '沒有驗證（使用方系統宣告做不到）',
+    usage: {
+        title: '使用情形',
+        none: '使用方系統還沒有回報這張單的使用紀錄。',
+        last: (text) => `最後使用：${text ?? '—'}`,
+        recent: (u) => `近 ${u.recent_days} 天：查詢 ${u.queries} 次、匯出 ${u.exports} 次、被擋 ${u.blocked} 次・${u.people} 人`,
+    },
     confirmation: {
         title: '請確認驗證結果',
         left: (days, due) => (days > 0 ? `還有 ${days} 個工作天（${due} 前）` : `今天 ${due} 前`),
@@ -340,6 +347,9 @@ export const t = {
         'K-REGISTRAR-MIN': '控制例外：可用的通行金鑰登記人少於下限，第一把金鑰與恢復的背書少了人。',
         'K-PASSKEY-SUSPEND-FLOOD': '控制例外：全公司只憑登入停用通行金鑰的次數超過上限，之後的停用被拒絕。可能有人冒用登入。',
         'K-PROGRAM-STALLED': '系統例外：背景程式沒有按時回報，或逾期的工作沒有人處理（到期、確認逾期、交付可能卡住）。',
+        'K-USAGE-IDLE': '使用提醒：這筆授權生效以來一直沒有使用。不再需要時請撤銷（系統不會自動收回）。',
+        'K-USAGE-UNVERIFIED': '使用紀錄例外：外部系統交來的使用摘要沒有通過檢查，沒有採信。',
+        'K-USAGE-OVERDUE': '使用紀錄例外：外部系統超過時間沒有新的使用摘要。',
     },
     exceptionScope: {
         'K-DELIVERY-STUCK': '外部系統',
@@ -497,6 +507,23 @@ export const t = {
         diffPurpose: '使用情境改了',
         diffExportOn: '改成可以匯出',
         diffExportOff: '改成不能匯出',
+        diffCatalog: (a, b) => `資料目錄改版：第 ${a} 版 → 第 ${b} 版（名稱、分級或對照可能不同，請重新確認）`,
+        capabilityGapsTitle: '使用方系統做不到的限制（核准後不會被執行）',
+        /** 流程包的例外（核心頁面不認得流程包的規則代碼） */
+        exception: {
+            'DA-CATALOG-MISMATCH': '目錄例外：使用方系統套用或回報時用的資料目錄版本，和這張單簽核時的不同，沒有生效。',
+            'DA-CATALOG-UNKNOWN': '目錄例外：使用方系統回報的資料目錄版本平台不認得。',
+            'DA-CATALOG-DRIFT': '目錄例外：資料目錄改版，這張單引用的主題包、欄位或列條件有變，請資料擁有者確認。',
+        },
+        drift: {
+            title: '等你確認的資料目錄異動',
+            hint: '這些生效中的授權引用的項目只改了名稱。意義沒有改變就按「意義沒變，確認」；期限過了會升級給資安長與稽核主管（不會撤銷）。',
+            item: (x) => `單號 ${x.case_no}・${x.packages.join('、')}・資料目錄第 ${x.from_version_no} 版 → 第 ${x.to_version_no} 版`,
+            change: (c) => `${c.code}：「${c.before ?? '—'}」→「${c.after ?? '—'}」`,
+            due: (at) => `期限：${at}`,
+            confirm: '意義沒變，確認',
+            done: (no) => `單號 ${no} 的目錄異動已確認。`,
+        },
         returnReasons: [
             '資料範圍太大，請只留需要的主題包與欄位',
             '列條件或資料期間請再收緊',

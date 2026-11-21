@@ -2,7 +2,7 @@
 import { api } from '../api.js';
 import { passkeyNotice } from '../decide.js';
 import { t } from '../i18n.js';
-import { packOf } from '../packs/index.js';
+import { packOf, packs } from '../packs/index.js';
 import { el, empty, go, section, stateBadge, tierBadge } from '../ui.js';
 
 /** 清單卡片：單號、申請人、哪些資料、期間、等誰。點了進詳情。 */
@@ -165,6 +165,8 @@ export async function renderHome(ctx) {
                 ),
             ),
     );
+    // 流程包自己的待辦（例如資料擁有者要確認的目錄異動）：清單由資料庫決定，沒有就不顯示
+    for (const pack of Object.values(packs)) if (pack.homeSection) parts.push(pack.homeSection());
     if (can('role_change'))
         parts.push(
             Promise.resolve(

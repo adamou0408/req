@@ -13,7 +13,20 @@ import pg from 'pg';
 import { dcHttpDelivery } from '../../api/src/dcHttp.ts';
 import { pool as dbPool, setSetting } from '../../db/tests/kernel/lib/harness.mjs';
 import { REPO_DIR, RUN_DIR, loadConfig, roleUrl } from '../../db/tools/lib/env.mjs';
-import { ORIGIN, apply, callApi, caseByNo, day, decide, home, layoutProblems, loggedIn, startBrowser, stopBrowser } from './lib/ui.mjs';
+import {
+    ORIGIN,
+    apply,
+    callApi,
+    caseByNo,
+    day,
+    decide,
+    home,
+    layoutProblems,
+    loggedIn,
+    signer,
+    startBrowser,
+    stopBrowser,
+} from './lib/ui.mjs';
 
 const config = loadConfig();
 const admin = dbPool('ADMIN');
@@ -41,39 +54,6 @@ const spec = (year) => ({
     purpose: 'reporting',
     description: `交付端對端 ${year}`,
 });
-
-/**
- * 這個人在前面的測試檔（path.test.mjs）已經在手機上登記過通行金鑰：把同一把金鑰放回這個行程的虛擬驗證器（同一支手機），
- * 不另外登記。前面沒登記過的人，decide 會照常在畫面上登記（ensurePasskey）。
- */
-const savedKeys = () => {
-    try {
-        return JSON.parse(readFileSync(join(RUN_DIR, `passkeys-${config.database}.json`), 'utf8'));
-    } catch {
-        return {};
-    }
-};
-async function signer(uid) {
-    const p = await loggedIn(uid);
-    if (p.keyRestored) return p;
-    const me = (await callApi(p.page, '/api/me')).result;
-    const saved = savedKeys()[me.person_id];
-    if (saved?.privateKeyPkcs8) {
-        await p.cdp.send('WebAuthn.addCredential', {
-            authenticatorId: p.authenticatorId,
-            credential: {
-                credentialId: Buffer.from(saved.credentialId, 'base64url').toString('base64'),
-                isResidentCredential: true,
-                rpId: config.db.SGN_RP_ID,
-                privateKey: saved.privateKeyPkcs8,
-                userHandle: Buffer.from(me.person_id.replaceAll('-', ''), 'hex').toString('base64'),
-                signCount: Math.floor((Date.now() - 1.7e12) / 100),
-            },
-        });
-    }
-    p.keyRestored = true;
-    return p;
-}
 
 /** 主管、資料擁有者、資安合規檢查（認領）都在畫面上用通行金鑰核准。 */
 async function approve(uid, caseNo) {

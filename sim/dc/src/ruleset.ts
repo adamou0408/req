@@ -29,6 +29,8 @@ export interface RuleSet {
     readonly valid: { readonly from: string; readonly to: string };
     readonly export: boolean | null;
     readonly rules: readonly Rule[];
+    // 平台簽核時綁定的目錄版本（D92 (1)）：只記下，DC 照自己的目錄執行，回應裡回報自己用的版本由平台比對
+    readonly catalog: { readonly version_no: number; readonly sha256: string } | null;
 }
 
 export class RuleSetError extends Error {}
@@ -139,6 +141,16 @@ function parseGrantee(raw: unknown): Grantee {
     return { type, principal_id: id, name: str(g['name'], 'grantee.name') };
 }
 
+function parseCatalogRef(raw: unknown): RuleSet['catalog'] {
+    if (raw === undefined || raw === null) return null;
+    const c = obj(raw, 'catalog');
+    const no = c['version_no'];
+    if (typeof no !== 'number' || !Number.isInteger(no) || no < 1) fail('catalog.version_no 必須是正整數');
+    const sha = str(c['sha256'], 'catalog.sha256');
+    if (!/^[0-9a-f]{64}$/.test(sha)) fail('catalog.sha256 必須是 64 個小寫十六進位字');
+    return { version_no: no, sha256: sha };
+}
+
 export function parseRuleSet(raw: unknown, systems: readonly string[]): RuleSet {
     const rs = obj(raw, '規則');
     if (rs['format'] !== RULE_SET_FORMAT) fail(`format 必須是 ${RULE_SET_FORMAT}`);
@@ -162,5 +174,6 @@ export function parseRuleSet(raw: unknown, systems: readonly string[]): RuleSet 
         valid: { from: valid['from'], to: valid['to'] },
         export: exp,
         rules,
+        catalog: parseCatalogRef(rs['catalog']),
     };
 }

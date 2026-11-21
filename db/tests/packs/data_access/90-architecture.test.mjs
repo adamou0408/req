@@ -86,12 +86,14 @@ test('架構：應用程式角色對流程包的 schema 與 sgn_sdk 沒有任何
     assert.deepEqual(open.rows, []);
 });
 
-test('架構：資料授權登記了十二個 hook（簽章由核心檢查；顯示的兩個是 D75 新增；交付、驗證、對帳的四個是 D63 新增），路徑的關卡與 resolver 是資料；第 2 版路徑多了代填時的負責人確認（K-PRINCIPAL-OWNER-CONFIRM）', async () => {
+test('架構：資料授權登記了十四個 hook（簽章由核心檢查；顯示的兩個是 D75 新增；交付、驗證、對帳的四個是 D63 新增；交付結果與對帳回報的判定是 D92 新增），路徑的關卡與 resolver 是資料；第 2 版路徑多了代填時的負責人確認（K-PRINCIPAL-OWNER-CONFIRM）', async () => {
     const pt = (await admin.query(`select hooks from sgn.process_type where code = 'data_access'`)).rows[0];
     assert.deepEqual(Object.keys(pt.hooks).sort(), [
         'build_delivery',
         'build_fulfilment',
         'build_verification_cases',
+        'check_delivery_result',
+        'check_reconciliation_report',
         'classify_tier',
         'compare_content',
         'display_content',

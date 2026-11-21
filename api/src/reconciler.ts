@@ -1,4 +1,4 @@
-// 對帳程式（策略 4）：以對帳帳號 sgn_reconciler（裁決 D84 (6)）、外部系統的唯讀稽核金鑰，拉外部系統實際存在的權限，原樣交給資料庫驗證與比對
+// 對帳程式（策略 4；使用紀錄的批次摘要也由它拉取，裁決 D92 (4)）：以對帳帳號 sgn_reconciler（裁決 D84 (6)）、外部系統的唯讀稽核金鑰，拉外部系統實際存在的權限，原樣交給資料庫驗證與比對
 // （api_job.reconciliation_submit：只採信外部系統的證明；多出來的、少掉的、範圍不同的各開例外）。和交付程式不同帳號、不同金鑰，
 // 交付程式被拿走而謊報時這裡會抓到；這個程式自己被拿走也改不了回報，只能不交（資料庫逾期開例外）。
 // 設定只讀自己的（裁決 D81 (1)）：.run/secrets/reconciler.env（sgn_reconciler 的密碼、外部系統的 auditor 金鑰）與外部系統的位址。
@@ -16,6 +16,12 @@ export async function reconcileChannel(db: pg.Pool, channel: string, port: Recon
     const report = await port.fetchReport();
     return (await db.query<{ r: unknown }>(`select api_job.${reconcilerCalls.reconciliationSubmit.fn}($1, $2) as r`, [channel, report]))
         .rows[0].r;
+}
+
+/** 一個通道取一批使用紀錄的摘要（裁決 D92 (4)：沿用對帳的拉取），原樣交給資料庫，回傳資料庫的結果。 */
+export async function collectUsage(db: pg.Pool, channel: string, port: ReconciliationPort): Promise<unknown> {
+    const batch = await port.fetchUsage();
+    return (await db.query<{ r: unknown }>(`select api_job.${reconcilerCalls.usageSubmit.fn}($1, $2) as r`, [channel, batch])).rows[0].r;
 }
 
 type ProgramConfig = { db: Record<string, string>; secret: Record<string, string>; database: string };
@@ -39,7 +45,9 @@ async function main(): Promise<void> {
         // 每一輪先回報心跳（裁決 D88 (3)：同時檢查其他程式有沒有停擺）；心跳失敗不擋住對帳
         await db.query(`select api_job.${reconcilerCalls.reconcilerHeartbeat.fn}()`).catch((err: unknown) => console.error(err));
         for (const [channel, port] of ports) {
-            console.log(JSON.stringify({ at: new Date().toISOString(), channel, result: await reconcileChannel(db, channel, port) }));
+            const result = await reconcileChannel(db, channel, port);
+            const usage = await collectUsage(db, channel, port).catch((err: unknown) => ({ error: String(err) }));
+            console.log(JSON.stringify({ at: new Date().toISOString(), channel, result, usage }));
         }
     };
     const everyIndex = process.argv.indexOf('--every');

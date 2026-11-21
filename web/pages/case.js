@@ -304,6 +304,39 @@ function verificationView(r) {
         { 'data-testid': 'verification', 'data-status': r.status },
         el('h3', {}, t.verificationHead(r.version, t.verificationStatus[r.status] ?? r.status)),
         el('ul', { class: 'delivery-list' }, r.cases.map(verificationItem)),
+        // 使用方系統宣告做不到的限制：沒有驗證（K-VERIFY-SKIPPED），照實列出
+        r.skipped.length
+            ? el(
+                  'ul',
+                  { class: 'delivery-list', 'data-testid': 'verification-skipped' },
+                  r.skipped.map((x) =>
+                      el(
+                          'li',
+                          { 'data-code': x.code },
+                          el('span', { class: 'warn-text' }, '—'),
+                          ` ${x.description}`,
+                          el('div', { class: 'muted' }, `${t.verificationSkipped}：${x.reason}`),
+                      ),
+                  ),
+              )
+            : null,
+    );
+}
+
+/** 使用情形（D92 (4)：使用方系統回報的批次摘要，資料庫算好最後使用時間與近幾天的次數）。生效過的單才顯示。 */
+function usageView(c) {
+    if (!c.grant) return null;
+    const u = c.usage;
+    return section(
+        'usage',
+        t.usage.title,
+        el(
+            'div',
+            { class: 'card', 'data-testid': 'usage' },
+            u
+                ? [el('p', {}, t.usage.last(u.last_used_text)), el('p', { class: 'muted' }, t.usage.recent(u))]
+                : el('p', { class: 'muted' }, t.usage.none),
+        ),
     );
 }
 
@@ -446,7 +479,7 @@ export async function renderCase(ctx, caseId) {
             ? el(
                   'div',
                   { class: 'result warn', 'data-testid': 'case-exceptions' },
-                  d.exceptions.map((x) => el('p', {}, t.exception[x.rule_code] ?? t.exceptionUnknown)),
+                  d.exceptions.map((x) => el('p', {}, pack.exceptionText?.(x.rule_code) ?? t.exception[x.rule_code] ?? t.exceptionUnknown)),
               )
             : null,
         // 逾期還沒被處理（資料庫算好，頁面不自行推斷；K-PROGRAM-STALLED）
@@ -463,6 +496,7 @@ export async function renderCase(ctx, caseId) {
         decisionFacts(d, pack),
         waitingText(c) ? el('p', { class: 'muted', 'data-testid': 'progress' }, `${t.progress}：`, waitingText(c)) : null,
         deliveryView(c),
+        usageView(c),
         c.actions.some((a) => BODY_ACTIONS.includes(a))
             ? el(
                   'div',

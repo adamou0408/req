@@ -1,7 +1,15 @@
 // 設定只從環境變數讀：start.sh 載入 service.env（非機密）、instances/<實例>.env（實例自己的埠、資料庫、角色）
 // 與這個實例的密鑰檔（執行期產生，見 lib.sh 的 sim_dc_init_secrets）；測試則自己給一組（另外的資料庫、角色前綴與 unix socket）。
 
-export type Scope = 'rules.write' | 'rules.read' | 'test_query' | 'reconcile.read' | 'sandbox.run' | 'admin.backdoor';
+export type Scope =
+    | 'rules.write'
+    | 'rules.read'
+    | 'test_query'
+    | 'reconcile.read'
+    | 'usage.read'
+    | 'data.use'
+    | 'sandbox.run'
+    | 'admin.backdoor';
 
 export interface ClientConfig {
     readonly name: string;
@@ -38,6 +46,9 @@ export interface Config {
     // 回應證明（attestation）的簽章私鑰（ES256，PKCS#8 PEM）
     readonly responseKeyFile: string;
     readonly backdoor: boolean;
+    // 使用紀錄的時段長度（秒）與批次摘要涵蓋的天數（D92 (4)）
+    readonly usagePeriodSeconds: number;
+    readonly usageWindowDays: number;
     readonly clients: readonly ClientConfig[];
 }
 
@@ -97,17 +108,20 @@ export function loadConfig(): Config {
         channel: required('SIM_DC_CHANNEL'),
         responseKeyFile: required('SIM_DC_RESPONSE_KEY_FILE'),
         backdoor: process.env['SIM_DC_ENABLE_BACKDOOR'] === '1',
+        usagePeriodSeconds: Number(required('SIM_DC_USAGE_PERIOD_SECONDS')),
+        usageWindowDays: Number(required('SIM_DC_USAGE_WINDOW_DAYS')),
         clients: [
             {
                 name: 'platform',
                 key: required('SIM_DC_KEY_PLATFORM'),
                 scopes: ['rules.write', 'rules.read', 'test_query', 'reconcile.read', 'sandbox.run'],
             },
-            { name: 'auditor', key: required('SIM_DC_KEY_AUDITOR'), scopes: ['rules.read', 'reconcile.read'] },
+            { name: 'auditor', key: required('SIM_DC_KEY_AUDITOR'), scopes: ['rules.read', 'reconcile.read', 'usage.read'] },
             {
                 name: 'admin',
                 key: required('SIM_DC_KEY_ADMIN'),
-                scopes: ['rules.read', 'test_query', 'reconcile.read', 'admin.backdoor'],
+                // data.use：代替實際操作的人查資料（使用方系統自己的前端；模擬器以 admin 金鑰扮演）
+                scopes: ['rules.read', 'test_query', 'reconcile.read', 'usage.read', 'data.use', 'admin.backdoor'],
             },
         ],
     };

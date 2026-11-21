@@ -34,7 +34,11 @@ export type DeliveryPort = {
     send(item: DeliveryItem): Promise<DeliveryOutcome>;
 };
 
-/** 對帳 port：外部系統實際存在的權限（dc_reconciliation_report/1），原樣交回外部系統的回應（含證明）。和交付用不同的金鑰。 */
+/**
+ * 對帳 port：外部系統實際存在的權限（dc_reconciliation_report/1）與使用紀錄的批次摘要（usage_summary_batch/1，裁決 D92 (4)），
+ * 原樣交回外部系統的回應（含證明）。和交付用不同的金鑰。
+ */
 export type ReconciliationPort = {
     fetchReport(): Promise<unknown>;
+    fetchUsage(): Promise<unknown>;
 };

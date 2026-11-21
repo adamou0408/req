@@ -118,6 +118,24 @@ const task: Shape = {
     },
 };
 
+/**
+ * 使用紀錄（裁決 D92 (4)）：使用方系統回報的批次摘要，每個鍵（單、人、時段）取最新的一批。last_used_at 是最後一次使用；
+ * queries、exports、blocked、people 是近 recent_days 天（參數 usage.recent_days）的次數與實際使用的人數。這張單沒有任何回報時為 null。
+ */
+const caseUsage: Shape = {
+    nullable: {
+        object: {
+            last_used_at: { nullable: 'timestamp' },
+            last_used_text: { nullable: 'text' },
+            recent_days: 'int',
+            queries: 'int',
+            exports: 'int',
+            blocked: 'int',
+            people: 'int',
+        },
+    },
+};
+
 /** 申請單詳情：摘要＋每一關與每件工作、版本歷程、重疊檢查、執行內容、授權。 */
 export const caseDetail: Shape = {
     object: {
@@ -206,6 +224,8 @@ export const caseDetail: Shape = {
                             status: 'text',
                             created_at: 'timestamp',
                             finished_at: { nullable: 'timestamp' },
+                            /** 流程包標成不驗的案例（例如使用方系統宣告做不到的限制；K-VERIFY-SKIPPED）：代碼、說明與原因 */
+                            skipped: { array: { object: { code: 'text', description: 'text', reason: 'text' } } },
                             cases: {
                                 array: {
                                     object: {
@@ -245,6 +265,7 @@ export const caseDetail: Shape = {
                 },
             },
         },
+        usage: caseUsage,
     },
 };
 
@@ -339,6 +360,7 @@ const suspensionDisplay: Shape = {
 const auditCase: Shape = {
     object: {
         case: { object: { ...caseFields, confirm_due: confirmDue } },
+        usage: caseUsage,
         events: {
             array: {
                 object: {
@@ -619,6 +641,19 @@ export const routes = [
     },
 ] as const satisfies readonly Call[];
 
+const catalogPending: Shape = {
+    object: {
+        exception_id: 'int',
+        case_id: 'uuid',
+        case_no: 'int',
+        from_version_no: 'int',
+        to_version_no: 'int',
+        due_at: 'timestamp',
+        packages: { array: 'text' },
+        changes: { array: { object: { code: 'text', before: { nullable: 'text' }, after: { nullable: 'text' } } } },
+    },
+};
+
 /** 流程包專屬的路由（api.<流程包>_*）；結構由各流程包的資料庫測試檢查（db/tests/packs/<流程包>/）。 */
 export const packRoutes = {
     data_access: [
@@ -651,6 +686,9 @@ export const packRoutes = {
                 },
             },
         },
+        /** 等看的人（資料擁有者）確認的目錄異動：只改名稱的項目（D92 (6)）；畫面依這份清單顯示「確認」 */
+        { fn: 'data_access_catalog_pending', params: ['session'], returns: { array: catalogPending } },
+        { fn: 'data_access_catalog_confirm', params: ['session', 'exception_id'], returns: { array: catalogPending } },
     ],
 } as const satisfies Record<string, readonly Call[]>;
 
@@ -721,6 +759,8 @@ export const mailerCalls = {
 /** 對帳（api/src/reconciler.ts，帳號 sgn_reconciler）：外部系統簽過的對帳回報交給資料庫驗證與比對 */
 export const reconcilerCalls = {
     reconciliationSubmit: { fn: 'reconciliation_submit', params: ['channel', 'report'] },
+    /** 使用紀錄的批次摘要（外部系統簽過的）交給資料庫驗證與保存（K-USAGE-ATTESTED；裁決 D92 (4)） */
+    usageSubmit: { fn: 'usage_submit', params: ['channel', 'response'] },
     /** 每一輪回報心跳並檢查其他程式（K-PROGRAM-STALLED） */
     reconcilerHeartbeat: { fn: 'reconciler_heartbeat', params: [] },
 } as const satisfies Record<string, Grant>;
@@ -747,6 +787,10 @@ export const schedulerCalls = {
     reconciliationOverdueCheck: { fn: 'reconciliation_overdue_check', params: [] },
     /** 錨定落後超過參數時開例外 K-ANCHOR-LAG（裁決 D84 (7)） */
     anchorLagCheck: { fn: 'anchor_lag_check', params: [] },
+    /** 有期限的例外逾期還沒結案時通知升級對象（K-EXCEPTION-FOLLOWUP） */
+    exceptionFollowupDue: { fn: 'exception_followup_due', params: [] },
+    /** 閒置的授權提醒收回、使用摘要逾期（K-USAGE-IDLE、K-USAGE-OVERDUE） */
+    usageChecks: { fn: 'usage_checks', params: [] },
 } as const satisfies Record<string, Grant>;
 
 /** 身分提供者的金鑰更新程序（db/tools/idp-keys.mjs，帳號 sgn_idp_keys；裁決 D81 (5)）能執行的 api_idp function。 */

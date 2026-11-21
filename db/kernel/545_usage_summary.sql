@@ -418,3 +418,120 @@ from (values
     ('K-USAGE-OVERDUE', '回報過使用摘要的通道超過參數的時間沒有新的一批，開例外並升級', 'partial',
         '從來沒有回報過的通道不檢查（沒有使用紀錄的系統由能力宣告標示）')
 ) as r (code, description, coverage, note);
+
+-- ── 畫面：申請單詳情多了使用紀錄、驗證多了不驗的案例；稽核證據頁多了使用紀錄 ──
+
+-- 申請單詳情上的交付與驗證（同 430 的簽章）：每一輪驗證多了 skipped（K-VERIFY-SKIPPED）。
+create or replace function sgn_internal.case_delivery_view(p_case_id uuid)
+returns jsonb
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select jsonb_build_object(
+        'ops', coalesce((
+            select jsonb_agg(jsonb_build_object(
+                'op_id', o.id, 'channel', o.channel, 'kind', o.kind, 'version', o.version, 'status', o.status, 'attempts', o.attempts,
+                'created_at', o.created_at, 'finished_at', o.finished_at,
+                'next_attempt_at', case when o.status = 'queued' then o.next_attempt_at end,
+                'last_http_status', o.last_http_status, 'last_error', coalesce(o.result ->> 'error', o.last_error)
+            ) order by o.id)
+            from sgn.delivery_op as o
+            where o.case_id = p_case_id
+        ), '[]'::jsonb),
+        'verifications', coalesce((
+            select jsonb_agg(jsonb_build_object(
+                'run_id', r.id, 'channel', r.channel, 'version', r.version, 'status', r.status,
+                'created_at', r.created_at, 'finished_at', r.finished_at,
+                'skipped', (
+                    select coalesce(jsonb_agg(jsonb_build_object(
+                        'code', s ->> 'code', 'description', coalesce(s ->> 'description', s ->> 'code'),
+                        'reason', coalesce(s #>> '{skip,reason}', s #>> '{skip}')
+                    ) order by n), '[]'::jsonb)
+                    from jsonb_array_elements(r.skipped) with ordinality as k (s, n)
+                ),
+                'cases', (
+                    select coalesce(jsonb_agg(jsonb_build_object(
+                        'code', c ->> 'code',
+                        'description', coalesce(c ->> 'description', c ->> 'code'),
+                        'expected', c ->> 'expected',
+                        'actual', a.actual,
+                        'match', case when a.actual is not null then a.actual = c ->> 'expected' end
+                    ) order by n), '[]'::jsonb)
+                    from jsonb_array_elements(r.cases) with ordinality as e (c, n)
+                    left join lateral (
+                        select x ->> 'actual' as actual from jsonb_array_elements(coalesce(r.results, '[]'::jsonb)) as x
+                        where x ->> 'code' = c ->> 'code' limit 1
+                    ) as a on true
+                )
+            ) order by r.id)
+            from sgn.verification_run as r
+            where r.case_id = p_case_id
+        ), '[]'::jsonb)
+    )
+$$;
+
+-- 申請單詳情（同 470 的簽章）：多了 usage。
+create or replace function sgn_internal.case_detail(p_case_id uuid, p_person_id uuid)
+returns jsonb
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    return sgn_internal.case_summary(p_case_id, p_person_id) || jsonb_build_object(
+        'stages', sgn_internal.case_stages_view(p_case_id),
+        'versions', sgn_internal.case_versions_view(p_case_id),
+        'overlap', sgn_internal.case_overlap_current(p_case_id),
+        'fulfilment', (
+            select jsonb_build_object('version', f.version, 'payload', f.payload, 'payload_sha256', encode(f.payload_sha256, 'hex'))
+            from sgn.fulfilment as f
+            where f.case_id = p_case_id
+            order by f.id desc
+            limit 1
+        ),
+        'grant', (
+            select jsonb_build_object('grant_id', g.id, 'valid_from', g.valid_from, 'valid_to', g.valid_to, 'status', g.status)
+            from sgn.grant_record as g
+            where g.case_id = p_case_id
+        ),
+        'display', sgn_internal.case_display(p_case_id, p_person_id),
+        'duplicates', sgn_internal.case_duplicates(p_case_id),
+        'path', sgn_internal.case_path(p_case_id),
+        'resubmit', sgn_internal.case_resubmit_preview(p_case_id),
+        'delivery', sgn_internal.case_delivery_view(p_case_id),
+        'confirmation', sgn_internal.case_confirmation_view(p_case_id),
+        'usage', sgn_internal.case_usage(p_case_id)
+    );
+end;
+$$;
+
+-- 稽核證據頁（同 70 的簽章）：多了 usage。
+create or replace function api.audit_case(p_session text, p_case_no bigint)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_person_id uuid := sgn_internal.session_person(p_session);
+    v_case sgn.request_case;
+begin
+    perform sgn_internal.authorize(v_person_id, 'audit.read');
+    select * into v_case from sgn.request_case where case_no = p_case_no;
+    if v_case.id is null then
+        perform sgn_internal.raise_error('CASE_UNKNOWN');
+    end if;
+    return jsonb_build_object(
+        'case', sgn_internal.case_summary(v_case.id, null) - 'actions',
+        'usage', sgn_internal.case_usage(v_case.id),
+        'events', sgn_internal.audit_case_events(v_case),
+        'proofs', sgn_internal.audit_case_proofs(v_case.id)
+    );
+end;
+$$;
+
+comment on function api.audit_case(text, bigint) is
+    '稽核證據頁：一張單的內容與例外、使用紀錄（最後使用時間、近幾天的次數，K-USAGE-ATTESTED）、它的全部鏈上事件（含原始 bytes 與前後雜湊）、'
+    '決定證明原文與所用的公開金鑰、登記該金鑰的事件與簽核人依據的主管異動事件。只限稽核角色，唯讀。呼叫者：sgn_app。'
+    '規則：PRB-AUDIT-READ、PRB-CHAIN、PRB-PROOF、PRB-SYNC-GUARD、K-USAGE-ATTESTED';

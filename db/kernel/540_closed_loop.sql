@@ -117,6 +117,14 @@ insert into sgn.state_transition (entity, from_state, action, to_state) values
 insert into sgn.error_catalog (code, message, http_status) values
     ('REBIND_STATE', '只有簽核中的單可以重新綁定', 409);
 
+-- 等認領的工作被作廢時沒有指派對象：原本的檢查（「未認領」⇔「沒有指派對象」）讓 stages_close_open 在群組認領關還沒有人認領時
+-- 一定失敗（重新綁定時第一次碰到；撤回到同一關也會）。改成：未認領的一定沒有指派對象，等人決定與已決定的一定有，作廢的兩者都可以。
+alter table sgn.case_task drop constraint case_task_check;
+alter table sgn.case_task add constraint case_task_assignee_check check (
+    (status <> 'unclaimed' or assignee_person_id is null)
+    and (status not in ('pending', 'approved', 'returned', 'rejected', 'completed') or assignee_person_id is not null)
+);
+
 -- 之前的關卡全部作廢、改用最新版路徑（和退回後擴大重送相同的做法，K-RETURN）。
 create function sgn_internal.case_restart_stages(p_case sgn.request_case, p_reason text)
 returns void

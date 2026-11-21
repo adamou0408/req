@@ -2,7 +2,7 @@
 
 一個獨立的小服務（Node 22 + TypeScript，唯一的執行期套件是 `pg`），加上它自己的 PostgreSQL 資料庫。收到平台核准的規則後，把它套用成**真正的資料庫權限**：每個被授權者一個身分角色、**每條規則一個角色**（欄位層級的權限、列層級安全 RLS 都掛在規則角色上，所以不同規則互不交叉）、匯出另外授權。測試查詢與對帳都是對資料庫的真實操作。只供開發與測試；不含平台的業務判斷，收到什麼規則就執行什麼。
 
-實作到平台定義的「外部系統交付介面」完整等級（裁決 D81 (2)）：平台簽的請求帶通道、環境、方法、路徑與期限（信封）；整張單撤回＝封存，之後任何版本都不收；每個環境各自的信任清單；**每個回應都帶 DC 自己簽的證明**（請求摘要、平台給的一次性亂數、HTTP 狀態與結果），對帳回報也是。見下面的「簽章格式」與「回應的證明」。
+實作到平台定義的「外部系統交付介面」完整等級（裁決 D81 (2)；格式的唯一來源 `docs/contract/02-pack-data-access.md` §8.8）：平台簽的請求帶通道、環境、方法、路徑與期限（信封）；整張單撤回＝封存，之後任何版本都不收；每個環境各自的信任清單；**每個回應都帶 DC 自己簽的證明**（請求摘要、平台給的一次性亂數、HTTP 狀態與結果），對帳回報也是。另外回報自己用的目錄版本（02 §8.6）、提供使用紀錄的批次摘要（02 §8.7）。
 
 ## 怎麼跑
 
@@ -49,8 +49,8 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 | 呼叫方 | 金鑰變數 | 可以做 |
 |---|---|---|
 | `platform` | `SIM_DC_KEY_PLATFORM` | 套用、撤回、查規則、測試查詢、對帳、沙箱 |
-| `auditor` | `SIM_DC_KEY_AUDITOR` | 查規則、對帳 |
-| `admin` | `SIM_DC_KEY_ADMIN` | 查規則、測試查詢、對帳、**管理後門** |
+| `auditor` | `SIM_DC_KEY_AUDITOR` | 查規則、對帳、使用摘要 |
+| `admin` | `SIM_DC_KEY_ADMIN` | 查規則、測試查詢、對帳、使用摘要、代替使用者查詢（`/use`）、**管理後門** |
 
 ## 端點
 
@@ -59,17 +59,19 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 | 方法與路徑 | 用途 | 本文 → 回應 |
 |---|---|---|
 | `GET /health` | 健康檢查（不需金鑰） | → `{"status":"ok","databases":{…}}` |
-| `PUT {base}/rule-sets/{case_no}` | 套用規則（**要簽章**） | `data_access_rule_set/1` → `{"status":"applied","dc_ref":"DC-{case_no}-v{版}"}` |
+| `PUT {base}/rule-sets/{case_no}` | 套用規則（**要簽章**） | `data_access_rule_set/1` → `{"status":"applied","dc_ref":"DC-{case_no}-v{版}","catalog_sha256"}` |
 | `DELETE {base}/rule-sets/{case_no}` | 撤回（**要簽章**） | `{"request_id","case_no","rule_ids"?}` → `{"status":"withdrawn"}`；省略 `rule_ids` 是全部 |
 | `GET {base}/rule-sets`、`GET {base}/rule-sets/{case_no}` | 服務收到並接受了哪些規則（服務自己的紀錄） | → 規則清單 |
 | `POST {base}/maintenance/purge-expired` | 清除授權期間已結束的規則（可由排程呼叫；platform 金鑰；不需簽章，只會收回已過期的） | `{}` → `{"status":"purged","count","purged":[{"case_no","rule_id","db_role"}]}` |
 | `POST {base}/test-query` | 以某個被授權者的身分真的查一次 | `{"principal_id","query","probe_missing_row"?}` → 見下 |
-| `POST {base}/test-queries` | 平台的驗證（02 §8.5 `verify_request`） | `{"request_id","run_id","rule_set","cases"}` → `{"status":"completed","results":[{"code","actual","reason","detail"}]}` |
+| `POST {base}/test-queries` | 平台的驗證（02 §8.8） | `{"request_id","run_id","rule_set","cases"}` → `{"status":"completed","results":[{"code","actual","reason","detail"}],"catalog_sha256"}` |
 | `GET {base}/reconciliation[?exclude_inactive=1]` | 對帳回報：資料庫裡實際存在的權限 | → 見下 |
+| `GET {base}/usage-summaries` | 使用紀錄的批次摘要（02 §8.7） | → `usage_summary_batch/1` |
+| `POST {base}/use` | 代替實際操作的人查一次並記下使用 | 見「使用紀錄」 |
 | `POST /masked/v1/sandbox/runs` | 遮罩環境的沙箱 | `{"queries":[{"name","sql"}]}` → 見下 |
 | `POST {base}/admin/{操作}` | **管理後門，只供測試** | 見下 |
 
-失敗一律回 `{"status":"failed","code","error"}`：401 金鑰或簽章不對（`signature_invalid`）、簽章過期（`signature_expired`）、403 呼叫方沒有權限、409 版本衝突（`conflict`）、這張單已封存（`archived`）、簽章指定的通道／環境／方法／路徑和這次請求不同（`target_mismatch`）、422 規則或查詢的結構不對、不是信封（`invalid_envelope`）、404 沒有這張單。請求本文要帶 `content-length`。環境前綴底下的**每個回應**（含失敗）都另有 `attestation`（見「回應的證明」）。
+失敗一律回 `{"status":"failed","code","error"}`：401 金鑰或簽章不對（`signature_invalid`）、簽章過期（`signature_expired`）、403 呼叫方沒有權限、409 版本衝突（`conflict`）、這張單已封存（`archived`）、簽章指定的通道／環境／方法／路徑和這次請求不同（`target_mismatch`）、422 規則或查詢的結構不對、不是信封（`invalid_envelope`）、404 沒有這張單。請求本文要帶 `content-length`。環境前綴底下的**每個回應**（含失敗）都另有 `attestation`（見「簽章格式與回應的證明」）。
 
 ### 套用的語意
 
@@ -139,38 +141,26 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 
 只接受單一查詢語句（以 extended protocol 送出）；寫入、多個語句、讀其他 schema 會失敗。
 
-### 簽章格式（平台那一側要照這個實作）
+### 簽章格式與回應的證明
 
-會改變權限的請求（`PUT`、`DELETE` 規則）必須帶：
+格式的唯一來源是 [`docs/contract/02-pack-data-access.md` §8.8](../../docs/contract/02-pack-data-access.md)（信封 `sgn_dc_request/1`、`Sgn-Signature` 標頭、被簽的位元組、驗章後的通道／環境／方法／路徑／期限檢查、回應證明 `sgn_dc_attestation/1`）。這裡只寫模擬器的設定：
 
-```
-Sgn-Signature: keyid="<金鑰代號>", alg="ed25519", sig="<簽章，標準 base64>"
-```
-
-- 本文是一個**信封**，被簽的位元組 = `"sgn-dc-sig/1\n"`（UTF-8）緊接著**本文的原始位元組**（不重新序列化）：
-
-```json
-{"format": "sgn_dc_request/1", "channel": "dc", "environment": "sim_dc", "method": "PUT",
- "path": "/rule-sets/DA-2026-0004", "not_after": "2026-11-20T03:05:00Z", "payload": { …規則或撤回請求… }}
-```
-
-- DC 先驗章，再要求 `channel` 等於 `SIM_DC_CHANNEL`、`environment` 等於這個環境的資料庫名稱、`method` 與 `path`（環境前綴之後）等於這次請求、現在還沒過 `not_after`。所以同一份已簽章的規則不能送到另一個環境（`/masked/v1`）或另一個端點，也不能拖到很久之後才送（紅隊第四輪 中-2）。
-- 演算法 Ed25519（RFC 8032，純 Ed25519，不先雜湊）。DC 依 `keyid` 從**這個環境的**信任清單找公鑰。
-- 信任清單：`SIM_DC_TRUSTED_KEYS_FILE`（`/v1`）與 `SIM_DC_TRUSTED_KEYS_FILE_MASKED`（`/masked/v1`），格式 `{"keys":[{"key_id":"…","public_key_pem":"-----BEGIN PUBLIC KEY-----…"}]}`（SPKI PEM）。檔案不存在＝不信任任何金鑰；**沒有開發用的平台金鑰**。平台的建置（`db/tools/delivery-keys.mjs`）把對應資料庫目前那一把寫進正式環境的清單、遮罩環境的清單留空。
+- 平台的公鑰：信任清單 `SIM_DC_TRUSTED_KEYS_FILE`（`/v1`）與 `SIM_DC_TRUSTED_KEYS_FILE_MASKED`（`/masked/v1`），格式 `{"keys":[{"key_id":"…","public_key_pem":"-----BEGIN PUBLIC KEY-----…"}]}`（SPKI PEM）。檔案不存在＝不信任任何金鑰；**沒有開發用的平台金鑰**。平台的建置（`db/tools/delivery-keys.mjs`）把對應資料庫目前那一把寫進正式環境的清單、遮罩環境的清單留空。
+- 回應證明的私鑰：實例的 `keys/response.private.pem`，金鑰代號 `simdc-<公鑰 SPKI 的 SHA-256 前 16 個十六進位字>`（`keys/response.key-id`）。
 - 要換做法（JWS、HTTP Message Signatures）只需要換 `src/signature.ts`。
 
-### 回應的證明（attestation）
+### 目錄版本
 
-環境前綴底下的每個回應本文都是「結果」加上 `attestation`：
+格式與演算法的唯一來源是 02 §8.6。模擬器從自己的目錄（`src/catalog.ts`，代碼、名稱、分級、標籤、對照都和平台的種子相同）加上目前的對照覆寫（`simdc_meta.catalog_remap`，只有測試後門 `remap` 會寫）算出雜湊（`src/catalogVersion.ts`），在套用、驗證與對帳的結果裡回報 `catalog_sha256`。模擬器不比對平台送來的 `catalog`，照自己的目錄執行，由平台判斷兩邊是否一致。
 
-```json
-{"status": "applied", "dc_ref": "DC-DA-2026-0004-v1",
- "attestation": {"payload": "<文字>", "key_id": "simdc-…", "alg": "es256", "sig": "<DER 簽章，標準 base64>"}}
-```
+### 使用紀錄
 
-- `payload` 是一段 JSON 文字：`{"format":"sgn_dc_attestation/1","channel","environment","method","path","query","request_sha256","nonce","http_status","issued_at","result"}`。`request_sha256` 是 DC 收到的請求本文的 SHA-256；`nonce` 是請求標頭 `Sgn-Nonce` 的值（平台每次領取給一個；沒給或格式不對是 null）；`result` 就是這個回應的結果。
-- 被簽的位元組 = `"sgn-dc-attestation/1\n"` 緊接著 `payload` 的 UTF-8；ECDSA P-256＋SHA-256。私鑰是實例的 `keys/response.private.pem`，金鑰代號 `simdc-<公鑰 SPKI 的 SHA-256 前 16 個十六進位字>`（`keys/response.key-id`）。
-- 平台只採信 `payload` 裡的結果（驗章、方法、路徑、請求摘要、一次性亂數都相符之後）；回應的其他欄位只是可讀副本，給不驗章的人與工具看。對帳回報也一樣：`GET /reconciliation` 的 `items` 等欄位是可讀副本，被簽的完整回報在 `attestation.payload.result`。
+格式的唯一來源是 02 §8.7。
+
+| 方法與路徑 | 呼叫方 | 用途 |
+|---|---|---|
+| `POST {base}/use` | `admin`（代替使用方系統自己的前端；範圍 `data.use`） | `{"principal_id","actor":{"provider","external_id"},"query"}`：以被授權者的身分查一次（同測試查詢，PostgreSQL 判定，不回資料），並記一筆使用（這個被授權者在這個主題包上有規則的每張單各一筆；放行算查詢或匯出、擋下算被擋） |
+| `GET {base}/usage-summaries` | `auditor`、`admin`（範圍 `usage.read`） | 最近 `SIM_DC_USAGE_WINDOW_DAYS` 天、每 `SIM_DC_USAGE_PERIOD_SECONDS` 秒一個時段的批次摘要 |
 
 ### 管理後門（只供測試）
 
@@ -183,6 +173,7 @@ Sgn-Signature: keyid="<金鑰代號>", alg="ed25519", sig="<簽章，標準 base
 | `drop_policy` | `{"package","rule_id"}` | 刪掉一條規則的 policy |
 | `clear_row_filter` | `{"package","rule_id"}` | 拿掉一條規則的列條件 |
 | `sabotage` | `{"rule_id","clear"?}` | 之後套用時默默略過這條規則（仍回 `applied`），製造「核准未設定」 |
+| `remap` | `{"key","resource"?}` | 改「代碼 → 實體資源」的對照（`key` 是主題包，或「主題包.欄位或列條件」；省略 `resource` 改回預設），目錄版本跟著變 |
 | `reset` | `{}` | 刪除所有被授權者角色與服務的規則紀錄 |
 
 ## 已知限制

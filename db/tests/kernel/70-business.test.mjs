@@ -159,6 +159,7 @@ test('K-DECISION-PROOF 沒有證明就沒有決定：改狀態的入口是固定
     // D63：生效後縮小（api.case_reduce，不需要證明、經授權入口）與交付的系統動作（執行關的進度、交付或驗證失敗、授權結束）
     // 是新的狀態入口；它們都不是需要證明的動作（下面 needs_proof 的清單不變）
     // K-CONFIRM：申請人確認、回報不對（不需要證明、經授權入口）與確認逾期的系統撤銷也是狀態入口
+    // K-CONTENT-REBIND：外部定義改版後的重新綁定（系統動作，只由流程包在改版的交易裡呼叫）也是狀態入口
     assert.deepEqual(await callers('sgn_internal.case_transition'), [
         'api.case_confirm_verification',
         'api.case_dispute_verification',
@@ -166,6 +167,7 @@ test('K-DECISION-PROOF 沒有證明就沒有決定：改狀態的入口是固定
         'api.case_revise',
         'api.task_claim',
         'sgn_internal.case_advance',
+        'sgn_internal.case_rebind',
         'sgn_internal.case_submit_draft',
         'sgn_internal.confirmation_expire_due',
         'sgn_internal.decision_apply',

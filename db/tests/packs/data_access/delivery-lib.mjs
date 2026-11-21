@@ -16,7 +16,7 @@ export function deliveryPool() {
 }
 
 /**
- * 模擬的外部系統：信任這個資料庫目前的交付簽章公鑰；它自己的回應證明金鑰（每次一把新的）登記進資料庫
+ * 模擬的外部系統：信任這個資料庫目前的交付簽章公鑰；回報的目錄版本是平台目前的版本；它自己的回應證明金鑰（每次一把新的）登記進資料庫
  * （和 sim/dc 的 unit 實例的金鑰並存，不退役它；環境代碼用資料庫設定的那一個）。
  */
 export async function mockDc(admin) {
@@ -24,6 +24,7 @@ export async function mockDc(admin) {
     const environment = (
         await admin.query(`select sgn_internal.setting('delivery.target_environment', array['channel:${CHANNEL}']) #>> '{}' as e`)
     ).rows[0].e;
+    const catalog = (await admin.query(`select pack_data_access.catalog_current() ->> 'sha256' as s`)).rows[0].s;
     const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     const keyId = `mock-${randomUUID().slice(0, 8)}`;
     await admin.query('select sgn_internal.channel_key_register($1, $2, $3, false)', [
@@ -38,6 +39,8 @@ export async function mockDc(admin) {
         channel: CHANNEL,
         environment,
         responseKey: { keyId, privatePem: privateKey.export({ type: 'pkcs8', format: 'pem' }).toString() },
+        // 模擬的外部系統用的目錄版本：預設和平台目前的版本相同（D92 (1)）；測試改它模擬使用方的目錄改了
+        catalog: { sha256: catalog },
     });
 }
 

@@ -4,6 +4,7 @@
 //   主體      角色說明（pg_shdescription）
 // 不讀服務自己記的規則表（simdc_meta.rule_set）。格式對齊 05-integration.md §8.3 的上傳項目。
 import { PACKAGES, ROW_ID } from './catalog.ts';
+import { currentCatalogSha256 } from './catalogVersion.ts';
 import type { Db } from './db.ts';
 import { exportPrivileges } from './exportView.ts';
 import { parsePolicyExpression, type PolicySpec } from './policy.ts';
@@ -127,6 +128,7 @@ interface ReconciliationReport {
     readonly database: string;
     readonly process_type: 'data_access';
     readonly resource_type: 'data_field';
+    readonly catalog_sha256: string;
     readonly items: ReconciliationItem[];
     readonly superusers: string[];
     readonly rls_disabled: string[];
@@ -213,6 +215,8 @@ export async function reconciliationReport(db: Db, today: string): Promise<Recon
         database: (await db.query<{ d: string }>('select current_database() as d')).rows[0]?.d ?? '',
         process_type: 'data_access',
         resource_type: 'data_field',
+        // 這份回報依據的目錄版本（D92 (1)：平台逐張比對它和每張單綁定的版本）
+        catalog_sha256: await currentCatalogSha256(db),
         items,
         superusers: supers.rows.map((r) => r.rolname),
         rls_disabled: [...rlsOn].filter(([, on]) => !on).map(([t]) => t),

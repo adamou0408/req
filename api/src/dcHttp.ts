@@ -5,6 +5,7 @@
 //   purge     POST   {base}/maintenance/purge-expired
 //   verify    POST   {base}/test-queries
 //   對帳      GET    {base}/reconciliation                 唯讀的稽核金鑰
+//   使用紀錄  GET    {base}/usage-summaries                唯讀的稽核金鑰（批次摘要，裁決 D92 (4)）
 // 本文一律送資料庫給的那串文字的 UTF-8 位元組（簽章涵蓋它）；冪等鍵放在 X-Request-Id（撤回與驗證的本文裡也有），
 // 這次領取的一次性亂數放在 Sgn-Nonce（外部系統的證明要帶著它）。回應原樣交回資料庫。
 import type { DeliveryItem, DeliveryOutcome, DeliveryPort, ReconciliationPort } from './deliveryPort.ts';
@@ -55,14 +56,13 @@ export function dcHttpDelivery(options: DcHttpOptions): DeliveryPort {
 }
 
 export function dcHttpReconciliation(options: DcHttpOptions): ReconciliationPort {
-    return {
-        async fetchReport(): Promise<unknown> {
-            const res = await fetch(`${options.base}/reconciliation`, {
+    // 不論 HTTP 狀態都原樣交給資料庫：採不採信由外部系統的證明決定
+    const get = async (path: string): Promise<unknown> =>
+        parse(
+            await fetch(`${options.base}${path}`, {
                 headers: { authorization: `Bearer ${options.key}` },
                 signal: AbortSignal.timeout(options.timeoutMs),
-            });
-            // 不論 HTTP 狀態都原樣交給資料庫：採不採信由外部系統的證明決定
-            return parse(res);
-        },
-    };
+            }),
+        );
+    return { fetchReport: () => get('/reconciliation'), fetchUsage: () => get('/usage-summaries') };
 }

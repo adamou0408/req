@@ -42,6 +42,11 @@ export type DcMockOptions = {
     environment: string;
     /** 回應證明的金鑰（P-256，PKCS#8 PEM）與代號：平台的資料庫要登記它（sgn_internal.channel_key_register） */
     responseKey: { keyId: string; privatePem: string };
+    /**
+     * 這個模擬外部系統目前用的資料目錄版本（雜湊）：套用與驗證的結果帶著它（裁決 D92 (1)）。測試可以改它，模擬使用方的目錄改了；
+     * null 表示不回報。
+     */
+    catalog: { sha256: string | null };
 };
 
 const reply = (http_status: number, result: Record<string, unknown>): Reply => ({ http_status, result });
@@ -100,7 +105,7 @@ function openEnvelope(options: DcMockOptions, item: DeliveryItem): { payload: un
     return { payload: env.payload };
 }
 
-function apply(store: Map<string, Stored>, archived: Set<string>, payload: unknown): Reply {
+function apply(store: Map<string, Stored>, archived: Set<string>, payload: unknown, catalog: string | null): Reply {
     const set = payload as RuleSet;
     const text = JSON.stringify(set);
     if (archived.has(set.case_no)) return reply(409, { status: 'failed', code: 'archived', error: 'archived' });
@@ -112,7 +117,7 @@ function apply(store: Map<string, Stored>, archived: Set<string>, payload: unkno
         return reply(409, { status: 'failed', code: 'conflict', error: 'version conflict' });
     }
     store.set(set.case_no, { set, payload: text, withdrawn: false });
-    return reply(200, { status: 'applied', dc_ref: `mock:${set.case_no}:v${set.case_version_no}` });
+    return reply(200, { status: 'applied', dc_ref: `mock:${set.case_no}:v${set.case_version_no}`, catalog_sha256: catalog });
 }
 
 function withdraw(store: Map<string, Stored>, archived: Set<string>, seen: Set<string>, payload: unknown): Reply {
@@ -126,13 +131,13 @@ function withdraw(store: Map<string, Stored>, archived: Set<string>, seen: Set<s
     return reply(200, { status: 'withdrawn' });
 }
 
-function testQueries(store: Map<string, Stored>, item: DeliveryItem): Reply {
+function testQueries(store: Map<string, Stored>, item: DeliveryItem, catalog: string | null): Reply {
     const req = JSON.parse(item.body) as { rule_set: RuleSet; cases: { code: string; query: Query }[] };
     const live = [...store.values()]
         .filter((s) => !s.withdrawn && s.set.grantee.principal_id === req.rule_set.grantee.principal_id)
         .map((s) => s.set);
     const results = req.cases.map((c) => ({ code: c.code, ...evaluateUnion(live, req.rule_set, c.query) }));
-    return reply(200, { status: 'completed', results });
+    return reply(200, { status: 'completed', results, catalog_sha256: catalog });
 }
 
 type Request = { method: string; path: string; body: string; nonce: string | null };
@@ -174,7 +179,7 @@ function handle(
     state: { store: Map<string, Stored>; archived: Set<string>; seen: Set<string> },
     item: DeliveryItem,
 ): Reply {
-    if (item.kind === 'verify') return testQueries(state.store, item);
+    if (item.kind === 'verify') return testQueries(state.store, item, options.catalog.sha256);
     if (item.kind === 'purge') {
         for (const [caseNo, s] of state.store) if (s.set.valid.to < options.today()) state.store.delete(caseNo);
         return reply(200, { status: 'purged' });
@@ -184,16 +189,20 @@ function handle(
     const opened = openEnvelope(options, item);
     if (!('payload' in opened)) return opened;
     return item.kind === 'apply'
-        ? apply(state.store, state.archived, opened.payload)
+        ? apply(state.store, state.archived, opened.payload, options.catalog.sha256)
         : withdraw(state.store, state.archived, state.seen, opened.payload);
 }
 
 export type DcMock = DeliveryPort & {
     readonly store: ReadonlyMap<string, Stored>;
+    /** 回報的目錄版本（options.catalog 本身；測試改它模擬使用方的目錄改了） */
+    readonly catalog: { sha256: string | null };
     /** 這個模擬外部系統對某一筆「照實」回覆指定的狀態與結果（帶證明）：測試用來模擬外部系統忙、拒絕等情況 */
     reply(item: DeliveryItem, http_status: number, result: Record<string, unknown>): DeliveryOutcome;
     /** 這個模擬外部系統簽的對帳回應（GET /reconciliation）：測試用來交指定內容的回報 */
     reconciliation(report: Record<string, unknown>): unknown;
+    /** 這個模擬外部系統簽的使用摘要回應（GET /usage-summaries）：測試用來交指定內容的一批 */
+    usage(batch: Record<string, unknown>): unknown;
 };
 
 export function dcMockDelivery(options: DcMockOptions): DcMock {
@@ -202,14 +211,23 @@ export function dcMockDelivery(options: DcMockOptions): DcMock {
     return {
         kind: 'mock',
         store: state.store,
+        catalog: options.catalog,
         send(item: DeliveryItem): Promise<DeliveryOutcome> {
             return Promise.resolve(attested(options, item, handle(options, keys, state, item)));
         },
         reply(item: DeliveryItem, http_status: number, result: Record<string, unknown>): DeliveryOutcome {
-            return attested(options, item, reply(http_status, result));
+            // 照實回覆的成功結果也帶這個模擬外部系統的目錄版本（外部系統一律回報；測試要模擬「沒有回報」時明給 catalog_sha256: null）
+            const withCatalog =
+                http_status < 300 && (item.kind === 'apply' || item.kind === 'verify') && !('catalog_sha256' in result)
+                    ? { ...result, catalog_sha256: options.catalog.sha256 }
+                    : result;
+            return attested(options, item, reply(http_status, withCatalog));
         },
         reconciliation(report: Record<string, unknown>): unknown {
             return attested(options, { method: 'GET', path: '/reconciliation', body: '', nonce: null }, reply(200, report)).response;
+        },
+        usage(batch: Record<string, unknown>): unknown {
+            return attested(options, { method: 'GET', path: '/usage-summaries', body: '', nonce: null }, reply(200, batch)).response;
         },
     };
 }

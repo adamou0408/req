@@ -4,6 +4,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { applyRuleSet, ApplyConflict, CaseArchived, listRuleSets, purgeExpired, withdrawRules, WithdrawNotFound } from './apply.ts';
 import { backdoor, BackdoorError } from './backdoor.ts';
+import { currentCatalogSha256 } from './catalogVersion.ts';
 import type { ClientConfig, Config, Scope } from './config.ts';
 import { withTx, type Env } from './db.ts';
 import { reconciliationReport } from './reconcile.ts';
@@ -24,6 +25,7 @@ import {
     type TrustedKeys,
 } from './signature.ts';
 import { parseTestQuery, QueryError, runTestQuery, type TestQueryResult } from './testQuery.ts';
+import { parseActor, recordUse, usageSummaries, UsageError } from './usage.ts';
 
 const MAX_BODY = 1024 * 1024;
 
@@ -109,8 +111,12 @@ async function putRuleSet(ctx: Ctx, config: Config): Promise<unknown> {
     const rs = parseRuleSet(payload, config.systems);
     if (rs.case_no !== caseNoOf(ctx.path)) throw new HttpError(422, 'case_no_mismatch', '路徑的 case_no 與本文不同');
     const requestId = (ctx.req.headers['x-request-id'] as string | undefined) ?? null;
-    const result = await withTx(ctx.env, (db) => applyRuleSet(db, ctx.env.config.rolePrefix, rs, { keyId, requestId }));
-    return { status: result.status, dc_ref: result.dc_ref };
+    const result = await withTx(ctx.env, async (db) => ({
+        ...(await applyRuleSet(db, ctx.env.config.rolePrefix, rs, { keyId, requestId })),
+        catalog: await currentCatalogSha256(db),
+    }));
+    // catalog_sha256：套用時用的目錄版本（D92 (1)；在證明涵蓋的結果裡，平台和綁定的版本比對）
+    return { status: result.status, dc_ref: result.dc_ref, catalog_sha256: result.catalog };
 }
 
 async function deleteRuleSet(ctx: Ctx): Promise<[number, unknown]> {
@@ -164,7 +170,37 @@ async function verify(ctx: Ctx): Promise<unknown> {
             results.push({ code, actual: 'error', reason: err.message, detail: null });
         }
     }
-    return { status: 'completed', results };
+    const catalog = await withTx(ctx.env, (db) => currentCatalogSha256(db), { rollback: true });
+    return { status: 'completed', results, catalog_sha256: catalog };
+}
+
+// 實際操作的人查一次（D92 (4)；使用方系統自己的前端，模擬器以 admin 金鑰扮演）：和測試查詢相同由 PostgreSQL 判定，
+// 不回傳資料內容；每一次都記進使用紀錄（這個被授權者在這個主題包上有規則的每張單）。
+async function use(ctx: Ctx): Promise<unknown> {
+    requireScope(ctx, 'data.use');
+    const body = json(ctx.body) as { principal_id?: unknown; actor?: unknown; query?: unknown };
+    const principal = principalOf(body.principal_id);
+    const actor = parseActor(body.actor);
+    const q = parseTestQuery(body.query);
+    // 模擬資料不一定有對應的列：和平台的驗證一樣在交易裡插入測試列（最後 rollback），判定的是權限本身
+    const r = await runTestQuery(ctx.env, principal, q, { probe: true });
+    const allowed = r.decision === 'allow';
+    const cases = await withTx(ctx.env, (db) => recordUse(db, principal, q.package, actor, q.action, allowed));
+    return { status: 'recorded', decision: r.decision, reason: r.reason, cases };
+}
+
+async function usage(ctx: Ctx, config: Config): Promise<unknown> {
+    requireScope(ctx, 'usage.read');
+    return withTx(
+        ctx.env,
+        async (db) => ({
+            format: 'usage_summary_batch/1',
+            database: ctx.env.config.database,
+            period_seconds: config.usagePeriodSeconds,
+            items: await usageSummaries(db, config.usagePeriodSeconds, config.usageWindowDays),
+        }),
+        { rollback: true },
+    );
 }
 
 async function reconciliation(ctx: Ctx): Promise<unknown> {
@@ -210,6 +246,8 @@ async function route(ctx: Ctx, config: Config): Promise<[number, unknown]> {
     if (path === '/test-queries' && method === 'POST') return [200, await verify(ctx)];
     if (path === '/test-query' && method === 'POST') return [200, await testQuery(ctx)];
     if (path === '/reconciliation' && method === 'GET') return [200, await reconciliation(ctx)];
+    if (path === '/usage-summaries' && method === 'GET') return [200, await usage(ctx, config)];
+    if (path === '/use' && method === 'POST') return [200, await use(ctx)];
     if (path === '/maintenance/purge-expired' && method === 'POST') return [200, await purge(ctx)];
     if (path === '/sandbox/runs' && method === 'POST') {
         requireScope(ctx, 'sandbox.run');
@@ -233,7 +271,13 @@ async function route(ctx: Ctx, config: Config): Promise<[number, unknown]> {
 
 function toHttpError(err: unknown): HttpError {
     if (err instanceof HttpError) return err;
-    if (err instanceof RuleSetError || err instanceof QueryError || err instanceof BackdoorError || err instanceof SandboxError) {
+    if (
+        err instanceof RuleSetError ||
+        err instanceof QueryError ||
+        err instanceof BackdoorError ||
+        err instanceof SandboxError ||
+        err instanceof UsageError
+    ) {
         return new HttpError(422, 'invalid_request', err.message);
     }
     if (err instanceof ApplyConflict) return new HttpError(409, 'conflict', err.message);

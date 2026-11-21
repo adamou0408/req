@@ -208,6 +208,39 @@ for (const name of ['mock', 'http']) {
         assert.equal(afterWithdraw.response.results.find((r) => r.code === 'sales_order:in').actual, 'deny');
     });
 
+    test(`DA-CATALOG-MISMATCH 合約（${name}）：套用與驗證的已簽回應帶外部系統當時用的目錄版本，等於平台目前的版本（同一個演算法）；外部系統的對照改了就回報另一個版本，平台不認得（DA-CATALOG-UNKNOWN）`, async () => {
+        const port = adapters[name];
+        const no = caseNo('catalog');
+        const cat = (await one(admin, 'select pack_data_access.catalog_current() as c')).c;
+        const rs = { ...ruleSet(no, 1), catalog: cat };
+        const applied = await item('apply', no, rs);
+        const outcome = await port.send(applied);
+        const v = await verdict(applied, outcome);
+        assert.equal(v.class, 'succeed');
+        assert.equal(v.result.catalog_sha256, cat.sha256);
+        const verifyItem = await item('verify', no, { request_id: randomUUID(), run_id: 1, rule_set: rs, cases: [] });
+        assert.equal((await verdict(verifyItem, await port.send(verifyItem))).result.catalog_sha256, cat.sha256);
+        // 使用方的「代碼 → 實體資源」對照改了（sim/dc 的測試後門；模擬 adapter 直接改它回報的版本）
+        const remap = { key: 'sales_order.amount', resource: 'amount_v2' };
+        const admin2 = (body) =>
+            fetch(`${base}/admin/remap`, {
+                method: 'POST',
+                headers: { authorization: `Bearer ${config.dc.SIM_DC_KEY_ADMIN}`, 'content-type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+        if (name === 'http') assert.equal((await admin2(remap)).status, 200);
+        else port.catalog.sha256 = 'ab'.repeat(32);
+        try {
+            const again = await item('apply', no, rs);
+            const reported = (await verdict(again, await port.send(again))).result.catalog_sha256;
+            assert.notEqual(reported, cat.sha256);
+            assert.equal((await one(admin, 'select pack_data_access.catalog_version_of($1) as n', [reported])).n, null);
+        } finally {
+            if (name === 'http') await admin2({ key: remap.key, resource: null });
+            else port.catalog.sha256 = cat.sha256;
+        }
+    });
+
     test(`K-DELIVERY-ORDER 合約（${name}）：較舊的版本、撤回後的同一版被拒絕（防重放舊的已簽章規則）；撤回以冪等鍵去重；沒有這張單的撤回視為已達成`, async () => {
         const port = adapters[name];
         const no = caseNo('order');

@@ -2,6 +2,7 @@
 // 繞過規則直接改資料庫的權限，製造「實際設定與核准不一致」，用來測試對帳抓不抓得到。
 // 需要 admin 金鑰，並且只在 SIM_DC_ENABLE_BACKDOOR=1 時開放。真實的 DC 不會有這種端點。
 import { findColumn, findPackage, ROW_ID } from './catalog.ts';
+import { currentCatalogSha256 } from './catalogVersion.ts';
 import { ident, type Db } from './db.ts';
 import { exportViewName, grantExport, viewColumns } from './exportView.ts';
 import { createPolicySql, parsePolicyExpression, policyName } from './policy.ts';
@@ -135,10 +136,27 @@ export async function backdoor(db: Db, prefix: string, op: string, body: Record<
             }
             return { rule_id: ruleId, sabotaged: body['clear'] !== true };
         }
+        case 'remap': {
+            // 改「代碼 → 實體資源」的對照（key＝主題包，或「主題包.欄位或列條件」；resource 省略＝改回預設），目錄版本跟著變
+            const key = str(body['key'], 'key');
+            if (findPackage(key.split('.')[0] ?? '') === undefined) fail('沒有這個主題包');
+            if (body['resource'] === undefined || body['resource'] === null) {
+                await db.query('delete from simdc_meta.catalog_remap where key = $1', [key]);
+            } else {
+                await db.query(
+                    'insert into simdc_meta.catalog_remap (key, resource) values ($1, $2) on conflict (key) do update set resource = excluded.resource',
+                    [key, str(body['resource'], 'resource')],
+                );
+            }
+            return { key, catalog_sha256: await currentCatalogSha256(db) };
+        }
         case 'reset': {
             const roles = await db.query<{ rolname: string }>('select rolname from pg_roles where starts_with(rolname, $1)', [prefix]);
             for (const { rolname } of roles.rows) await dropRole(db, rolname);
-            await db.query('truncate simdc_meta.rule_set, simdc_meta.withdraw_request, simdc_meta.sabotage, simdc_meta.archived_case');
+            await db.query(
+                'truncate simdc_meta.rule_set, simdc_meta.withdraw_request, simdc_meta.sabotage, simdc_meta.archived_case, ' +
+                    'simdc_meta.usage_event, simdc_meta.catalog_remap',
+            );
             return { dropped_roles: roles.rows.map((r) => r.rolname) };
         }
         default:

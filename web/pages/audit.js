@@ -2,6 +2,7 @@
 // 列出這張單完整的多關卡紀錄（每一關開始、認領、每個決定、縮小、核准完成、套用、生效）。
 import { api } from '../api.js';
 import { t } from '../i18n.js';
+import { packOf } from '../packs/index.js';
 import { verifyCase } from '../verify.js';
 import { programHealth } from './home.js';
 import { dateText, el, explain, facts, go, stateBadge, tierBadge } from '../ui.js';
@@ -73,6 +74,15 @@ export async function renderAudit(ctx, caseNo) {
                         [t.applicant, c.applicant_name],
                         [t.grantee, c.terms.principal?.name ?? '—'],
                         [t.validity, t.validRange(c.terms.valid_from, c.terms.valid_to)],
+                        // 使用情形（D92 (4)：使用方系統回報的批次摘要；資料庫算好）
+                        [
+                            t.usage.title,
+                            el(
+                                'span',
+                                { 'data-testid': 'audit-usage' },
+                                audit.usage ? `${t.usage.last(audit.usage.last_used_text)}・${t.usage.recent(audit.usage)}` : t.usage.none,
+                            ),
+                        ],
                     ]),
                 ),
                 c.overdue
@@ -82,7 +92,13 @@ export async function renderAudit(ctx, caseNo) {
                     ? el(
                           'div',
                           { class: 'result warn', 'data-testid': 'case-exceptions' },
-                          c.exceptions.map((x) => el('p', {}, t.exception[x.rule_code] ?? t.exceptionUnknown)),
+                          c.exceptions.map((x) =>
+                              el(
+                                  'p',
+                                  {},
+                                  packOf(c.process_type)?.exceptionText?.(x.rule_code) ?? t.exception[x.rule_code] ?? t.exceptionUnknown,
+                              ),
+                          ),
                       )
                     : null,
                 el('h2', {}, t.auditEvents),

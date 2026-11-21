@@ -188,6 +188,8 @@ const TRANSITION_WITHOUT_AUTHORIZE = {
     'sgn_internal.grant_end': '授權結束：撤銷由 api.case_revoke 先授權；到期與驗證失敗是排程與交付回報的 system 動作',
     'sgn_internal.confirmation_expire_due':
         '確認逾期自動撤銷：只由排程（api_job）與交付程式的領取（api_delivery）呼叫，執行的是 system 動作',
+    'sgn_internal.case_rebind':
+        '外部定義改版後重新綁定（K-CONTENT-REBIND）：只由流程包在改版的交易裡經 sgn_sdk 呼叫（資料庫擁有者執行的目錄載入），執行的是 system 動作',
 };
 
 test('架構：會改狀態或讀稽核資料的 function 都經過授權入口', async () => {

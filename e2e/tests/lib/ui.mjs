@@ -344,6 +344,39 @@ export async function decide(uid, caseNo, decision = 'approve', reason = null) {
     return decideHere(p, decision, reason);
 }
 
+/**
+ * 這個人在前面的測試檔（path.test.mjs）已經在手機上登記過通行金鑰：把同一把金鑰放回這個行程的虛擬驗證器（同一支手機），
+ * 不另外登記。前面沒登記過的人，decide 會照常在畫面上登記（ensurePasskey）。
+ */
+const savedKeys = () => {
+    try {
+        return JSON.parse(readFileSync(join(RUN_DIR, `passkeys-${config.database}.json`), 'utf8'));
+    } catch {
+        return {};
+    }
+};
+export async function signer(uid) {
+    const p = await loggedIn(uid);
+    if (p.keyRestored) return p;
+    const me = (await callApi(p.page, '/api/me')).result;
+    const saved = savedKeys()[me.person_id];
+    if (saved?.privateKeyPkcs8) {
+        await p.cdp.send('WebAuthn.addCredential', {
+            authenticatorId: p.authenticatorId,
+            credential: {
+                credentialId: Buffer.from(saved.credentialId, 'base64url').toString('base64'),
+                isResidentCredential: true,
+                rpId: config.db.SGN_RP_ID,
+                privateKey: saved.privateKeyPkcs8,
+                userHandle: Buffer.from(me.person_id.replaceAll('-', ''), 'hex').toString('base64'),
+                signCount: Math.floor((Date.now() - 1.7e12) / 100),
+            },
+        });
+    }
+    p.keyRestored = true;
+    return p;
+}
+
 export async function caseByNo(p, caseNo, path = '/api/case_list_mine') {
     const list = (await callApi(p.page, path)).result;
     const found = list.find((c) => c.case_no === caseNo);

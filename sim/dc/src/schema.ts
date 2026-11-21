@@ -6,7 +6,7 @@ import { ident, lit } from './db.ts';
 import { PACKAGES, ROW_ID, type ColumnType } from './catalog.ts';
 
 // 結構改變時加一：啟動時發現版本不同，就整個重建（只是模擬資料，重建即可）。
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 
 const SQL_TYPE: Record<ColumnType, string> = { text: 'text', numeric: 'numeric', date: 'date' };
 
@@ -108,6 +108,18 @@ function metaSql(): string[] {
         )`,
         // 管理後門：讓某條規則「套用時被默默略過」，用來測試對帳抓不抓得到「核准未設定」
         `create table simdc_meta.sabotage (rule_id text primary key, created_at timestamptz not null default now())`,
+        // 使用紀錄（D92 (4)）：每一次實際使用、每張相關的單一筆；批次摘要從這裡依時段彙總
+        `create table simdc_meta.usage_event (
+            id bigint generated always as identity primary key,
+            at timestamptz not null default now(),
+            case_no text not null,
+            actor_provider text not null,
+            actor_external_id text not null,
+            action text not null check (action in ('query', 'export')),
+            allowed boolean not null
+        )`,
+        // 管理後門：覆寫「代碼 → 實體資源」的對照（模擬使用方的對照改了；目錄版本跟著變）
+        `create table simdc_meta.catalog_remap (key text primary key, resource text not null)`,
         `create table simdc_meta.call_log (
             id bigint generated always as identity primary key,
             at timestamptz not null default now(),

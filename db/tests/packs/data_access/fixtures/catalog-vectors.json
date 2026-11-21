@@ -1,0 +1,313 @@
+{
+  "vectors": [
+    {
+      "name": "seed",
+      "remap": {},
+      "sha256": "8880fedf3394eaa42dd4412ea0d5060f3806e1d875d6ada8ed386e548a6434c9",
+      "snapshot": {
+        "format": "data_access_catalog/1",
+        "packages": [
+          {
+            "code": "customer_master",
+            "name": "客戶主檔",
+            "fields": [
+              {
+                "code": "contact_phone",
+                "name": "聯絡人電話",
+                "resource": "contact_phone",
+                "classification": "L4"
+              },
+              {
+                "code": "contract_end_date",
+                "name": "合約到期日",
+                "resource": "contract_end_date",
+                "classification": "L3"
+              },
+              {
+                "code": "customer_id",
+                "name": "客戶編號",
+                "resource": "customer_id",
+                "classification": "L3"
+              },
+              {
+                "code": "customer_name",
+                "name": "客戶名稱",
+                "resource": "customer_name",
+                "classification": "L3"
+              },
+              {
+                "code": "industry",
+                "name": "產業別",
+                "resource": "industry",
+                "classification": "L1"
+              },
+              {
+                "code": "tax_id",
+                "name": "統一編號",
+                "resource": "tax_id",
+                "classification": "L4"
+              }
+            ],
+            "system": "dc",
+            "filters": [
+              {
+                "code": "region",
+                "name": "區域",
+                "values": [
+                  {
+                    "label": "中區",
+                    "value": "central"
+                  },
+                  {
+                    "label": "東區",
+                    "value": "east"
+                  },
+                  {
+                    "label": "北區",
+                    "value": "north"
+                  },
+                  {
+                    "label": "南區",
+                    "value": "south"
+                  }
+                ],
+                "resource": "region",
+                "value_type": "enum"
+              }
+            ],
+            "resource": "data.customer_master",
+            "period_field": null
+          },
+          {
+            "code": "payroll",
+            "name": "員工薪資",
+            "fields": [
+              {
+                "code": "bank_account",
+                "name": "薪轉帳號",
+                "resource": "bank_account",
+                "classification": "L4"
+              },
+              {
+                "code": "base_salary",
+                "name": "本薪",
+                "resource": "base_salary",
+                "classification": "L4"
+              },
+              {
+                "code": "bonus",
+                "name": "獎金",
+                "resource": "bonus",
+                "classification": "L4"
+              },
+              {
+                "code": "department",
+                "name": "部門",
+                "resource": "department",
+                "classification": "L2"
+              },
+              {
+                "code": "employee_id",
+                "name": "員工編號",
+                "resource": "employee_id",
+                "classification": "L3"
+              },
+              {
+                "code": "net_pay",
+                "name": "實發金額",
+                "resource": "net_pay",
+                "classification": "L4"
+              },
+              {
+                "code": "pay_date",
+                "name": "發薪日",
+                "resource": "pay_date",
+                "classification": "L3"
+              }
+            ],
+            "system": "hr_saas",
+            "filters": [
+              {
+                "code": "pay_type",
+                "name": "薪資類別",
+                "values": [
+                  {
+                    "label": "獎金",
+                    "value": "bonus"
+                  },
+                  {
+                    "label": "月薪",
+                    "value": "monthly"
+                  }
+                ],
+                "resource": "pay_type",
+                "value_type": "enum"
+              }
+            ],
+            "resource": "data.payroll",
+            "period_field": "pay_date"
+          },
+          {
+            "code": "product_cost",
+            "name": "產品成本明細",
+            "fields": [
+              {
+                "code": "cost_date",
+                "name": "成本日期",
+                "resource": "cost_date",
+                "classification": "L3"
+              },
+              {
+                "code": "labor_cost",
+                "name": "人工成本",
+                "resource": "labor_cost",
+                "classification": "L4"
+              },
+              {
+                "code": "material_cost",
+                "name": "材料成本",
+                "resource": "material_cost",
+                "classification": "L4"
+              },
+              {
+                "code": "overhead_cost",
+                "name": "製造費用",
+                "resource": "overhead_cost",
+                "classification": "L4"
+              },
+              {
+                "code": "product_id",
+                "name": "產品編號",
+                "resource": "product_id",
+                "classification": "L3"
+              },
+              {
+                "code": "product_name",
+                "name": "產品名稱",
+                "resource": "product_name",
+                "classification": "L2"
+              },
+              {
+                "code": "unit_cost",
+                "name": "單位成本",
+                "resource": "unit_cost",
+                "classification": "L4"
+              }
+            ],
+            "system": "dc",
+            "filters": [
+              {
+                "code": "product_line",
+                "name": "產品線",
+                "values": [
+                  {
+                    "label": "消費性",
+                    "value": "consumer"
+                  },
+                  {
+                    "label": "工業用",
+                    "value": "industrial"
+                  },
+                  {
+                    "label": "醫療用",
+                    "value": "medical"
+                  }
+                ],
+                "resource": "product_line",
+                "value_type": "enum"
+              }
+            ],
+            "resource": "data.product_cost",
+            "period_field": "cost_date"
+          },
+          {
+            "code": "sales_order",
+            "name": "銷售訂單",
+            "fields": [
+              {
+                "code": "amount",
+                "name": "訂單金額",
+                "resource": "amount",
+                "classification": "L3"
+              },
+              {
+                "code": "channel",
+                "name": "通路別",
+                "resource": "channel",
+                "classification": "L2"
+              },
+              {
+                "code": "customer_id",
+                "name": "客戶編號",
+                "resource": "customer_id",
+                "classification": "L3"
+              },
+              {
+                "code": "gross_margin",
+                "name": "毛利",
+                "resource": "gross_margin",
+                "classification": "L4"
+              },
+              {
+                "code": "order_date",
+                "name": "訂單日期",
+                "resource": "order_date",
+                "classification": "L3"
+              },
+              {
+                "code": "order_no",
+                "name": "訂單編號",
+                "resource": "order_no",
+                "classification": "L3"
+              }
+            ],
+            "system": "dc",
+            "filters": [
+              {
+                "code": "order_amount",
+                "name": "訂單金額",
+                "values": [],
+                "resource": "amount",
+                "value_type": "number"
+              },
+              {
+                "code": "region",
+                "name": "區域",
+                "values": [
+                  {
+                    "label": "中區",
+                    "value": "central"
+                  },
+                  {
+                    "label": "東區",
+                    "value": "east"
+                  },
+                  {
+                    "label": "北區",
+                    "value": "north"
+                  },
+                  {
+                    "label": "南區",
+                    "value": "south"
+                  }
+                ],
+                "resource": "region",
+                "value_type": "enum"
+              }
+            ],
+            "resource": "data.sales_order",
+            "period_field": "order_date"
+          }
+        ]
+      }
+    },
+    {
+      "name": "seed_with_one_field_remapped",
+      "remap": {
+        "product_cost.cost_date": "amount_v2"
+      },
+      "sha256": "89e716a6dc8723adc6fd308351a8fd8aa1b5f326112afec6cadacef96ab73d43"
+    }
+  ],
+  "description": "資料目錄版本的測試向量（D92 (1)；docs/contract/02-pack-data-access.md §8.6）。平台（db/tests/packs/data_access/60-catalog-version.test.mjs）與 sim/dc（sim/dc/tests/11-catalog-version.test.ts）都要算出相同的雜湊。"
+}

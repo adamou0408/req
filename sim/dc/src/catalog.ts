@@ -1,7 +1,7 @@
 // DC 自己的資料目錄：主題包 → 資料表、欄位 → 欄、列條件 → 欄。
-// 代碼與平台的資料目錄種子（db/seed/packs/data_access/010_catalog.sql）相同，
-// 因為平台的契約假設「主題包、欄位、列條件欄位的代碼就是 DC 資料目錄上的代碼」（02 §8.1）。
-// 平台的目錄只有代碼與分級；資料表結構（欄的型別、列條件落在哪一欄）是 DC 自己的事，所以在這裡定義。
+// 資料目錄由平台維護（裁決 D92 (1)）：代碼、名稱、分級、列舉值的標籤、「代碼 → 實體資源」的對照都和平台的種子
+// （db/seed/packs/data_access/010_catalog.sql）相同，兩邊用同一個演算法算出的目錄版本才一致（catalogVersion.ts）。
+// 欄的型別是 DC 自己的事（不在平台的目錄裡）。主題包的資料表是 data.<代碼>，欄位的欄就是欄位代碼，列條件的欄見 column。
 
 export type ColumnType = 'text' | 'numeric' | 'date';
 export type FilterValueType = 'enum' | 'number' | 'date';
@@ -16,10 +16,13 @@ interface ColumnDef {
 
 interface FilterDef {
     readonly code: string;
+    readonly name: string;
     readonly valueType: FilterValueType;
     // 列條件判斷的是哪一欄
     readonly column: string;
     readonly values: readonly string[];
+    // 列舉值在平台目錄上的標籤（目錄版本的雜湊涵蓋它）
+    readonly labels: Readonly<Record<string, string>>;
 }
 
 export interface PackageDef {
@@ -32,6 +35,7 @@ export interface PackageDef {
 }
 
 const REGIONS = ['north', 'central', 'south', 'east'] as const;
+const REGION_LABELS = { north: '北區', central: '中區', south: '南區', east: '東區' };
 
 export const PACKAGES: readonly PackageDef[] = [
     {
@@ -48,7 +52,7 @@ export const PACKAGES: readonly PackageDef[] = [
             { code: 'industry', name: '產業別', type: 'text', classification: 'L1' },
             { code: 'region', name: '區域', type: 'text', classification: null },
         ],
-        filters: [{ code: 'region', valueType: 'enum', column: 'region', values: REGIONS }],
+        filters: [{ code: 'region', name: '區域', valueType: 'enum', column: 'region', values: REGIONS, labels: REGION_LABELS }],
     },
     {
         code: 'sales_order',
@@ -65,8 +69,8 @@ export const PACKAGES: readonly PackageDef[] = [
             { code: 'region', name: '區域', type: 'text', classification: null },
         ],
         filters: [
-            { code: 'region', valueType: 'enum', column: 'region', values: REGIONS },
-            { code: 'order_amount', valueType: 'number', column: 'amount', values: [] },
+            { code: 'region', name: '區域', valueType: 'enum', column: 'region', values: REGIONS, labels: REGION_LABELS },
+            { code: 'order_amount', name: '訂單金額', valueType: 'number', column: 'amount', values: [], labels: {} },
         ],
     },
     {
@@ -87,9 +91,11 @@ export const PACKAGES: readonly PackageDef[] = [
         filters: [
             {
                 code: 'product_line',
+                name: '產品線',
                 valueType: 'enum',
                 column: 'product_line',
                 values: ['consumer', 'industrial', 'medical'],
+                labels: { consumer: '消費性', industrial: '工業用', medical: '醫療用' },
             },
         ],
     },
@@ -108,7 +114,16 @@ export const PACKAGES: readonly PackageDef[] = [
             { code: 'bank_account', name: '薪轉帳號', type: 'text', classification: 'L4' },
             { code: 'pay_type', name: '薪資類別', type: 'text', classification: null },
         ],
-        filters: [{ code: 'pay_type', valueType: 'enum', column: 'pay_type', values: ['monthly', 'bonus'] }],
+        filters: [
+            {
+                code: 'pay_type',
+                name: '薪資類別',
+                valueType: 'enum',
+                column: 'pay_type',
+                values: ['monthly', 'bonus'],
+                labels: { monthly: '月薪', bonus: '獎金' },
+            },
+        ],
     },
 ];
 
