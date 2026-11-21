@@ -18,7 +18,7 @@ function eventLine(e, names, processType) {
     return el(
         'li',
         { 'data-type': e.parsed.type, 'data-anchored': String(e.anchored) },
-        el('strong', {}, t.eventType[e.parsed.type] ?? t.exceptionUnknown),
+        el('strong', {}, packOf(processType)?.eventText?.(e.parsed.type) ?? t.eventType[e.parsed.type] ?? t.exceptionUnknown),
         stage ? `「${stage}」` : '',
         `・${e.actor_name ?? '—'}・${dateText(e.parsed.at)}`,
         data.version ? `・第 ${data.version} 版` : '',

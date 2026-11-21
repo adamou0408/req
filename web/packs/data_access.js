@@ -231,7 +231,41 @@ export const purposeView = (shown) =>
     facts([
         [tx.purpose, `${shown.purpose.category_name ?? '—'}${shown.purpose.description ? `：${shown.purpose.description}` : ''}`],
         [tx.export, shown.export_allowed ? tx.exportYes : tx.exportNo],
+        // 匯出需求調查（DA-EXPORT-SURVEY）：文字由資料庫產生，簽到的內容包含它；舊單沒有這一行
+        [tx.survey.legend, shown.export_survey ? el('span', { 'data-testid': 'export-survey-line' }, shown.export_survey.text) : null],
     ]);
+
+/** 流程包的事件名稱（稽核證據頁；核心不認得流程包的事件）。 */
+export const eventText = (type) => tx.eventType[type] ?? null;
+
+/**
+ * 首頁（稽核或 MIS，capabilities 有 report）：匯出需求調查依目的、頻率、方法的彙總（DA-EXPORT-SURVEY-SUMMARY；資料庫算好）。
+ */
+export async function reportSection() {
+    const r = await api.call('data_access_export_survey_summary');
+    const group = (key) =>
+        el(
+            'details',
+            { 'data-group': key, open: key === 'by_purpose' },
+            el('summary', {}, tx.summary[key]),
+            el(
+                'ul',
+                {},
+                r[key].map((x) => el('li', { 'data-code': x.code, 'data-cases': String(x.cases) }, tx.summary.line(x))),
+            ),
+        );
+    return section(
+        'export-survey-summary',
+        tx.summary.title,
+        el(
+            'div',
+            { class: 'card', 'data-testid': 'export-survey-summary' },
+            el('p', { class: 'muted' }, tx.summary.hint),
+            el('p', {}, tx.summary.total(r.total)),
+            ['by_purpose', 'by_frequency', 'by_method'].map(group),
+        ),
+    );
+}
 
 function scopeDiff(before, after) {
     const out = [];
@@ -275,6 +309,7 @@ export function contentDiff(before, after) {
     if (before.purpose.category !== after.purpose.category || before.purpose.description !== after.purpose.description)
         out.push(tx.diffPurpose);
     if (before.export_allowed !== after.export_allowed) out.push(after.export_allowed ? tx.diffExportOn : tx.diffExportOff);
+    if ((before.export_survey?.text ?? null) !== (after.export_survey?.text ?? null)) out.push(tx.surveyDiff);
     if (before.catalog && after.catalog && before.catalog.version_no !== after.catalog.version_no)
         out.push(tx.diffCatalog(before.catalog.version_no, after.catalog.version_no));
     return out;

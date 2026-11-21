@@ -203,13 +203,13 @@ function surveyInputs(prefix, cat, base, exportBox) {
         el('label', { for: `${prefix}-exp-method-note` }, tx.survey.methodNote),
         note,
         el('p', { class: 'muted' }, tx.survey.methodHint),
-        result,
     );
     const sync = () => (node.hidden = !exportBox.checked);
     exportBox.addEventListener('change', sync);
     sync();
     return {
-        node,
+        // 記錄的結果放在調查欄位外面：方法是介面串接、匯出被取消（欄位收起來）時，說明仍看得到
+        node: [node, result],
         value: () => ({ purpose: purpose.select.value || null, frequency: frequency.select.value || null, description: description.value }),
         /** 新申請畫面告訴編輯器：這張單是哪一張、怎麼先存（記錄方法前要先有草稿） */
         bind: (b) => Object.assign(bound, b),
