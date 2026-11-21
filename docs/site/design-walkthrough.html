@@ -166,11 +166,11 @@ code { font-family:var(--mono); font-size:.88em; }
 <figcaption>申請單的狀態。左邊是順利走完的路，右邊是離開這條路的出口；虛線框是終點。待套用與驗證中也可以撤銷或到期，申請人逾期沒確認會自動撤銷。能走哪條線由資料庫裡的一張轉移表決定。</figcaption></figure>
 <ol class="steps">
 <li><span><strong>送出申請</strong><span class="who">申請人。可以替團隊或專案代填。</span>內容被標準化並算出雜湊；送出時綁定當時的簽核路徑版本。</span></li>
-<li><span><strong>逐關簽核</strong><span class="who">被授權者的負責人（代填時）→ 主管 → 資料擁有者 → 視級別加上其他角色</span>每一關都用通行金鑰簽。同一個人不能簽兩關，申請人不能簽自己的單。可以退回或要求縮小範圍。</span></li>
+<li><span><strong>逐關簽核</strong><span class="who">被授權者的負責人（代填時）→ 主管 → 資料擁有者 → 視級別加上其他角色</span>每一關都用通行金鑰簽。同一個人不能簽兩關，申請人不能簽自己的單。可以退回或要求縮小範圍。逾期沒簽會先催辦，再升級給簽核人的主管（<span class="tag wip">已實作，驗證中</span>）。</span></li>
 <li><span><strong>交付</strong><span class="who">交付程式，或人工執行</span>核准結果由資料庫簽章後送給外部系統套用。系統對系統是預設。</span></li>
 <li><span><strong>自動驗證</strong><span class="who">交付程式</span>實際向外部系統查詢：該放行的有放行、不該放行的有擋下。外部系統的回應也要帶簽章。</span></li>
 <li><span><strong>申請人確認</strong><span class="who">申請人，5 個工作天內</span>確認「實際拿到的和核准的一樣」才生效。回報不對就撤回並開例外；逾期自動撤銷。</span></li>
-<li><span><strong>生效中</strong><span class="who">申請人、主管、資料擁有者</span>可以縮小或撤銷。定期對帳會比對外部系統上實際的權限。</span></li>
+<li><span><strong>生效中</strong><span class="who">申請人、主管、資料擁有者</span>可以縮小或撤銷。定期對帳會比對外部系統上實際的權限。到期前會提醒；被授權者的負責人離職時，通知主管限期改指派，逾期自動撤銷（<span class="tag wip">已實作，驗證中</span>）。</span></li>
 <li><span><strong>結束</strong><span class="who">到期自動，或有人撤銷</span>撤回外部系統上的權限；整張單在外部系統封存，之後晚到的套用一律被拒。</span></li>
 </ol>
 <p class="why">為什麼核准之後還要確認：核准回答「該不該給」，確認回答「實際給的對不對」。兩件事分開，人工執行或外部系統出錯才抓得到。</p>
@@ -228,19 +228,19 @@ code { font-family:var(--mono); font-size:.88em; }
 
 <section id="loop">
 <h2>8. 核准之後的閉環：測試區、正式區與使用紀錄</h2>
-<p>核准只是開始。要經得起稽核，還要回答三件事：實際給的對不對、之後有沒有在用、還需不需要。這一節是 2026-11-21 決定的設計（決定紀錄 D91–D94），部分已在實作。</p>
-<figure class="fig"><svg class="dg" viewBox="0 0 360 372" role="img" aria-label="閉環：先在測試區申請、簽核、交付與驗證，使用紀錄由系統算成測試報告；正式區的申請必須引用這份報告，簽核人簽的內容包含它；正式區生效後的使用紀錄用於複查與續期，沒用到的提醒縮小，最後到期或撤銷收回。"><defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs><text class="cap" x="87" y="18" text-anchor="middle">測試區</text><text class="cap" x="273" y="18" text-anchor="middle">正式區</text><rect class="n" x="12" y="30" width="150" height="32" rx="7"/><text class="t" x="87.0" y="50.5">申請</text><rect class="n" x="198" y="30" width="150" height="32" rx="7"/><text class="t" x="273.0" y="50.5">申請</text><polyline class="e" points="87,62 87,85" marker-end="url(#ah4)"/><polyline class="e" points="273,62 273,85" marker-end="url(#ah4)"/><rect class="n" x="12" y="86" width="150" height="32" rx="7"/><text class="t" x="87.0" y="106.5">簽核</text><rect class="n" x="198" y="86" width="150" height="32" rx="7"/><text class="t" x="273.0" y="106.5">簽核（含測試報告）</text><polyline class="e" points="87,118 87,141" marker-end="url(#ah4)"/><polyline class="e" points="273,118 273,141" marker-end="url(#ah4)"/><rect class="n" x="12" y="142" width="150" height="32" rx="7"/><text class="t" x="87.0" y="162.5">交付與驗證</text><rect class="n" x="198" y="142" width="150" height="32" rx="7"/><text class="t" x="273.0" y="162.5">交付與驗證</text><polyline class="e" points="87,174 87,197" marker-end="url(#ah4)"/><polyline class="e" points="273,174 273,197" marker-end="url(#ah4)"/><rect class="n plan" x="12" y="198" width="150" height="32" rx="7"/><text class="t" x="87.0" y="218.5">使用紀錄</text><rect class="n plan" x="198" y="198" width="150" height="32" rx="7"/><text class="t" x="273.0" y="218.5">使用紀錄</text><rect class="n plan" x="12" y="262" width="150" height="36" rx="7"/><text class="t" x="87.0" y="284.5">測試報告</text><polyline class="e" points="87,230 87,261" marker-end="url(#ah4)"/><text class="l" x="95" y="250">系統自動算出</text><polyline class="e" points="162,280 180,280 180,46 197,46" marker-end="url(#ah4)"/><text class="l m" x="180" y="314">必須引用</text><rect class="n plan" x="198" y="262" width="150" height="36" rx="7"/><text class="t" x="273.0" y="284.5">複查與續期</text><polyline class="e" points="273,230 273,261" marker-end="url(#ah4)"/><text class="l" x="281" y="250">提醒縮小</text><rect class="n end" x="198" y="330" width="150" height="32" rx="7"/><text class="t" x="273.0" y="350.5">到期或撤銷：收回</text><polyline class="e" points="273,298 273,329" marker-end="url(#ah4)"/></svg>
-<figcaption>先在測試區跑過，系統把使用紀錄算成測試報告；正式區的申請必須引用它，簽核人簽的內容包含這份報告。點線框是實作中或規劃中的部分。</figcaption></figure>
+<p>核准只是開始。要經得起稽核，還要回答三件事：實際給的對不對、之後有沒有在用、還需不需要。前六項已完成並驗證；團隊成員對應目錄群組還沒做。</p>
+<figure class="fig"><svg class="dg" viewBox="0 0 360 372" role="img" aria-label="閉環：先在測試區申請、簽核、交付與驗證，使用紀錄由系統算成測試報告；正式區的申請必須引用這份報告，簽核人簽的內容包含它；正式區生效後的使用紀錄用於複查與續期，沒用到的提醒縮小，最後到期或撤銷收回。"><defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs><text class="cap" x="87" y="18" text-anchor="middle">測試區</text><text class="cap" x="273" y="18" text-anchor="middle">正式區</text><rect class="n" x="12" y="30" width="150" height="32" rx="7"/><text class="t" x="87.0" y="50.5">申請</text><rect class="n" x="198" y="30" width="150" height="32" rx="7"/><text class="t" x="273.0" y="50.5">申請</text><polyline class="e" points="87,62 87,85" marker-end="url(#ah4)"/><polyline class="e" points="273,62 273,85" marker-end="url(#ah4)"/><rect class="n" x="12" y="86" width="150" height="32" rx="7"/><text class="t" x="87.0" y="106.5">簽核</text><rect class="n" x="198" y="86" width="150" height="32" rx="7"/><text class="t" x="273.0" y="106.5">簽核（含測試報告）</text><polyline class="e" points="87,118 87,141" marker-end="url(#ah4)"/><polyline class="e" points="273,118 273,141" marker-end="url(#ah4)"/><rect class="n" x="12" y="142" width="150" height="32" rx="7"/><text class="t" x="87.0" y="162.5">交付與驗證</text><rect class="n" x="198" y="142" width="150" height="32" rx="7"/><text class="t" x="273.0" y="162.5">交付與驗證</text><polyline class="e" points="87,174 87,197" marker-end="url(#ah4)"/><polyline class="e" points="273,174 273,197" marker-end="url(#ah4)"/><rect class="n" x="12" y="198" width="150" height="32" rx="7"/><text class="t" x="87.0" y="218.5">使用紀錄</text><rect class="n" x="198" y="198" width="150" height="32" rx="7"/><text class="t" x="273.0" y="218.5">使用紀錄</text><rect class="n" x="12" y="262" width="150" height="36" rx="7"/><text class="t" x="87.0" y="284.5">測試報告</text><polyline class="e" points="87,230 87,261" marker-end="url(#ah4)"/><text class="l" x="95" y="250">系統自動算出</text><polyline class="e" points="162,280 180,280 180,46 197,46" marker-end="url(#ah4)"/><text class="l m" x="180" y="314">必須引用</text><rect class="n plan" x="198" y="262" width="150" height="36" rx="7"/><text class="t" x="273.0" y="284.5">複查與續期</text><polyline class="e" points="273,230 273,261" marker-end="url(#ah4)"/><text class="l" x="281" y="250">提醒縮小</text><rect class="n end" x="198" y="330" width="150" height="32" rx="7"/><text class="t" x="273.0" y="350.5">到期或撤銷：收回</text><polyline class="e" points="273,298 273,329" marker-end="url(#ah4)"/></svg>
+<figcaption>先在測試區跑過，系統把使用紀錄算成測試報告；正式區的申請必須引用它，簽核人簽的內容包含這份報告。點線框是還沒做的部分（複查與續期）。</figcaption></figure>
 <div class="scroll"><table>
 <thead><tr><th>環節</th><th>設計</th><th>狀態</th></tr></thead>
 <tbody>
-<tr><td class="wrap">資料目錄版本</td><td class="wrap">送審時綁定目錄版本並進入簽的內容；使用方系統回報它套用的版本，不一致就不生效並開例外</td><td><span class="tag wip">實作中</span></td></tr>
-<tr><td class="wrap">使用方系統的能力</td><td class="wrap">每個系統宣告能不能擋到欄、列、期間、匯出。做不到時最高級別的申請擋下，其餘在簽核畫面提示落差</td><td><span class="tag wip">實作中</span></td></tr>
-<tr><td class="wrap">使用紀錄</td><td class="wrap">使用方系統定期回報已簽章的摘要：每張單、每個人用了幾次、被擋幾次、最後使用時間。長期沒用的提醒收回</td><td><span class="tag wip">實作中</span></td></tr>
-<tr><td class="wrap">測試區與正式區</td><td class="wrap">環境是申請的必填欄位，一張單一個環境。級別由目錄逐欄、逐環境決定：副本和正式區同級，已去識別或遮罩的才降級</td><td><span class="tag todo">規劃中</span></td></tr>
-<tr><td class="wrap">測試報告</td><td class="wrap">申請正式區必須引用測試區的單。報告列出實際用到的欄位、沒用到的、被擋下的嘗試、和這次申請的差異；申請人只補程式版本、結果給誰看、每欄用途</td><td><span class="tag todo">規劃中</span></td></tr>
-<tr><td class="wrap">團隊成員</td><td class="wrap">團隊對應公司目錄的群組。新成員要由負責人限期確認，逾期撤銷該成員的存取</td><td><span class="tag todo">規劃中</span></td></tr>
-<tr><td class="wrap">匯出</td><td class="wrap">先問匯出的目的並引導系統內的替代做法；要匯入另一個系統時，改由那個系統自己申請授權</td><td><span class="tag todo">規劃中</span></td></tr>
+<tr><td class="wrap">資料目錄版本</td><td class="wrap">送審時綁定目錄版本並進入簽的內容；使用方系統回報它套用的版本，不一致就不生效並開例外</td><td><span class="tag ok">已完成</span></td></tr>
+<tr><td class="wrap">使用方系統的能力</td><td class="wrap">每個系統宣告能不能擋到欄、列、期間、匯出。做不到時最高級別的申請擋下，其餘在簽核畫面提示落差</td><td><span class="tag ok">已完成</span></td></tr>
+<tr><td class="wrap">使用紀錄</td><td class="wrap">使用方系統定期回報已簽章的摘要：每張單、每個人用了幾次、被擋幾次、最後使用時間。長期沒用的提醒收回</td><td><span class="tag ok">已完成</span></td></tr>
+<tr><td class="wrap">測試區與正式區</td><td class="wrap">環境是申請的必填欄位，一張單一個環境。級別由目錄逐欄、逐環境決定：副本和正式區同級，已去識別或遮罩的才降級；測試區的期限較短</td><td><span class="tag ok">已完成</span></td></tr>
+<tr><td class="wrap">測試報告</td><td class="wrap">申請正式區必須引用測試區的單。報告列出實際用到的欄位、沒用到的、被擋下的嘗試、和這次申請的差異；申請人只補應用面的說明，例如結果給誰看、每欄用途</td><td><span class="tag ok">已完成</span></td></tr>
+<tr><td class="wrap">團隊成員</td><td class="wrap">團隊對應公司目錄的群組。新成員要由負責人限期確認，逾期撤銷該成員的存取</td><td><span class="tag todo">還沒做</span></td></tr>
+<tr><td class="wrap">匯出</td><td class="wrap">要匯出時必須填目的與頻率，進入簽的內容；匯出方法另外記錄，只做統計與送審前的引導，不進簽的內容。目的是匯入另一個系統時，引導由那個系統自己申請授權（可設定為擋下或只提示）</td><td><span class="tag ok">已完成</span></td></tr>
 </tbody></table></div>
 <p class="why">為什麼正式區要先測過：測試期間實際用了什麼是事實，不是申請人的估計。沒用到的欄位就不該帶進正式區。同一套報告之後用在續期與定期複查。</p>
 <p class="muted">使用方系統要做到的每一件事整理在 <code>docs/contract/06-consumer-obligations.md</code>。</p>
@@ -285,22 +285,23 @@ code { font-family:var(--mono); font-size:.88em; }
 <section id="verify">
 <h2>11. 怎麼知道它是對的</h2>
 <div class="nums">
-<div><b>285</b><span>資料庫測試</span></div>
-<div><b>32</b><span>瀏覽器端對端測試</span></div>
-<div><b>101</b><span>規則代碼，每個都有測試</span></div>
-<div><b>57</b><span>可重跑的攻擊腳本</span></div>
-<div><b>6</b><span>輪獨立紅隊</span></div>
+<div><b>329</b><span>資料庫測試</span></div>
+<div><b>43</b><span>瀏覽器端對端測試</span></div>
+<div><b>143</b><span>規則代碼，每個都有測試</span></div>
+<div><b>64</b><span>可重跑的攻擊腳本</span></div>
+<div><b>9</b><span>輪獨立紅隊</span></div>
 </div>
 <ul class="plain">
-<li><strong>一個入口</strong>：<code>tools/check.sh</code>。格式、型別、靜態分析、弱點掃描、全部測試，本機和 CI 跑同一支。</li>
-<li><strong>真的協定</strong>：整合與端對端測試對著模擬環境跑——真的 LDAP、真的 OIDC 登入頁、真的 SMTP、會把規則套成真正資料庫權限的資料平台模擬器。</li>
+<li><strong>一個入口</strong>：<code>tools/check.sh</code>。格式、型別、靜態分析、套件弱點檢查（npm audit）、全部測試，都從這一支跑。工程規範要求的 sqlfluff、knip、Trivy、hadolint、actionlint、產生檔無差異檢查與 CI 還沒做。</li>
+<li><strong>真的協定</strong>：整合與端對端測試對著模擬環境跑——真的 LDAP、真的 OIDC 登入頁、真的 SMTP、會把規則套成真正資料庫權限的資料平台模擬器。另有 16 項通行金鑰對照測試。</li>
 <li><strong>架構測試</strong>：直接查資料庫的系統表，確認每個對外函式的寫法、後端帳號沒有任何資料表權限、紀錄表擋下修改。</li>
 <li><strong>紅隊</strong>：沒參與開發的攻擊者對著執行中的系統打。每個成立的攻擊留下一支腳本，修好之後每一輪都重跑。</li>
 </ul>
-<h3>八輪紅隊學到的事</h3>
+<h3>九輪紅隊學到的事</h3>
 <p>核心（驗章、紀錄鏈、授權、競態）沒有被打穿過。被打穿的都是修復時新加的機制。所以現在每個新機制動手前先寫一張威脅表，逐項回答：誰能寫它、能不能回捲、空值或零筆會怎樣、舊但仍有效的輸入會怎樣、它停掉時誰會知道。</p>
 <p>第七輪又多學到兩件：評估「最壞會怎樣」時，復原路徑（撤銷、重新登記、背書）也要當成攻擊面走一遍；偵測機制不能和它要偵測的東西一起停掉，所以每個背景程式都回報心跳，由其他程式和稽核頁互相檢查。</p>
-<p class="muted">第八輪沒有高風險發現。目前 57 支腳本中 54 支擋下，3 支仍成立，都列在下一節。</p>
+<p>第九輪針對新加的機制（資料目錄版本、能力宣告、使用紀錄、測試區與正式區、測試報告、匯出調查）沒有成立的發現。紅隊自己列出四條沒打到的路，尚未驗證，併入下一輪；催辦升級與負責人離職這一批還沒經過紅隊。</p>
+<p class="muted">目前 64 支腳本中 61 支擋下：34、40 是已接受的殘餘風險，57 是資訊項，都列在下一節。</p>
 </section>
 
 <section id="limits">
@@ -315,16 +316,20 @@ code { font-family:var(--mono); font-size:.88em; }
 <tr><td class="wrap">所有背景程式都停了、又沒有人打開稽核頁</td><td class="wrap">沒有主動通知；首頁與單的頁面仍會顯示逾期警示</td></tr>
 <tr><td class="wrap">錨定帳號可以寫入極大的序號讓錨定停擺</td><td class="wrap">資料庫會開例外、稽核頁顯示失敗；但要有人手動清掉</td></tr>
 <tr><td class="wrap">同一台主機的最高權限</td><td class="wrap">不在防禦範圍內。外部錨定只能讓竄改事後被發現</td></tr>
-<tr><td class="wrap">外部系統自己說謊</td><td class="wrap">平台無法強制外部系統照規則執行；對帳只能發現外部系統願意回報的差異</td></tr>
+<tr><td class="wrap">外部系統自己說謊</td><td class="wrap">平台無法強制外部系統照規則執行；對帳只能發現外部系統願意回報的差異。外部系統也可以簽出假的使用紀錄，壓住閒置提醒</td></tr>
+<tr><td class="wrap">生效中的授權遇到資料目錄把某欄級別調高</td><td class="wrap">目前只開例外，不會重新簽核或自動縮小；補簽機制還沒做</td></tr>
+<tr><td class="wrap">測試區的欄位被降級（遮罩或去識別）</td><td class="wrap">前提是使用方真的做了遮罩，平台驗不到</td></tr>
+<tr><td class="wrap">例外沒有人工處理與結案的入口</td><td class="wrap">例外自動開出、列在稽核首頁，但多數種類不會結案，會累積</td></tr>
 <tr><td class="wrap">模擬環境的傳輸是明文</td><td class="wrap">正式部署必須全程加密</td></tr>
 </tbody></table></div>
 <h3>還沒做</h3>
 <ul class="plain">
-<li>紅隊下一輪要補：撤銷後由第二個人背書的路徑、更多停擺組合、部署層的防線。</li>
-<li>測試區與正式區、測試報告、目錄群組、匯出目的（設計已定，見第 8 節）。</li>
-<li>催辦升級、代理、批次、續期、定期複查、稽核資料包、管理畫面。</li>
-<li>驗證失敗後的補救流程、對帳發現的處理畫面。</li>
-<li>第二個流程包、多公司、正式部署（容器、加密、CI）。</li>
+<li>紅隊：功能批次做完後集中打一輪，含第九輪沒打到的四條路與催辦升級、離職這一批；部署環境另外打一輪。</li>
+<li>團隊對應目錄群組的同步（所以團隊解散目前沒有資料來源）。</li>
+<li>急件與續期、分級調高後的補簽、查核案與定期複查、代理、批次、稽核資料包、管理畫面。</li>
+<li>調職偵測（目前只處理離職與停用）；例外與對帳發現的處理、結案畫面。</li>
+<li>第二個流程包、多公司。</li>
+<li>正式部署與維運基礎：容器、全程加密、備份與還原演練、不刪資料的升級、金鑰輪替、外部監看、CI。現在的建置與啟動會刪庫重建，只能在驗證主機上跑。</li>
 <li>真機測試（目前只在模擬的手機瀏覽器上驗過）。</li>
 </ul>
 </section>
