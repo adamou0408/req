@@ -56,13 +56,28 @@ code { font-family:var(--mono); font-size:.88em; }
 .nums div { background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 12px; }
 .nums b { display:block; font-size:1.35rem; line-height:1.3; font-variant-numeric:tabular-nums; }
 .nums span { color:var(--muted); font-size:.85rem; }
+.fig { margin:0; display:flex; flex-direction:column; gap:8px; background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:12px; }
+.fig svg { display:block; width:100%; max-width:440px; height:auto; margin:0 auto; color:var(--fg); font-family:var(--font); }
+.fig figcaption { color:var(--muted); font-size:.9rem; }
+.dg .n { fill:var(--bg); stroke:var(--line); stroke-width:1.5; }
+.dg .n.acc { fill:var(--accent-soft); stroke:var(--accent); stroke-width:2; }
+.dg .n.end { stroke-dasharray:4 3; }
+.dg .zone { fill:none; stroke:var(--trust); stroke-width:1.5; stroke-dasharray:6 4; }
+.dg .t { fill:currentColor; font-size:12.5px; font-weight:500; text-anchor:middle; }
+.dg .l { fill:var(--muted); font-size:11px; }
+.dg .l.m { text-anchor:middle; } .dg .l.r { text-anchor:end; }
+.dg .cap { fill:var(--trust); font-size:11px; font-weight:700; }
+.dg .e { fill:none; stroke:var(--muted); stroke-width:1.5; }
+.dg .life { stroke:var(--line); stroke-width:1.5; stroke-dasharray:3 4; }
+.dg .ah { fill:var(--muted); }
+.dg .dot { fill:var(--surface); stroke:var(--muted); stroke-width:1.5; }
 </style>
 <div class="page">
 
 <header>
 <h1>簽核平台設計導讀</h1>
 <p class="lede">這個平台要讓公司的簽核與權限經得起稽核，而且每種使用者都願意用。這份導讀說明它怎麼組成、每個設計決定背後的理由，以及目前做到哪裡。</p>
-<p class="muted">2026-11-20。對象：第一次接觸這個專案的工程師、稽核與資安人員。讀完大約 10 分鐘。</p>
+<p class="muted">2026-11-21。對象：第一次接觸這個專案的工程師、稽核與資安人員。讀完大約 10 分鐘。</p>
 <ol class="toc">
 <li><a href="#idea">一句話說完整個設計</a></li>
 <li><a href="#layers">三層，以及信任邊界畫在哪裡</a></li>
@@ -145,6 +160,8 @@ code { font-family:var(--mono); font-size:.88em; }
 <section id="life">
 <h2>4. 一張申請單的一生</h2>
 <p class="muted">以資料授權為例。每一步都寫進紀錄鏈。</p>
+<figure class="fig"><svg class="dg" viewBox="0 0 360 434" role="img" aria-label="申請單的狀態：草稿送出後進入簽核中，每一關都核准後待套用，外部系統套用後驗證中，申請人確認後生效；簽核中可退回或駁回，驗證沒過或申請人回報不對則交付失敗，生效中可撤銷或到期。"><defs><marker id="ah1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs><rect class="n" x="16" y="8" width="130" height="32" rx="7"/><text class="t" x="81.0" y="28.5">草稿</text><rect class="n" x="16" y="64" width="130" height="72" rx="7"/><text class="t" x="81.0" y="98.0">簽核中</text><text class="l m" x="81.0" y="113.0">逐關用通行金鑰簽</text><rect class="n" x="16" y="176" width="130" height="34" rx="7"/><text class="t" x="81.0" y="197.5">待套用</text><rect class="n" x="16" y="250" width="130" height="34" rx="7"/><text class="t" x="81.0" y="271.5">驗證中</text><rect class="n acc" x="16" y="324" width="130" height="40" rx="7"/><text class="t" x="81.0" y="342.0">生效中</text><text class="l m" x="81.0" y="357.0">可縮小</text><rect class="n" x="236" y="64" width="108" height="30" rx="7"/><text class="t" x="290.0" y="83.5">已退回</text><rect class="n end" x="236" y="106" width="108" height="30" rx="7"/><text class="t" x="290.0" y="125.5">已駁回</text><rect class="n end" x="236" y="252" width="108" height="30" rx="7"/><text class="t" x="290.0" y="271.5">交付失敗</text><rect class="n end" x="236" y="329" width="108" height="30" rx="7"/><text class="t" x="290.0" y="348.5">已撤銷</text><rect class="n end" x="236" y="394" width="108" height="30" rx="7"/><text class="t" x="290.0" y="413.5">已到期</text><polyline class="e" points="81,40 81,63" marker-end="url(#ah1)"/><text class="l" x="89" y="56">送出</text><polyline class="e" points="81,136 81,175" marker-end="url(#ah1)"/><text class="l" x="89" y="160">每一關都核准</text><polyline class="e" points="81,210 81,249" marker-end="url(#ah1)"/><text class="l" x="89" y="234">外部系統已套用</text><polyline class="e" points="81,284 81,323" marker-end="url(#ah1)"/><text class="l" x="89" y="308">申請人確認</text><polyline class="e" points="146,73 235,73" marker-end="url(#ah1)"/><text class="l m" x="191" y="68">退回</text><polyline class="e" points="236,86 147,86" marker-end="url(#ah1)"/><text class="l m" x="191" y="99">修改後重送</text><polyline class="e" points="146,121 235,121" marker-end="url(#ah1)"/><text class="l m" x="191" y="116">駁回</text><polyline class="e" points="146,267 235,267" marker-end="url(#ah1)"/><text class="l m" x="191" y="262">驗證沒過</text><text class="l m" x="191" y="281">回報不對</text><polyline class="e" points="146,344 235,344" marker-end="url(#ah1)"/><text class="l m" x="191" y="339">撤銷</text><polyline class="e" points="81,364 81,409 235,409" marker-end="url(#ah1)"/><text class="l m" x="160" y="404">過了授權迄日</text></svg>
+<figcaption>申請單的狀態。左邊是順利走完的路，右邊是離開這條路的出口；虛線框是終點。待套用與驗證中也可以撤銷或到期，申請人逾期沒確認會自動撤銷。能走哪條線由資料庫裡的一張轉移表決定。</figcaption></figure>
 <ol class="steps">
 <li><span><strong>送出申請</strong><span class="who">申請人。可以替團隊或專案代填。</span>內容被標準化並算出雜湊；送出時綁定當時的簽核路徑版本。</span></li>
 <li><span><strong>逐關簽核</strong><span class="who">被授權者的負責人（代填時）→ 主管 → 資料擁有者 → 視級別加上其他角色</span>每一關都用通行金鑰簽。同一個人不能簽兩關，申請人不能簽自己的單。可以退回或要求縮小範圍。</span></li>
@@ -159,6 +176,8 @@ code { font-family:var(--mono); font-size:.88em; }
 
 <section id="sign">
 <h2>5. 一次核准是怎麼被保護的</h2>
+<figure class="fig"><svg class="dg" viewBox="0 0 360 322" role="img" aria-label="一次核准的順序：資料庫產生摘要送到簽核人的裝置，裝置算挑戰值並用通行金鑰簽，簽章經後端原封不動轉送，資料庫自己驗章並檢查資格，在同一筆交易寫入決定與紀錄鏈，再回傳結果。"><defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs><rect class="n" x="8" y="8" width="104" height="30" rx="7"/><text class="t" x="60.0" y="27.5">簽核人的裝置</text><rect class="n" x="136" y="8" width="88" height="30" rx="7"/><text class="t" x="180.0" y="27.5">後端</text><rect class="n acc" x="248" y="8" width="104" height="30" rx="7"/><text class="t" x="300.0" y="27.5">資料庫</text><line class="life" x1="60" y1="38" x2="60" y2="318"/><line class="life" x1="180" y1="38" x2="180" y2="318"/><line class="life" x1="300" y1="38" x2="300" y2="318"/><polyline class="e" points="299,72 61,72" marker-end="url(#ah2)"/><circle class="dot" cx="180" cy="72" r="4"/><text class="l m" x="180" y="63">① 這張單的摘要（資料庫產生）</text><rect class="n" x="8" y="88" width="150" height="26" rx="5"/><text class="l m" x="83.0" y="105">② 算挑戰值，用通行金鑰簽</text><polyline class="e" points="61,146 299,146" marker-end="url(#ah2)"/><circle class="dot" cx="180" cy="146" r="4"/><text class="l m" x="180" y="137">③ 簽章，原封不動轉送</text><rect class="n" x="186" y="162" width="166" height="26" rx="5"/><text class="l m" x="269.0" y="179">④ 自己驗章、檢查資格</text><rect class="n" x="186" y="200" width="166" height="26" rx="5"/><text class="l m" x="269.0" y="217">⑤ 寫決定與紀錄鏈</text><text class="l m" x="269" y="242">同一筆交易</text><polyline class="e" points="299,282 61,282" marker-end="url(#ah2)"/><circle class="dot" cx="180" cy="282" r="4"/><text class="l m" x="180" y="273">⑥ 結果與下一步可做的動作</text><text class="l m" x="180" y="310">後端只轉送</text></svg>
+<figcaption>一次核准的順序。每條線都經過後端（圓點），但後端只轉送：它沒有金鑰，改了內容資料庫就驗不過。</figcaption></figure>
 <ol class="steps">
 <li><span>簽核人點開一張單。畫面顯示的摘要由資料庫產生，不是後端組的。</span></li>
 <li><span>瀏覽器自己算出挑戰值，內容包含：這張單、這個內容版本、要做的動作、畫面上顯示的摘要。</span></li>
@@ -175,6 +194,8 @@ code { font-family:var(--mono); font-size:.88em; }
 
 <section id="audit">
 <h2>6. 稽核紀錄為什麼改不了</h2>
+<figure class="fig"><svg class="dg" viewBox="0 0 360 244" role="img" aria-label="稽核紀錄鏈：每一筆紀錄包含前一筆的雜湊；最新摘要定期送到資料庫以外的錨點存放處；稽核頁在瀏覽器重算整條鏈，並和錨點存放處的摘要比對。"><defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="ah" d="M0 0L10 5L0 10z"/></marker></defs><rect class="zone" x="4" y="6" width="352" height="112" rx="10"/><text class="cap" x="14" y="23">資料庫內：只增不改</text><rect class="n" x="12" y="34" width="96" height="74" rx="7"/><text class="t" x="60" y="53">第 1 筆</text><text class="l m" x="60" y="74">起點</text><text class="l m" x="60" y="94">內容與簽章</text><rect class="n" x="132" y="34" width="96" height="74" rx="7"/><text class="t" x="180" y="53">第 2 筆</text><text class="l m" x="180" y="74">前一筆的雜湊</text><text class="l m" x="180" y="94">內容與簽章</text><rect class="n" x="252" y="34" width="96" height="74" rx="7"/><text class="t" x="300" y="53">第 3 筆</text><text class="l m" x="300" y="74">前一筆的雜湊</text><text class="l m" x="300" y="94">內容與簽章</text><polyline class="e" points="131,70 109,70" marker-end="url(#ah3)"/><polyline class="e" points="251,70 229,70" marker-end="url(#ah3)"/><rect class="n" x="12" y="184" width="138" height="36" rx="7"/><text class="t" x="81.0" y="206.5">稽核頁（瀏覽器）</text><rect class="n end" x="210" y="184" width="138" height="36" rx="7"/><text class="t" x="279.0" y="206.5">錨點存放處</text><text class="l m" x="279" y="236">資料庫以外</text><polyline class="e" points="300,108 300,183" marker-end="url(#ah3)"/><text class="l r" x="292" y="154">定期送出最新摘要</text><polyline class="e" points="60,184 60,109" marker-end="url(#ah3)"/><text class="l" x="68" y="154">重算整條鏈</text><polyline class="e" points="150,202 209,202" marker-end="url(#ah3)"/><text class="l m" x="180" y="196">比對摘要</text></svg>
+<figcaption>每一筆都包含前一筆的雜湊，所以改任何一筆，後面全部對不上。就算有人用最高權限把整條鏈重算，也和已經送到外面的摘要不符。</figcaption></figure>
 <ul class="plain">
 <li><strong>只增不改</strong>：紀錄表擋下修改、刪除、清空，連資料表的擁有者也擋。</li>
 <li><strong>雜湊鏈</strong>：每一筆包含前一筆的雜湊。改任何一筆，後面全部對不上。</li>
