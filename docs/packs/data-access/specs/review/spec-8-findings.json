@@ -1,0 +1,247 @@
+{
+ "spec": "docs/packs/data-access/specs/8-group-sync.md",
+ "raised": 36,
+ "confirmed": [
+  {
+   "id": "8-code-fit-1",
+   "severity": "blocker",
+   "section": "§3.1 principal_owner_gap 加欄 cause；§4.1 person_transfer_apply、owner_gaps_ineligible、team_sync_group；§4.3 lapsed",
+   "problem": "新的三種缺口（transferred、ineligible、source_owner_changed）開的時候原負責人還在職，但 580 既有的結案和逾期邏輯都只看「負責人在不在職」，不看原因。結果是：下一輪 principal_checks 的 owner_gaps_restore 會立刻把這些缺口當成「恢復在職」結案，例外也一起關掉；就算沒被結案，owner_gaps_expire 也會因為負責人在職而 continue 跳過，永遠不會撤銷。另外 status 的 check constraint 沒有 'lapsed'，§4.3 新增的 expire_keep 轉移一寫入就會違反約束。規格只寫要改 principal_checks 加三件事，沒寫要改 restore、expire 和這個約束。",
+   "fix": "§3.1 加一個新 migration：alter sgn.principal_owner_gap 的 status check，加入 'lapsed'；cause 欄照原設計。§4.1 明列三個 create or replace：(1) sgn_internal.owner_gaps_restore 只處理 cause='departed'（負責人恢復在職，或已換成另一位在職的人）；(2) sgn_internal.owner_gaps_expire 鎖住後依 cause 重查：departed 看負責人仍不在職；transferred、ineligible 看負責人仍是 departed_person_id（ineligible 另看類型仍不合格）；source_owner_changed 走 expire_keep → lapsed、只開例外；(3) owner_gap_open 先 drop 舊簽章再建 (p_principal sgn.principal, p_cause text)，並更新 owner_gaps_open 等所有呼叫處，事件與通知範本帶 cause。transferred、ineligible 只能經改指派（reassigned）、專案與 agent 的續任（見 8-code-fit-4），或 ineligible 的負責人重新合格來結案。測試：調職缺口開出後跑 principal_checks 不會結案；逾期會撤銷。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-2",
+   "severity": "major",
+   "section": "§2 條文「寬限期內，簽核中的單不能再核准」；§4.1 person_transfer_apply",
+   "problem": "規則草稿要求調職的寬限期內，簽核中的單不能核准、時限暫停。但現有的擋法完全建立在 principal_usable 上：負責人不在職才算不能用。調職的負責人仍在職，所以 denial_reason 不會回 PRINCIPAL_UNAVAILABLE；waiting_approval_tasks、sla_holds_sync 不會暫停計時；case_hold 也不會顯示原因。照規格做，調職期間的單照樣可以核准，和條文不符。",
+   "fix": "§4.1 加一列：以 create or replace 改寫 sgn_internal.principal_usable(uuid)，多一個條件「沒有 status='open'、cause in ('departed','transferred','ineligible') 的缺口」（departed 本來就因 o.active 擋下，放進來是為了明確）。source_owner_changed 不擋：原負責人仍是負責人，逾期也不撤銷（規格:64）。這樣 denial_reason、grant_activate、waiting_approval_tasks、sla_holds_sync、case_hold 都經同一個入口生效。case_hold 的 message 依 cause 顯示調職或不合格。測試：寬限期內核准得到 PRINCIPAL_UNAVAILABLE，計時暫停。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-3",
+   "severity": "major",
+   "section": "§4.1 sgn_internal.denial_reason（case 版）",
+   "problem": "EXTERNAL_MEMBER_BLOCKED 和 EXTERNAL_APPLICANT_BLOCKED 只擋送審與核准，有三個漏洞。(1) 執行完成（fulfil）、確認生效（confirm_verification）和 grant_activate 都不擋，待套用或驗證中的單在團隊多了外部成員之後仍會生效。580 的 PRINCIPAL_UNAVAILABLE 對這幾個動作都有擋。(2) 被擋下的單仍在 waiting_approval_tasks 裡，催辦、升級、群組認領逾期照跑，升級到的人一樣不能核准，等於白白升級。(3) case_hold 不會說明為什麼不能往下簽。",
+   "fix": "新增單一判斷 sgn_internal.case_external_problem(p_case sgn.request_case) returns text，依流程選項回 EXTERNAL_APPLICANT_BLOCKED、EXTERNAL_MEMBER_BLOCKED、PRINCIPAL_UNLINKED 或 null。denial_reason（case 版）對 submit、approve、approve_reduced、fulfil、confirm_verification 都套用；grant_activate 也呼叫它當最後一道。另外以 create or replace 讓 waiting_approval_tasks、sla_holds_sync 與 case_hold 也納入它，或者直接讓 case_principal_usable 納入：被擋下期間暫停計時，畫面顯示原因與期限。external_member_check 逾期時，pending_fulfilment、verifying 的單和 active 一樣 grant_end；in_approval 的單開例外（比照 owner_gap_expire）。測試：待套用期間加入外部成員，確認生效被擋；逾期時待套用的單也撤銷。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-4",
+   "severity": "major",
+   "section": "§4.1 team_sync_group（負責人變了 → 提議目錄上的新負責人）、owner_candidate_problem（transferred 允許本人續任）；§5「確認續任」",
+   "problem": "既有改指派流程的前提是「有一位人類提議者」，但規格裡有兩條路徑沒有提議者。第一條：source_owner_changed 由系統提議，可是 principal_owner_handover.proposed_by 是 not null 的 person 外鍵，owner_handover_display 與路由的 ownerHandover.proposed_by 也都是不可為 null 的物件，系統提議寫不進去也畫不出來。第二條：專案、agent 的本人續任沒有提議者，而 owner.accept 要先有 open 的 handover 而且候選人是自己（否則 OWNER_HANDOVER_NONE）；api.principal_owner_propose 又禁止指定自己（OWNER_CANDIDATE_SELF），只有主管或治理角色能提議。光放寬 owner_candidate_problem，續任仍然走不通。此外，source_owner_changed 逾期成為 lapsed 之後，目錄上的負責人仍然和平台不同，下一次群組同步又會再開一筆缺口，形成每個寬限期循環一次。",
+   "fix": "(a) 系統提議：新 migration 把 principal_owner_handover.proposed_by 改成可為 null，加 proposed_source text not null default 'person' check in ('person','directory')，並加 check：(proposed_source='person') = (proposed_by is not null)；由新入口 sgn_internal.owner_handover_propose_system(p_gap, p_candidate, p_detail) 寫入；owner_handover_display 與 routes.ts 的 ownerHandover.proposed_by 改成 nullable，另加 proposed_source。(b) 續任：新動作 'owner.continue'，加進 gap 版 denial_reason：只在 cause='transferred'、被授權者是 project 或 agent、p_person_id = departed_person_id、仍在寬限期內時允許；另開 api.principal_owner_continue_challenge 與 api.principal_owner_continue_passkey（簽顯示摘要），不經 propose；轉移表加 owner_gap open --continue--> restored；登記路由；ownerGap.may_continue 由這個 denial_reason 算。(c) 比較基準：team_sync_group 一律拿目錄這次的 owner 和 directory_group_state 最後一次記下的 owner 比，不和平台目前的負責人比；同一位目錄負責人的缺口已經 lapsed 或 revoked 過，就不再重開。測試：團隊續任得到拒絕；專案的原負責人可以續任；其他人不能代為續任；lapsed 後下一輪同步不重開。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-5",
+   "severity": "major",
+   "section": "§3.1 sgn.person_unit（改變走冷卻期）；§4.1 person_transfer_apply「單位改變生效的同一個交易」",
+   "problem": "單位改變要等冷卻期過了才生效，但生效的那一刻沒有任何交易會執行。既有的延後機制是 sgn.person_change 加上 directory_apply_due（由同步與 api_job.directory_settle 呼叫），可是 person_change.field 的 check 只允許 display_name、email、active，directory_apply_due 也只更新 person 的三個欄位。規格把單位設計成帶未來 valid_from 的 person_unit，又沒說要掛進 directory_apply_due，結果 person_transfer_apply 不會在生效時被呼叫，調職缺口永遠開不出來；或者只能在下一次同步時才開，時間對不上，§6 的測試也做不出來。規格說「沿用 directory.person_change_deferred」，可是 person_change_schedule 寫不進 unit 這個欄位。",
+   "fix": "採做法 (a)，寫進 §3.1、§4.1：新 migration 把 person_change.field 的 check 放寬，加入 'unit' 與 'employment'（放寬方向），to_value 存 {unit_ref, unit_name} 或 {raw_value, kind}；以 drop 再 create 改寫 directory_apply_due（同簽章）：套用 unit 時寫一筆 person_unit（valid_from = 生效時間），並在同一個交易裡呼叫 person_transfer_apply；套用 employment 時寫 person_employment。這樣每次同步與 api_job.directory_settle 都涵蓋得到。person_unit 只記已生效的單位，未生效的留在 person_change。測試：冷卻期到了，只跑 directory_settle（沒有同步）也會開缺口。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-6",
+   "severity": "major",
+   "section": "§4.1 directory_entry_problem（unit_ref 必填）；§4.2「找不到或不唯一 → unit_ref 為空字串並讓資料庫以 DIRECTORY_ENTRY_INVALID 整批拒絕」",
+   "problem": "directory_entries_check 遇到任何一筆格式問題就整批 raise，所以一個人的單位名稱對不到或不唯一，整份人員快照都會被拒絕，連離職停用也套用不了。這正是 340 刻意避免的：「不整批拒絕，否則一筆髒資料就能擋住全公司的離職同步」。規格的做法會讓一筆單位資料就停掉 K-OWNER-CONTINUITY 的離職偵測。",
+   "fix": "directory_entry_problem 只檢查 unit_ref、unit_name、employment_raw 三個鍵存在、型別是 string（允許空字串）。adapter 對不到或不唯一時送空的 unit_ref；在 directory_entries_screen 這一層處理：unit_ref 為空的人，這次不採用新單位（保留目前的單位、不算調職），列進同一筆 K-HR-SYNC 例外，rejected 的 field 記 unit_ref、reason 記 unit_unresolved；停用、主管、姓名等其他欄位照常套用。§4.2 的「整批拒絕（從嚴，不猜）」刪掉。測試：兩個同名 OU 時，離職照樣套用，例外有一筆。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-7",
+   "severity": "major",
+   "section": "§3.1 檔名 610_directory_groups、615_person_unit、620_employment_kind",
+   "problem": "檔案順序和依賴方向相反。610 的 team_sync_group 要判斷負責人「類型在 employment.decider_kinds」，principal_external_members 要用 person_is_external，兩者都依賴 620 才定義的 person_employment、person_employment_kind；615 的調職偵測（transfer_member_stale_check）又要讀 610 的團隊成員。工程規範規定後面的檔可以呼叫前面的，反過來不行；language sql 的 function 在 check_function_bodies 開著時，建立當下就會因為參照不存在的 function 而失敗。",
+   "fix": "改成 610_employment_kind.sql（employment_kind_map、person_employment、person_employment_kind、person_is_external、decider_denial 的改寫、owner_candidate_problem 的類型檢查）、615_person_unit.sql（person_unit、person_change 放寬、directory_apply_due 改寫、person_transfer_apply）、620_directory_groups.sql（directory_group 系列、成員表、team_sync_group、principal_external_members、directory_groups_apply、principal_end_mark、external_member_check）。§4.1 的每個 function 標明放在哪個檔。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-8",
+   "severity": "major",
+   "section": "§4.1 sgn_internal.external_member_check、usage_external_check；§3.2；§3.3 data_access.external_member_grace_workdays",
+   "problem": "規格把資料授權專屬的東西放進核心命名空間，而且沒有指定流程包的 migration 檔。sgn_internal.external_member_check 寫死規則代碼 DA-EXTERNAL-BLOCK 和流程包參數 data_access.external_member_grace_workdays，違反「核心與領域無關、核心不認得任何流程包的概念」。另外，data_access 的 options 要加兩個鍵，只能由流程包重新呼叫 register_process_type，而它會整個取代 options、不會合併；但規格沒有流程包檔名，README 卻要求每份規格都指定檔名（核心 585 起、流程包 180 起）。",
+   "fix": "(1) 核心參數改名為 principal.external_member_grace_workdays（scope：process、tier），核心 function 只記 K-EXTERNAL-PARTY；流程包要標的代碼經 setting 或 hook 提供，例如 process option external_block_rule。(2) 代碼分工：K-EXTERNAL-PARTY 是核心機制（解析、擋下、限期移出、逾期撤銷）；DA-EXTERNAL-BLOCK 只是「資料授權把兩個選項設為關閉」與訊息。§4.4 加一張對照，列出每個 function 與測試各記哪個代碼；稽核事件兩個都記。(3) 一個團隊名下有多個級別的生效授權時，期限取最嚴的值（最短），參數值記進事件。(4) 新增流程包檔 db/packs/data_access/210_external_block.sql：用完整的 options 重新呼叫 register_process_type（原有鍵加上 allows_external_members=false、allows_external_applicant=false），登記 DA-EXTERNAL-BLOCK 與參數的流程包值。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-9",
+   "severity": "major",
+   "section": "§4.5 EXTERNAL_MEMBER_BLOCKED「這個團隊有 %s 位外部成員…」",
+   "problem": "授權入口只回傳錯誤代碼。authorize 呼叫 raise_error(v_denial, p_action)，第二個參數是動作名稱；raise_error 直接把目錄裡的訊息原樣放進 message，不做 format。所以使用者會看到字面上的「%s 位外部成員」。case_actions 和 case_hold 也只拿得到代碼，拿不到人數。",
+   "fix": "EXTERNAL_MEMBER_BLOCKED 的訊息改成不帶參數：「這個團隊有外部成員，目前不能申請或核准 L3、L4 的資料；請團隊負責人先從群組移出」。人數與名單放在 case_hold 回傳的 detail（external_members_count）和 api.principal_get，不放進錯誤訊息。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-10",
+   "severity": "major",
+   "section": "§4.1 usage_external_check（person_id 為 null 視同外部 → 例外）",
+   "problem": "usage_summary.person_id 本來就設計成「對得到平台人員時才有，沒有對應的照樣記」，服務帳號與 agent 的實際操作者本來就對不到人。照規格，每個 agent 被授權者、每個服務帳號的使用，每一期都會開一筆 K-EXTERNAL-USAGE 例外。這是系統性誤報，會淹沒真正的外部人員偵測。",
+   "fix": "usage_external_check 改成：對到人而且是外部人員 → 開 K-EXTERNAL-USAGE；對不到人時，只有 actor_provider 是登記的人員目錄來源（sgn.directory_source 的 code）才視同外部。被授權者是 agent，或 provider 不是目錄來源的，不開這個例外（畫面照舊顯示外部帳號）。「每期」定義為同一張單 × 同一個 (actor_provider, actor_external_id) × 同一個 usage_summary.period_from 一筆。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-11",
+   "severity": "major",
+   "section": "§4.1 末段「未對應」的團隊、PRINCIPAL_UNLINKED；§4.2 seed-ldif「現有種子團隊各對應一個群組」",
+   "problem": "種子團隊的 principal 是 source = 'seed-directory'、external_ref = 'team:…'；群組同步依規格會用 source = 目錄來源、external_ref = group DN 走 principal_upsert。兩組鍵不同，所以會建出第二個同名的團隊，原本的種子團隊（e2e 和 db 測試在用）則變成「未對應」，新申請被擋。資料模型裡沒有「對應」關係（沒有 link 表或欄位），linked 的定義與 Q4 的 migration 寫入哪裡都沒交代。PRINCIPAL_UNLINKED 由哪個入口丟出（denial_reason 還是 terms_errors）也沒寫。另外，principal_upsert 在 on conflict 時會直接覆寫 owner_person_id，如果實作者對既有群組也呼叫它，會繞過缺口與通行金鑰接下的流程。",
+   "fix": "新表 sgn.principal_directory_link(principal_id, source, group_ref, linked_at, event_seq)，只增不改，唯一 (source, group_ref) 與 (principal_id)；由 migration（Q4 的清單）或 team_sync_group 建新團隊時寫入。linked＝存在這筆 link。team_sync_group 先依 link 找既有團隊，找不到才 principal_upsert 建新團隊並寫 link；對既有團隊一律不呼叫 principal_upsert，名稱改變另記事件，負責人變更只經缺口。seed-ldif 的群組由種子 migration 以 link 對到既有的種子團隊。PRINCIPAL_UNLINKED 由 case_external_problem（見 8-code-fit-3）回傳，經 denial_reason 的 submit 擋下。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-code-fit-12",
+   "severity": "minor",
+   "section": "§4.1 principal_end_mark（群組消失 → ended → principal_end_due）",
+   "problem": "這一批第一次讓 principal 真的變成 ended，因而觸發一個既有的潛在問題。principal_end_pending 對 ended 團隊用的 since 是 g.created_at（授權建立的時間，可能是幾個月前）；overdue_work 的 principal_end 和 program_health 會在團隊一結束、下一輪 principal_checks 還沒跑之前，就把它算成逾期很久，並標成 stalled。principal 表沒有記錄結束的時間。",
+   "fix": "principal_end_mark 同時寫 sgn.principal_end_event(principal_id, ended_at, rule_code, detail, event_seq)，只增不改；以 create or replace 讓 principal_end_pending 對 ended 的 since 改用這張表的 ended_at（沒有紀錄時才退回 g.created_at）。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-rules-fit-1",
+   "severity": "blocker",
+   "section": "§2 團隊條文草稿；§8 #6；§6 K-TEAM-SYNC 測試",
+   "problem": "規格規定團隊新成員「不需簽核，只通知負責人並列入複查」。這和 D92 (2) 衝突：D92 (2) 要求每位新成員都由被授權者負責人限期確認；加人的群組管理者就是負責人時，改由他的主管確認；逾期撤銷該成員的存取。骨幹 K-MEMBER-REDUCE 要通知的是「擁有者」，規格寫成通知負責人，通知對象也不同。照規格做，等於直接拿掉一道已裁決的控制。另外，D92 要求逾期撤銷個別成員的存取，而規格 §1 不做「交付帶成員名單或排除名單」，現有交付做不到這件事，規格也沒交代。",
+   "fix": "建議預設照 D92 (2)：新規則代碼 K-TEAM-MEMBER-CONFIRM 與參數 directory.member_confirm_days；新成員由團隊負責人以通行金鑰限期確認，加人的是負責人本人時（目錄記錄得到時）改由他的主管確認。交付做不到個別排除，逾期時先比照外部成員，撤銷該團隊的授權並開例外，等 Q3 有了成員名單交付再改成只撤銷那位成員。這個退讓要請負責人確認。§8 #6 改寫，不能寫「rules.md 沒有要求」。通知對象照 K-MEMBER-REDUCE 補上資料擁有者。",
+   "needs_owner": true
+  },
+  {
+   "id": "8-rules-fit-2",
+   "severity": "blocker",
+   "section": "§2 負責人離職或調職草稿；§3.1 directory_group.owner_external_id；§4.1 team_sync_group、person_transfer_apply",
+   "problem": "團隊負責人變成兩個來源。草稿說團隊「成員與負責人以目錄為準」，但同一份草稿又規定團隊負責人調職或離職時，由主管在平台上「一定要改指派」。主管在平台選了新負責人之後，目錄的 owner 仍是原來的人，下一輪同步就會判定「負責人變了」，開 `source_owner_changed` 缺口，再提議目錄上那個人。兩邊互相覆蓋，可能無限重開缺口；還可能把已調職或已離職的人提議回去，再被 `owner_candidate_problem` 擋下。",
+   "fix": "建議預設以目錄為準：團隊（有 directory link 的）負責人離職、調職或不合格時，照樣開缺口與寬限期、擋核准，但不開放平台改指派，改成通知主管與群組管理者「在目錄改 owner」；目錄改了之後，走 source_owner_changed 由新負責人接下（第二個人見 8-rules-fit-5）；寬限期到了還沒改就撤銷。草稿「團隊一定要改指派」改成「團隊要在人員目錄改負責人」。專案、agent 照第四批的平台改指派。加測試：平台與目錄的負責人不一致時，不會重開缺口。",
+   "needs_owner": true
+  },
+  {
+   "id": "8-rules-fit-3",
+   "severity": "major",
+   "section": "§3.1 directory_source.employment_baseline_at；§4.1 person_employment_kind；§2 外部人員草稿",
+   "problem": "「判斷不出雇用類型」有兩套說法。草稿與 C9（D103 已照建議採用）都說判斷不出來就視為外部人員；規格的實作卻在雇用基準之前，把「沒有紀錄」的人一律回傳 `regular`，不擋。上線初期，群組或雇用同步失敗、或雇用欄位一直沒同步時，所有人都被當成正職，可以簽核、當負責人、申請，與條文從嚴的原意相反。草稿裡也沒有「基準」這個名詞。",
+   "fix": "刪掉「基準前視為正職」與 employment_baseline_at 的這個用途：person_employment_kind 沒有紀錄一律回 unknown（＝外部），依 C9。上線檢查清單寫明：第一次完整的雇用同步與對照表要先於開放申請（Q2）。§6 的 K-EMPLOYMENT-KIND 測試改成「沒有紀錄 → unknown」。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-rules-fit-4",
+   "severity": "major",
+   "section": "§3.1 principal_owner_gap.cause；§4.1 principal_checks (1)(2)；§2 條文草稿",
+   "problem": "缺口原因 `ineligible`（負責人的類型變成不合格，例如轉成委外或實習）與 `source_owner_changed`（目錄換了負責人，逾期只留例外、不撤銷）兩種行為，條文草稿都沒有寫。草稿只寫「離職、停用或調到其他單位 → 逾期自動撤銷」。實作時，ineligible 要不要撤銷、source_owner_changed 期間簽核中的單能不能核准、轉成 lapsed 之後擋不擋，規則來源都沒有答案。而且 source_owner_changed 逾期後平台的負責人一直不等於目錄的負責人，和草稿「負責人以目錄為準」矛盾。",
+   "fix": "在「負責人離職或調職」草稿補兩句。建議預設：(1)「負責人不再是正職人員時，比照離職處理：寬限期內改指派，簽核中的單不能核准，逾期撤銷」；(2)「人員目錄改了團隊負責人時，新負責人要在期限內確認接下；接下前原負責人仍是負責人，簽核中的單照常；逾期不撤銷、開例外」。§4.3 的 lapsed 寫明：同一位目錄負責人不再重開缺口，例外留給治理角色處理。",
+   "needs_owner": true
+  },
+  {
+   "id": "8-rules-fit-5",
+   "severity": "major",
+   "section": "§2 負責人離職或調職草稿；§5「原負責人 專案或 agent 續任」；§4.1 team_sync_group；§8 #3",
+   "problem": "規格有兩處抵觸 D102 (1)「提議人不能是新負責人，一律要第二個人」。(a) 調職續任時，原負責人自己按「確認續任」再用通行金鑰，全程沒有第二個人。(b) source_owner_changed 由同步程式提議、新負責人自己接下，平台上沒有第二個人。C7 經 D103 採用了「本人確認續任」，但草稿仍寫「新負責人確認接下才生效」，沒有把續任寫成 D102 (1) 的例外。另外，D101 主代理保留 (3) 要求放寬核心規則的工作先過紅隊才推 main，放寬 OWNER_CANDIDATE_INVALID 正屬此類，規格與 README 都只寫功能批次做完後集中打紅隊。",
+   "fix": "(1) 草稿寫：「調職時，專案與 agent 可以由原負責人本人以通行金鑰確認續任（C7，D102 (1) 第二人規則的例外）」。(2) source_owner_changed 建議預設要第二個人：仍在職的原負責人，或缺口記下的主管，用通行金鑰同意之後，新負責人才能接下。開缺口時通知原負責人、主管與 grant.owner_reassign_roles；主管與治理角色在這種缺口裡不能改提議別人（團隊以目錄為準，見 8-rules-fit-2）。威脅表的殘餘改成「同步帳號加同夥，仍需第二人同意」。測試：只有新負責人簽、沒有第二人同意時，負責人不會換。(3) §6 或 README 加一句：放寬 OWNER_CANDIDATE_INVALID（續任）的部分，做完先過紅隊再推 main（D101 (3)）。",
+   "needs_owner": true
+  },
+  {
+   "id": "8-rules-fit-6",
+   "severity": "major",
+   "section": "§2 外部人員草稿",
+   "problem": "草稿把限制寫成「外部人員目前不能碰 L3、L4 的資料」。但 D103 (4) 已裁決外部會計師可以經內部稽核開查核案、走匯出調查後拿到資料。條文照字面貼進 rules.md，會和 D103 (4) 及第七批相互矛盾。條文也沒有說一般申請能不能以匯出（例如 `external_handover`）把 L3、L4 交給外部人員，實作時不知道要不要擋。此外，rules.md 既有的「代填申請：任何人都可以替團隊、專案或 agent 填單」，貼上草稿後就與「外部人員不能申請」衝突。",
+   "fix": "草稿改成：「外部人員不能在本站申請、簽核、當被授權者負責人，也不能是有 L3、L4 授權的團隊成員；外部單位需要資料時，由內部人員申請，經匯出調查後提供（D103 (4)）」。「代填申請」那一點加上「外部人員除外」。一般申請以 external_handover 交給外部的情形，建議預設照常允許、不另擋（目的與去向已經進簽的內容，由資料擁有者把關），請負責人確認。",
+   "needs_owner": true
+  },
+  {
+   "id": "8-rules-fit-7",
+   "severity": "major",
+   "section": "§3.1 principal_member_event；§1 不做（交付成員名單）",
+   "problem": "「成員」這個概念有兩個名字、兩種模型。骨幹與 05 契約定義的是 `principal_member`（人、種類 member／audience、加入與離開時間，雙時間），對外判定、成員端點與 `membership_changed` 事件都建在這張表上；規格另造 `sgn.principal_member_event`，成員事件只有 added／removed、沒有種類也沒有雙時間。之後實作 05 的 `subject_principals`、成員端點時，會出現第二套成員來源。另外 05 §3.2 仍寫「成員名單以本平台的 principal_member 為準，使用方的 LDAP 群組不一致時依 principal_member」；D92 已要求改寫這段卻還沒改，規格的 Q3 又假設使用方讀同一個 AD 群組。",
+   "fix": "沿用骨幹的名字：建 sgn.principal_member(principal_id, person_id 可為 null, external_id, kind 預設 'member', valid_from, valid_until, recorded_at, event_seq)。移除時只填 valid_until（05:131 的模型），由同一個入口寫入並進鏈；目前成員＝valid_until is null。§8 加一列：同一批改寫 05 §3.2（:216）為「成員以目錄群組為準」。sgn.principal.membership_changed 事件明列這一批不發，由對外整合那一批處理。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-rules-fit-9",
+   "severity": "major",
+   "section": "§3.3 employment.decider_kinds；§2 外部人員草稿",
+   "problem": "「外部人員」與「非正職」被當成同一件事，其實範圍不同。`decider_kinds` 只允許 regular，所以實習生（intern）不算外部人員，卻不能簽核、不能當負責人；既有由實習生負責的專案還會被開 `ineligible` 缺口，逾期撤銷。草稿只寫「外部人員不能簽核、不能當負責人」，rules.md 沒有任何條文支持這個對實習生的限制，實作出來就是沒有規則依據的撤銷。",
+   "fix": "草稿分兩層寫：「外部人員（委外、派遣、顧問，判斷不出來的也算）不能申請……」，以及「非正職人員（含實習）不能簽核、不能當被授權者負責人（骨幹 K-EXTERNAL-SPONSOR）」。§3.3 的說明欄用同一組名詞。既有由實習生負責的被授權者會開 ineligible 缺口，寫進交接的上線影響清單。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-rules-fit-10",
+   "severity": "minor",
+   "section": "§3.2 流程類型選項；§4.1 usage_external_check",
+   "problem": "規格說 `allows_external_applicant` 是「核心選項，骨幹第 3 節」，但骨幹第 3 節只有 `allows_external_members`，README 要改骨幹的清單也只列這一個，實作時找不到預設值與語意。G6 的使用紀錄偵測依的是 `allows_external_applicant`；但操作人不是申請人，要依哪個選項判斷沒有定義。",
+   "fix": "README 的「要改骨幹」清單與骨幹第 3 節表格新增 allows_external_applicant（申請人可以是外部人員；核心預設：否；包決定）。usage_external_check 改成兩個選項任一關閉就偵測，並寫在 §4.1。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-rules-fit-11",
+   "severity": "minor",
+   "section": "§2 外部人員草稿",
+   "problem": "條文正文寫死了「2 個工作天」，同一個值又新增在「預設時限」表與參數 `external_member_grace_workdays`，同一件事寫在兩個地方。參數一調整，條文正文就和實際行為不一致。rules.md 既有的寫法是正文只寫「寬限期」、數字放表裡。",
+   "fix": "正文改成「在期限內從群組移出（見預設時限），逾期撤銷該團隊的授權」，數字只留在預設時限表。§7 威脅表的「（2 個工作天）」也改成引用參數。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-rules-fit-12",
+   "severity": "minor",
+   "section": "第 3 行狀態；§8 #3",
+   "problem": "規格仍寫「條文草稿要負責人確認後才貼進 rules.md」，§8 #3 也寫「要負責人確認（C7）」。但 D103 (1) 已授權主代理照規格建議直接貼條文，C7–C10 也已照建議採用。實作代理照字面會停下來等確認，或不把條文與 rules 代碼的 coverage 改成 full。",
+   "fix": "狀態列改成「條文依 D103 (1) 由主代理貼進 rules.md，做完附白話差異表」；§8 #3 改成「C7 已由 D103 採用」。README 第 3 行與第 2 節標頭同步改。這一批另外有需要負責人新裁決的項目（8-rules-fit-1、-2、-4、-5、-6），在這裡另列，不在 D103 的授權範圍內。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-abuse-test-2",
+   "severity": "blocker",
+   "section": "§4.1 team_sync_group（負責人變了 → 開 principal_owner_gap）",
+   "problem": "同一個被授權者同時只能有一筆 open 缺口（部分唯一索引）。團隊已經有缺口時（例如負責人離職，或已經有一筆 source_owner_changed），目錄又改了負責人，team_sync_group 再 insert 一筆缺口就會撞到唯一索引，整個 directory_groups_apply 交易失敗，所有團隊的成員同步一起停擺。有同步帳號或目錄權限的人只要在負責人離職的寬限期內改群組 owner，就能讓整批群組同步一直失敗，外部成員的偵測也跟著停掉。規格沒有定義已有缺口時要怎麼處理。",
+   "fix": "team_sync_group 寫明：這個團隊已經有 open 缺口時不開新缺口，改把目錄上的新負責人登記成那筆缺口的系統提議（取代舊提議並記事件，經 8-code-fit-4 的 owner_handover_propose_system），原缺口的 cause 與期限不變。每個群組的處理各自一個 savepoint，一個群組失敗只開例外、不回捲整批（比照 owner_gaps_expire）。測試：負責人離職的寬限期內目錄改負責人，群組同步成功，只有一筆缺口。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-abuse-test-5",
+   "severity": "major",
+   "section": "§4.1 external_member_check；§7 第一列",
+   "problem": "「移出了 → 結案」沒有記住同一個人被移出又加回來的紀錄。目錄管理者可以在每次期限到之前把外部成員移出，結案後再加回去，每次都換到新的 2 個工作天，外部人員就能幾乎不間斷地透過 DC 使用，平台永遠不撤銷。規格也沒定義例外以什麼為單位（每個團隊一筆，還是每個團隊加每個人一筆）：新的外部成員加入時期限會不會重算，同樣沒有寫。",
+   "fix": "external_member_check 的例外以 (principal_id, external_id) 為單位，期限從這個人第一次出現時起算。同一個外部人員在 principal.external_member_readd_days 期間內（核心參數，預設 30）移出又加回，不給新的寬限期，下一輪就撤銷；事件記參數值。測試：移出、結案、再加回 → 立即撤銷；兩位外部成員先後加入，各自有自己的期限。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-abuse-test-7",
+   "severity": "major",
+   "section": "§4.2「第二個失敗不影響第一個」；§3.3 group_max_change_percent",
+   "problem": "群組同步失敗（超過門檻被整批拒絕、格式錯誤），或同步帳號乾脆不呼叫 directory_groups_apply 時，平台會一直用舊的成員名單，人員同步卻照常進行。目錄管理者可以把外部人員加進群組，同時製造超過 20% 的變動讓群組批次被拒，或讓同步只跑人員那段；之後的送審、核准、external_member_check 都看不到這位外部成員。規格沒有任何「成員名單多久沒更新」的檢查。",
+   "fix": "directory_source 加 groups_last_applied_at（只經 directory_groups_apply 寫入，同時進鏈）；新核心參數 directory.groups_max_staleness_hours（預設 26）。超過時，有 link 的團隊在 case_external_problem 回 DIRECTORY_GROUPS_STALE（新錯誤代碼，409），送審與核准都擋；排程開 K-TEAM-SYNC 例外並通知控制負責人。群組批次被拒期間照這條處理。測試：群組同步被拒、超過時限後送審被擋；恢復同步後放行。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-abuse-test-9",
+   "severity": "major",
+   "section": "§3.3 directory.transfer_bulk_max",
+   "problem": "「一次同步調離超過 5 人，全部延後並開例外」沒有寫延後到什麼時候、由誰放行。持同步帳號的人可以替真正調職的負責人搭配幾筆假調職，把人數湊過門檻，讓真正的調職一直被延後，缺口永遠不開；若之後是自動放行，又能反過來逐批壓在門檻以下送出假調職。",
+   "fix": "寫明比照 directory.bulk_deactivation_max：超過門檻時，這次的所有單位改變在原本的生效時間之後，再多延一個冷卻期（directory.sync_cooling_workdays），開 K-HR-SYNC 例外並通知治理角色，期間目錄改回就取消；到期由 directory_apply_due 自動套用並開缺口。門檻比照停用，改成時間窗內累計（directory.deactivation_window_hours），避免拆成小批繞過。延後期間不另加「調職待確認」的擋法：條文只在生效後才算調職。測試：超過門檻時延後並開例外；到期自動開缺口；拆成兩批時照樣累計。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-abuse-test-10",
+   "severity": "major",
+   "section": "§3.1 person_employment「變成外部立即生效」；§4.1 decider_denial；§7",
+   "problem": "雇用類型收緊立即生效，而且沒有批量門檻（調職有 transfer_bulk_max，群組有百分比，雇用類型沒有）。持同步帳號的人可以把特定簽核人或資料擁有者瞬間改成委外，讓 decider_denial 把關卡「往上找」或「找同角色其他人」，把單導向自己挑的人；也可以讓某團隊負責人變成 ineligible，引發缺口與撤銷。另外，規格只寫「被解析到時往上找」，沒寫已經指派、待簽的工作在簽核人變成外部之後怎麼辦：照現行 decider_denial，這張單會卡住，沒有人能簽。威脅小表沒有列這條。",
+   "fix": "雇用類型收緊納入批量門檻：新參數 directory.employment_tighten_bulk_max，時間窗內累計，超過就整批延後一個冷卻期並開例外（比照停用）；每筆收緊都通知本人與他的主管。§4.1 加一條：簽核人變成不合格時，他還在等的工作立即經同一個 resolver 入口重新解析（記 case.task_reassigned，規則 K-EXTERNAL-PARTY），不等升級。威脅表補這一列。測試：待簽工作的簽核人變成外部後，工作重新指派。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-abuse-test-11",
+   "severity": "major",
+   "section": "§3.1 sgn.principal（status 只經 principal_end_mark）；§4.1 team_sync_group",
+   "problem": "規格沒有定義群組消失之後，同一個 group_ref 又出現時要怎麼處理。principal 有唯一 (source, external_ref)，所以無法建新的團隊；若沿用 principal_upsert，它不會改 status（團隊永遠停在 ended，成員還照寫），卻會直接覆寫 owner_person_id，繞過「換負責人只經 principal_owner_set」的唯一入口和通行金鑰。反過來，若實作者把 status 改回 active，群組消失到排程 principal_end_due 跑之前的空檔裡重新出現，名下授權就永遠不會被撤銷。",
+   "fix": "寫明 ended 是終態，轉移表 principal 只有 active --end--> ended。同一個 group_ref 再出現時，不重用舊團隊，也不寫成員：開 K-TEAM-SYNC 例外（reason group_reappeared），由治理角色或 migration 決定要不要建立新的被授權者（新 link，external_ref 加世代序號）。測試：群組消失後、排程前又重新出現，名下授權照樣被撤銷，負責人不變。",
+   "needs_owner": false
+  },
+  {
+   "id": "8-abuse-test-12",
+   "severity": "major",
+   "section": "§6 測試清單",
+   "problem": "幾條關鍵行為沒有測試，也有不穩的測試設計。缺的：(a) principal_checks (1)「負責人類型變成不合格 → 開缺口 ineligible」在測試表中完全沒有；(b) 調職、不合格的缺口不會被 owner_gaps_restore 結案，寬限期內核准被擋；(c) source_owner_changed 逾期成 lapsed 之後，下一輪同步不會又開缺口（規格沒定義比較基準：比目錄上一次的 owner，還是比平台目前的負責人）；(d) nested_group 例外、DIRECTORY_GROUP_INVALID；(e) 已有 open 缺口時目錄改負責人；(f) 外部成員移出又加回；(g) 群組消失又出現。不穩的：e2e 檔名靠 zz 排在最後，「最後 sim/ldap/reset.sh」寫在流程尾端，前面一步失敗就不會重設，污染之後的執行；e2e 用真的 sim 加假時鐘推 2 個工作天和冷卻期，結果取決於假時鐘落在星期幾或假日。",
+   "fix": "79a 補上：ineligible 缺口開出與逾期撤銷；restore 不結案非 departed 的缺口；lapsed 後不重開；nested_group 例外；格式錯誤得到 DIRECTORY_GROUP_INVALID；已有缺口時目錄改負責人（8-abuse-test-2）；群組重現（8-abuse-test-11）；單位對不到時離職照樣套用（8-code-fit-6）。89c 補上：移出又加回（8-abuse-test-5）；待套用期間加入外部成員（8-code-fit-3）；群組名單過舊（8-abuse-test-7）。e2e 把 reset 放在 before 與 after 掛鉤（失敗也執行），不靠檔名順序；假時鐘起點固定在已知、不是假日的星期一，期限一律用 add_workdays 算出的時間點斷言。",
+   "needs_owner": false
+  }
+ ],
+ "summary": "結論：這份規格還不能直接交給實作。36 項裡有 29 項成立，7 項是重複，已註明併入哪一項，沒有一項整項不成立。另外，8-rules-fit-9 的「沒有規則依據」說錯了：骨幹 K-EXTERNAL-SPONSOR（00-spine.md:337）有這條限制，所以只把條文用詞的部分判為成立。\n\n需要負責人決定的有 6 項：8-rules-fit-1、-2、-4、-5、-6，以及 D92 (2) 的退讓方式（在 8-rules-fit-1 裡）。這些不在 D103 (1) 的授權範圍內，各項的 final_fix 都寫了建議的預設。\n\n最大的三個風險：\n\n1. 新的缺口原因會被 580 既有邏輯吞掉。580:393-397 的 restore 與 :470-471 的 expire 只看負責人在不在職；130:245-259 的 principal_usable 也一樣。結果是調職與不合格的缺口下一輪就自動結案，不會撤銷，寬限期內照樣可以核准。另外 status 的 check 沒有 'lapsed'，同一個被授權者只能有一筆 open 缺口（唯一索引），目錄改負責人時會讓整批群組同步失敗。（8-code-fit-1、-2，8-abuse-test-2）\n\n2. 團隊負責人有兩個來源，換手流程也走不通。草稿同時寫「以目錄為準」和「團隊一定要在平台改指派」。系統提議寫不進 proposed_by（580:72 是 not null）；續任沒有授權動作；source_owner_changed 沒有第二個人，違反 D102 (1)；lapsed 之後會每個寬限期重開一次。種子團隊和群組團隊的鍵也不同，會建出重複的團隊。（8-rules-fit-2、-5，8-code-fit-4、-11）\n\n3. 外部人員的擋法有漏洞，同步的失敗方式也和既有原則相反。fulfil、確認生效、grant_activate 都不擋，逾期也不撤待套用與驗證中的單。一個人的單位對不到就整批拒絕人員同步，違反 340「不整批拒絕」的原則，連離職偵測都會停掉。群組名單過舊沒有任何檢查。條文還和已裁決的 D92 (2)（新成員要限期確認）、C9（對不到視為外部）衝突。（8-code-fit-3、-6，8-abuse-test-7，8-rules-fit-1、-3）\n\n另外，code-fit-5（單位改變生效時沒有呼叫點）和 code-fit-7（檔案順序和依賴方向相反）都是實作一開始就會撞到的結構問題，要先在規格裡修正。\n\n這次只用 Read、Grep、Glob 讀檔，另用幾次 Bash 的 sed、grep、ls 讀檔；沒有改任何檔、沒有執行建置或測試、沒有連線任何服務。查證過的主要檔案：/home/user/req/docs/packs/data-access/specs/8-group-sync.md、/home/user/req/db/kernel/580_owner_continuity.sql、/home/user/req/db/kernel/130_principal_grant.sql、/home/user/req/db/kernel/280_directory_guard.sql、/home/user/req/db/kernel/340_directory_identity.sql、/home/user/req/db/kernel/230_directory_sync.sql、/home/user/req/db/kernel/120_flow_definition.sql、/home/user/req/db/kernel/01_core.sql、/home/user/req/docs/decision-log.md。"
+}

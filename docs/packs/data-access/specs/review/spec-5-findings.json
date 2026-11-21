@@ -1,0 +1,215 @@
+{
+ "spec": "docs/packs/data-access/specs/5-urgent-renewal.md",
+ "raised": 35,
+ "confirmed": [
+  {
+   "id": "5-code-fit-1",
+   "severity": "blocker",
+   "section": "§4.1 case_urgent_set／case_urgent_withdraw／case_renew_draft「誰可呼叫」；§5「按鈕依 case_summary.actions 顯示（加 urgent_withdraw、renew）」",
+   "problem": "規格只用文字寫了誰可以呼叫，沒有把三個動作放進授權的唯一入口（sgn.action 加列＋denial_reason 加 actor_rule）。而且 case_actions 只列 changes_state = true 的動作；急件取消、續期都不改狀態，就算加了 action 列也不會出現在 actions。照規格做，畫面永遠看不到「取消急件」「續期」按鈕；不然就得在 api function 裡另寫一套授權。",
+   "fix": "§4 加「動作與授權」小節：(1) sgn.action 新增 urgent_set（applicant）、urgent_withdraw（新 actor_rule urgent_party：申請人，或 approval_tasks_waiting 裡 status = 'pending' 的指派對象）、renew（新 actor_rule renewer：來源單的申請人，或 case_principal_owner(來源)），三個都是 changes_state = false；action_actor_rule_check 要重建，加入這兩個值。(2) 585／590 以 create or replace 取代 denial_reason，以 580 版為底（若 580 在本批前又改過，以最新版為底），加上這兩種 actor_rule 與狀態條件，回 URGENT_NOT_PARTY、URGENT_STATE、URGENT_NONE、RENEW_NOT_PARTY、RENEW_SOURCE_STATE、RENEW_TOO_EARLY。(3) sgn.action 加 shown_in_actions boolean 欄位（既有列＝changes_state 的值），case_actions 改用 create or replace，改讀這個欄位，不寫死動作名稱。(4) 三個 api function 都走 sgn_internal.authorize(person, action, case)，不另寫判斷",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-2",
+   "severity": "blocker",
+   "section": "§4.1 review_submission、test_report_for；§4.3 DA-RENEW-BASIS、DA-RENEW-REPORT「送審時凍結、雜湊進內容」",
+   "problem": "報告凍結進內容是在 normalize_content hook 做的，但這個 hook 只拿得到 content，看不到 case_id，也看不到 request_case.source_case_id；sgn_sdk.case_context 也不回 source_case_id／source_kind。另外送審時的過期檢查（review_reported）與凍結（test_report_frozen）都寫死以 test_basis.case_id 為來源、用 prod_basis 的用途。照規格只改 review_submission 和加 test_report_for，續期的報告不會進內容；真要用前案報告時，review_reported 還會拿 test_basis 重算，結果對不上、報 DA-E-TEST-REPORT-STALE。流程包如果改成讀內容裡的鍵，申請人又能用 case_revise 自己寫一個續期依據，繞過 K-RENEW「標示只能由系統產生」。",
+   "fix": "規格寫明：(1) 590 以 create or replace 取代 sgn_sdk.case_context，多回 source_case_id、source_kind，流程包只透過 SDK 讀。(2) case_renew_draft 由核心把來源寫進 request_case；新增 hook prepare_renewal(uuid source, jsonb content) returns jsonb，登記在 sgn.hook_definition，回 {content, max_months}。核心建立續期草稿時呼叫它，流程包在內容放 renewal_basis: {case_id, case_no}（見 5-code-fit-3、5-code-fit-4）。(3) normalize_reported、review_reported、test_report_frozen 都要 create or replace，或另加帶 purpose 的 _for 版本：有 renewal_basis 時以它為來源，purpose = 'renewal'；沒有就照舊用 test_basis，purpose = 'prod_basis'。(4) review_submission 用 case_context 的 source_kind = 'renewal' 與 source_case_id 驗證 renewal_basis，兩者不符（或不是續期單卻帶 renewal_basis）一律回錯誤，不信任內容裡的鍵；compare_reported 把 renewal_basis 視同 test_report，不算申請範圍",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-3",
+   "severity": "major",
+   "section": "§4.1「續期草稿的內容 1. 內容＝來源單目前版本」；§4.3 DA-RENEW-BASIS「不開例外」",
+   "problem": "來源單的內容本來就帶 test_basis、test_exception、test_report 這些鍵，原樣複製有三個後果。(1) normalize_reported 會拿舊的測試區單重算報告，凍結進續期，而不是用前案。(2) 前案如果是「沒有測試紀錄就上線」，內容裡的 test_exception 會跟著複製；就算 review_submission 不開 DA-TEST-EXCEPTION，續期生效時 after_grant_activated 只看 content.test_exception，還是會再開一筆 DA-TEST-REPORT-FOLLOWUP。(3) review_submission 遇到 test_basis 物件時，仍照一般方式檢查 test_basis_problem。",
+   "fix": "「續期草稿的內容」第 1 點改成：由流程包的 prepare_renewal hook 複製來源內容，拿掉 test_basis、test_exception、test_report，改放 renewal_basis，再經 normalize_content；核心不解讀內容。§6 加兩條測試：前案是 test_exception 的正式區單，續期送審不開 DA-TEST-EXCEPTION，生效後也不開 DA-TEST-REPORT-FOLLOWUP；續期內容不含 test_basis",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-4",
+   "severity": "major",
+   "section": "§4.1「續期草稿的內容 2. valid_to = valid_from + 重新分級後的級別上限 − 1 天」",
+   "problem": "預填只看核心的級別上限 validity.max_months，沒看流程包的環境上限 data_access.environment_validity_max_months（測試區 3 個月、正式區 12 個月）。測試區的單續期，預填的迄日會超過環境上限，送審時被 DA-E-ENV-VALIDITY 擋下。核心 590 讀不到流程包的環境參數，也不該讀。",
+   "fix": "第 110 行改成：valid_to = valid_from + min(重新分級後的級別上限, 流程包 prepare_renewal 回傳的 max_months) − 1 天。環境上限由流程包提供，核心不讀流程包的參數。§4.1 寫明這個責任歸流程包。§6 加測試：測試區的續期草稿，迄日依 3 個月上限預填，可以直接送審，不出現 DA-E-ENV-VALIDITY",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-5",
+   "severity": "major",
+   "section": "§4.1 task_sla_due「急件：remind_at = started_at + 催辦小時、escalate_at = remind_at + 升級小時」",
+   "problem": "既有的升級期限是從「催辦期限」和「實際催辦時間」較晚的那一個起算，保證催辦之後至少隔升級時限才升級；暫停計時恢復時也會一起移動 sla_reminded_at。規格的急件公式拿掉了 greatest(remind_at, sla_reminded_at)。排程晚跑時（例如第 3 小時 50 分才催辦），下一輪就會在催辦後幾分鐘升級，破壞 570 的不變條件「升級前簽核人一定收過催辦並有升級時限可以處理」。",
+   "fix": "第 98 行改成：急件 remind_at = add_work_hours(started_at, 催辦小時)；escalate_at = add_work_hours(greatest(remind_at, p_task.sla_reminded_at), 升級小時)。add_work_hours 見 5-rules-fit-1；一般單照舊用 add_workdays。工作途中取消急件、改回工作天時，同樣以 greatest 起算。§6 加測試：排程停了好幾個小時才恢復時，第一輪只催辦；升級發生在實際催辦之後滿升級小時",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-6",
+   "severity": "major",
+   "section": "§3.1 唯一索引 request_case_renewal_open_idx；§4.1 grant_renewed_by「狀態不是終局」、case_renew_draft「已有進行中的續期就回那一張」",
+   "problem": "終局狀態的列舉和轉移表不一致。轉移表的終局還有 fulfilment_failed（沒有任何轉出）和 completed，索引卻只排除 rejected、cancelled、expired、revoked。續期交付失敗之後，索引會擋下同一來源的新續期；「重按回同一張」也會回到那張失敗的單。另外 grant_renewed_by 改成「不是終局」之後，草稿與退回也算已續期：申請人按了「續期」卻沒送審（或退回後擱著），到期前提醒就永遠不寄。舊版刻意只認送審後的狀態。",
+   "fix": "(1) 定義一個「進行中的續期」正面清單，只寫一處，例如 sgn_internal.case_state_open(state)，或代碼表欄位：draft、returned、in_approval、pending_fulfilment、verifying、active。唯一索引的 where 與 case_renew_draft 都用這份清單，索引條件寫成 state in (...)；fulfilment_failed、completed 等不在清單內，會釋放名額。(2) grant_renewed_by 改成：source_kind = 'renewal'、source_case_id = p_grant.case_id、state in ('in_approval','pending_fulfilment','verifying','active')。保留「申請人是原申請人或被授權者負責人」，並要求續期單的 principal_id 等於 p_grant.principal_id。(3) §6 加三條測試：續期落到 fulfilment_failed 之後，可以再產生新的續期；只有續期草稿或退回中的續期時，提醒照發；續期被駁回之後補發提醒",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-7",
+   "severity": "major",
+   "section": "§4.1 urgent_on_submit「由送審入口（case_submit、case_submit_new 的共同路徑）」、urgent_settle「approval_sla_due 每一輪最後呼叫」；§3.4／§5 case_summary、待簽清單急件排最前",
+   "problem": "規格沒有寫出要取代的既有 function 和它們的現行版本，照字面實作容易漏改或覆蓋掉後來的版本。(1) 送審的共同路徑是 sgn_internal.case_submit_draft，現行版本在 550，帶送審複核與例外。(2) approval_sla_due 的現行版本在 580，多了 sla_holds_sync；以 570 為底取代會讓暫停計時失效。(3) 「急件排最前」要改 api.inbox_list 的排序（570 版），§4.1 沒有列這個 function。(4) case_summary 的現行版本在 580，帶 hold。",
+   "fix": "§4.1 表加四列，都是「create or replace、同簽章、以現行版本為底」：sgn_internal.case_submit_draft（550 版；在 case_transition 之後、同一個交易內呼叫 urgent_on_submit）、sgn_internal.approval_sla_due（580 版；最後接 'urgent_closed', urgent_settle()）、api.inbox_list（570 版；排序見 5-rules-fit-8）、sgn_internal.case_summary（580 版；加 urgent、renewal，actions 依 5-code-fit-1）。註明：570、575、580 若在本批之前又有新版，以最新版為底",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-8",
+   "severity": "minor",
+   "section": "§4.4 RENEW_TOO_EARLY「到期前 %s 天內才能續期」",
+   "problem": "raise_error 不會代入參數，只把 error_catalog 的 message 原樣放進例外訊息，前端直接顯示後端回傳的訊息。使用者會看到「到期前 %s 天內才能續期」。",
+   "fix": "RENEW_TOO_EARLY 的訊息改成不帶參數：「還沒到可以續期的時間：到期前的開放期間內才能續期」。可續期的日期放進 raise_error 的 detail；畫面另從 case_summary 的 renewal 區塊（多回 opens_on）顯示可續期日",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-9",
+   "severity": "minor",
+   "section": "§4.3 新規則代碼；§3.1、§4.1 引用 K-REUSE",
+   "problem": "規格的 source_kind（§3.1）和 case_renew_draft（§4.1）都標了 K-REUSE，但 sgn.rule 裡沒有這個代碼，§4.3 也沒有登記。事件 rules 陣列和測試名稱引用了未登記的代碼，規則覆蓋檢查和「規則代碼以 sgn.rule 為準」都會出錯。",
+   "fix": "§4.3 加一列 K-REUSE：「沿用前案：來源（source_case_id、source_kind）只能由系統寫入，case_create、case_revise 不接受；續期標示只由系統產生」，coverage partial，note 寫「第六批把 supplement 納入」。§6 的「source_kind 無法由 case_create、case_revise 寫入」那條測試名稱帶上 K-REUSE",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-11",
+   "severity": "minor",
+   "section": "§6「K-RENEW … 續期加欄位 → change_kind = expand」",
+   "problem": "續期草稿由 case_new 建立，第一版的 change_kind 固定是 'initial'，系統不會拿它和來源單比較並記錄。和前案的差異只存在於 display.baseline。這條測試照規格寫不出來：要嘛測到草稿第二版相對第一版的比較，要嘛找不到要斷言的欄位。",
+   "fix": "§4.1「續期草稿的內容」第 4 點加上：case.renewal_drafted 事件帶 change_kind，取 hook compare_content(來源目前版內容, 續期第 1 版內容) 的結果；申請人之後修改內容時，在 case.revised 事件另記相對來源的比較。§6 那條測試改成：續期加欄位之後，相對來源的比較結果為 expand，顯示摘要的 baseline 標出差異",
+   "needs_owner": false
+  },
+  {
+   "id": "5-code-fit-12",
+   "severity": "minor",
+   "section": "§6 資料庫測試 `db/tests/packs/data_access/89-urgent-renewal.test.mjs`",
+   "problem": "89 這個編號已經被既有的 89-business-day.test.mjs 用了，兩個檔的執行順序和編號規則會衝突。",
+   "fix": "改用還沒用過的編號，例如 db/tests/packs/data_access/89a-urgent-renewal.test.mjs；或依目前編號規則取 86 前後的空號。不能用 89 或 90",
+   "needs_owner": false
+  },
+  {
+   "id": "5-rules-fit-1",
+   "severity": "blocker",
+   "section": "§3.2 參數、§4.1 task_sla_due／case_sla、§6 測試、§8 開放問題",
+   "problem": "規格寫的是 D103 之前的建議：急件以日曆小時計，半夜也算，工作時段延後一批。D103 (2) 已裁決只算上班時段，工作時段做成參數（每日起訖時間，配合既有的 sgn.calendar_holiday），第五批一起做。照規格實作，催辦和升級會在半夜觸發；waiting_hours、「還剩 N 小時」、事件裡記的參數值也全部算錯。核心現在只有 add_workdays（以整天計、保留時刻），沒有「加 N 個上班小時」的入口。",
+   "fix": "§3.2 新增參數 calendar.work_day_start、calendar.work_day_end（time，全域），時區照 calendar.timezone。預設值要由負責人提供；未提供前建議 09:00 與 18:00。說明改為「上班時段的小時：週一到週五，扣掉 sgn.calendar_holiday，每日起訖依參數」。在 100_settings 的營業日入口旁邊新增唯一入口 sgn_internal.add_work_hours(p_from timestamptz, p_hours int)：起點落在下班時段或假日時，從下一個上班時刻開始算。另做 sgn_internal.work_hours_between(a, b)，給 waiting_hours 與「還剩 N 小時」用。task_sla_due 的急件分支改用 add_work_hours；task_sla_settings 與事件帶上這兩個時段參數的值。SQL 不寫死時段。§6 加三條測試：週五 17:00 送審的急件，到下一個上班日才催辦；假日不算；週六 02:00 送審的急件，不會在週末升級。§8 與 README C1 改為「D103 (2) 已裁決」",
+   "needs_owner": true
+  },
+  {
+   "id": "5-rules-fit-2",
+   "severity": "major",
+   "section": "§2 條文草稿（逾時、預設時限）",
+   "problem": "要貼進 rules.md 的條文寫「以小時計」「每關 2 小時未簽」，沒寫只算上班時段，預設時限表也沒有工作時段這一列。照 D103 (1) 主代理要直接把這段貼進 rules.md，貼進去之後，業務規則的唯一來源就和 D103 (2) 矛盾。",
+   "fix": "「逾時」草稿改成「…只把催辦與升級的時限改為以上班時段的小時計，半夜與假日不算（見「預設時限」）」。預設時限表改為：「急件催辦｜每關 2 個上班小時未簽」、「急件升級｜催辦後再 2 個上班小時未簽」，並新增一列「上班時段｜每日 ○○:○○–○○:○○，週末與登記的休假日不算」，時刻依 5-rules-fit-1 的參數",
+   "needs_owner": false
+  },
+  {
+   "id": "5-rules-fit-7",
+   "severity": "major",
+   "section": "§4.1 api.case_urgent_set",
+   "problem": "case_urgent_set 傳 p_urgent = null 就寫一筆 withdrawn，但沒有要求填原因。條文草稿與 K-URGENT 都規定「取消急件必須填原因」。單在 returned 時，依 §4.1 的 urgent_settle，例外還沒結案（退回不結案）；申請人在退回期間不填原因就取消急件，下一輪排程會把這筆急件例外安靜地結掉，留下一筆沒有原因的取消。",
+   "fix": "case_urgent_set 不接受 null，只用來宣告或改急件欄位。取消一律走 case_urgent_withdraw，允許的狀態擴大為 draft、returned、in_approval，必填原因，沒填就回 URGENT_REASON_REQUIRED；URGENT_STATE 的訊息同步改。§6 加測試：returned 時取消急件不填原因 → URGENT_REASON_REQUIRED",
+   "needs_owner": false
+  },
+  {
+   "id": "5-rules-fit-8",
+   "severity": "major",
+   "section": "§5 待簽清單排序、§4.1 task_sla_due",
+   "problem": "規格把待簽清單改成「急件排最前，再依逾期、等最久」，催辦期限也改用小時，卻沒有改已登記在 sgn.rule 的 K-SLA-VIEW、K-SLA-REMIND、K-SLA-ESCALATE 的說明。這三條現在寫的是「逾期的在前、再依等最久」與「approval.remind_after_workdays 個工作天」。規則代碼是稽核事件引用的唯一來源，實作後代碼說明會和行為不符。排序變更也改動了 D100「逾期優先、等最久的在前」的裁決，規格沒有引用任何新裁決。",
+   "fix": "§4.3 加一段：新 migration 以 register_rule 更新 K-SLA-REMIND、K-SLA-ESCALATE、K-SLA-VIEW 的說明，寫明急件改用上班小時參數，並寫明排序。排序維持 D100，逾期優先：overdue desc、urgent desc、since、case_no。急件以上班小時計，很快就會逾期，自然排到前面，不需要推翻 D100。第 153 行同步改寫",
+   "needs_owner": false
+  },
+  {
+   "id": "5-rules-fit-9",
+   "severity": "minor",
+   "section": "§2 條文草稿（一鍵續期列、環境新增點、預設時限新增列）",
+   "problem": "同一件事在 rules.md 會寫成兩處。「正式區續期以前案為依據、取代測試區依據」同時出現在一鍵續期那一列和環境新增的那一點。「到期前 30 天」同時寫在一鍵續期那一列和預設時限表。參數一調，兩處就會不一致，違反工程規範第 1 節。",
+   "fix": "「一鍵續期」那一列改成「生效中的授權在續期開放期間內（見「預設時限」）…正式區續期的依據見「環境」」，不寫 30 天，也不重述依據。依據與報告只寫在「環境」新增的那一點，並補上 5-abuse-test-1 的涵蓋條件",
+   "needs_owner": false
+  },
+  {
+   "id": "5-rules-fit-10",
+   "severity": "minor",
+   "section": "§3.1 sgn.case_urgent 與 §4.1 urgent_settle、§6",
+   "problem": "急件例外的範圍有兩種說法：§4.1 寫「同一張單只有一筆例外，重送沿用」，§6 寫「同一段簽核只一筆」。急件取消後例外已結案，申請人再於退回時重新標急件並送審，到底要重開、沿用已結案的那筆，還是不開，兩處說法不一致，實作和測試會各做一種。",
+   "fix": "K-URGENT 與 §4.1 統一成一句：「送審時，這張單如果是急件，而且沒有未結案的 K-URGENT 例外，就開一筆；有未結案的就沿用，已結案的不算」。§6 加情境測試：急件例外結案後，退回時重新標急件再送審 → 開第二筆",
+   "needs_owner": false
+  },
+  {
+   "id": "5-rules-fit-11",
+   "severity": "minor",
+   "section": "§5 簽核人取消急件（不用通行金鑰）",
+   "problem": "需求者情境設計 a 寫明「否決急件也要簽」，規格改成只要登入、不用通行金鑰，卻沒有交代和設計不同的地方，也沒有依 D84 (2) 寫出分類理由。實作代理對照設計時會不知道該照哪一份。",
+   "fix": "§7 加一列：「取消急件只需登入，與需求者情境 a 的原文不同。依 D84 (2)：被冒用時最壞是一張單回到一般時限，不擴大權限，有事件並通知申請人與目前的簽核人」。同時在 requester-scenarios.md 第 155 行旁標示「已由第五批規格取代」",
+   "needs_owner": false
+  },
+  {
+   "id": "5-abuse-test-1",
+   "severity": "blocker",
+   "section": "§4.1 review_submission 列（第 103 行）、§2「環境」新條文（第 45 行）、§4.3 DA-RENEW-BASIS（第 124 行）",
+   "problem": "續期的正式區單只要「來源同被授權者、同區、active」，就整張免測試區依據、也不開 DA-TEST-EXCEPTION，規格沒有要求來源涵蓋續期的內容。申請人可以拿一張快到期的小授權產生續期草稿，在草稿裡加上從沒申請過的正式區資料表或欄位再送審。這樣新加的部分既沒有測試依據，也沒有例外，稽核在例外清單上看不到。既有的測試依據檢查要求依據涵蓋新內容，這裡把這道檢查繞掉了。",
+   "fix": "review_submission 的續期分支改成：來源同被授權者、同區、active，而且 pack_data_access.test_basis_covers(p_content, 來源目前內容) 為真，才視同測試依據。不涵蓋時照一般要求：引用測試區單，或開 DA-TEST-EXCEPTION。來源本身是靠 DA-TEST-EXCEPTION 上線、DA-TEST-REPORT-FOLLOWUP 還沒結案時，也不視同依據。條文第 45 行與 DA-RENEW-BASIS 補上「且續期沒有超出前案」。§6 加兩條測試：續期加一個來源沒有的正式區欄位 → 要測試依據或開例外；來源的上線後報告還沒補 → 不視同依據",
+   "needs_owner": false
+  },
+  {
+   "id": "5-abuse-test-2",
+   "severity": "major",
+   "section": "§4.1 續期草稿的內容 1–2（第 107–110 行）、grant_renewed_by 列（第 102 行）、§7 第 191–192 行",
+   "problem": "續期草稿是一般草稿，`api.case_revise` 收整份 `p_terms`，申請人可以改 `principal_id`、`valid_from`、`valid_to`。規格只說「起日固定為前案迄日隔天」，沒有規定續期單的 terms 鎖定，`source_kind = 'renewal'` 卻會一直留著。後果有三：(a) 把 valid_from 改成今天，送出的其實是一張提早生效、和前案重疊的新單，但畫面標成「續期」並以前案為基準，簽核人以為是例行續期；(b) 把 principal_id 換成另一個被授權者，新的 grant_renewed_by 只看 source_case_id 和狀態，來源授權的到期前提醒就被靜音；(c) §7「起日固定、上限依起日算」這兩道擋都不成立。",
+   "fix": "§4.1 加一條：source_kind = 'renewal' 的單，在 version_prepare（或送審時的核心檢查）不接受 principal_id 與來源不同，或 valid_from 不等於來源 valid_to + 1，違反就丟新錯誤 RENEW_TERMS_FIXED（409，登記在 error_catalog）；valid_to 只能小於等於預填值。送審時，來源已不是 active、或今天已過來源迄日，就丟 RENEW_SOURCE_STATE，請申請人改提新申請。grant_renewed_by 要求 principal_id 相同（見 5-code-fit-6）。條文草稿寫明「續期的起日固定，不能改」；骨幹 K-RENEW 第 412 行的現況註記同步修改。§6 K-RENEW 加三條測試：改 principal_id 或 valid_from → RENEW_TERMS_FIXED；縮短 valid_to 可以；來源到期後才送審 → RENEW_SOURCE_STATE",
+   "needs_owner": false
+  },
+  {
+   "id": "5-abuse-test-6",
+   "severity": "major",
+   "section": "§3.1 唯一索引（第 62 行）、§4.1 case_renew_draft「已有進行中的續期就回那一張」（第 95 行）",
+   "problem": "(a) 唯一索引排除的終局狀態只有 rejected、cancelled、expired、revoked，漏了 `fulfilment_failed`（交付失敗）和 `completed`。一張交付失敗的續期會永久佔住名額，之後再按續期只會拿回那張失敗的單，這筆授權再也不能續期。(b)「已有就回那一張」不分是誰的單。負責人按續期，會拿到原申請人（可能已調離）的草稿詳情，略過一般的 read 授權（case_detail 本身不檢查權限），又改不了那張單。原申請人也可以先建草稿不送，把負責人的續期擋到授權到期。",
+   "fix": "case_renew_draft：已有進行中的續期時，呼叫者是那張單的申請人，才回那張單的詳情；否則回新錯誤 RENEW_IN_PROGRESS（409，訊息只寫有一張續期在進行中，單號放在 detail，不回詳情）。另外，續期還停在 draft 或 returned 時，來源的另一位合格者（原申請人或負責人）可以把它作廢：新增動作 renew_discard，走既有的 discard 轉移並寫事件。returned 沒有 discard 轉移，要在轉移表新增 returned → cancelled。§6 加兩條測試：負責人遇到申請人的續期草稿 → RENEW_IN_PROGRESS、不回詳情；作廢之後可以重新產生",
+   "needs_owner": false
+  },
+  {
+   "id": "5-abuse-test-7",
+   "severity": "major",
+   "section": "§4.1 urgent_on_submit、urgent_settle（第 100–101 行）、§6 第 167、171 行",
+   "problem": "急件例外有兩個地方會讓例外不被看見。(a) 申請人可以在簽核中取消急件，而 urgent_settle 一看到「急件被取消」就結案。申請人宣告急件、等夜間升級換掉簽核人後立刻自己取消，例外只開了幾小時就結案，控制負責人的未結清單上看不到，close_detail 也沒要求記下急件期間做過哪些催辦與升級。(b)「同一張單只有一筆例外，重送沿用」在例外已結案後沒有定義：退回後再標急件重送，若照字面不開新例外，第二次急件就沒有任何例外。",
+   "fix": "以 K-URGENT 的說法為準：例外只在單離開簽核時結案（核准完成到 pending_fulfilment 以後、駁回、取消）。取消急件不結案，只在例外的事件裡記下取消者與原因。urgent_settle 的 close_detail 要帶急件期間 sgn.case_task_sla 的步驟（remind、escalate 的 task_id、from、to、時間）、取消紀錄，以及實際花的上班小時。§6 加測試：升級後申請人取消急件 → 例外仍開著；單核准後才結案，close_detail 列出升級",
+   "needs_owner": false
+  },
+  {
+   "id": "5-abuse-test-8",
+   "severity": "major",
+   "section": "§6 測試清單開頭（第 162 行）、端對端（第 181 行）",
+   "problem": "規格要求資料庫測試與端對端用「假時鐘」，但系統沒有假時鐘：`sgn_internal.now()` 固定回 `clock_timestamp()`，第四批的 87 測試靠管理者連線把工作的時間欄位往前移來模擬時間。D29 也規定假時鐘只能放在不進發行包的 `db/testing/`。實作者會臨時造一個時鐘入口（違反 D29），或各寫各的模擬方式。端對端「前案到期後續期仍生效」要讓執行中系統的 `today()` 跨過迄日，現有機制做不到，這個測試要嘛寫不出來，要嘛靠改資料庫時間而不穩。",
+   "fix": "§6 改寫時間的模擬方式：資料庫測試沿用 87 的 age 做法，改成以小時移動 opened_at、claimed_at、sla_from、sla_reminded_at，以及 case_urgent.at。上班小時計時下，把起點設成一個已知的過去上班時刻（例如上週三 10:00），不要用「現在減幾小時」。開放期間與到期，用「建立時把 valid_to 設在 today()+N」與管理者連線改 grant_record.valid_to 來造情境。端對端的「前案到期後」改成：管理者連線把前案授權的 valid_to 設為昨天，再跑到期排程。不新增假時鐘",
+   "needs_owner": false
+  },
+  {
+   "id": "5-abuse-test-9",
+   "severity": "major",
+   "section": "§6 第 168 行、端對端（1）（第 181 行）",
+   "problem": "端對端寫「假時鐘前進 4 小時，主管收到催辦、上一層主管收到升級」。依 570，一輪排程對一件工作只做一個步驟（task_sla_next 只回下一步），升級期限從實際催辦時間起算。一次跳 4 小時後跑排程，只會得到催辦，升級要等實際催辦後再 2 小時。照字面寫的測試不是失敗，就是誘使實作者改掉「升級前一定先收過催辦」的保證來讓測試過。資料庫測試「2 小時後催辦、再 2 小時升級」也一樣，必須同時移動 sla_reminded_at，結果才不會依賴兩輪之間經過的真實時間。",
+   "fix": "端對端改成兩段：時間前進 2 個上班小時（含 sla_reminded_at）→ 跑排程 → 主管收到催辦；再前進 2 個上班小時 → 跑排程 → 上一層主管收到升級。資料庫測試每段都移動 sla_reminded_at，並另外斷言「一次跳 4 小時只催辦、不升級」，把 570 的保證固定下來",
+   "needs_owner": false
+  },
+  {
+   "id": "5-abuse-test-11",
+   "severity": "minor",
+   "section": "§4.1 case_urgent_withdraw、case_renew_draft、urgent_settle（第 94、95、101 行）",
+   "problem": "規格沒寫這幾個新入口要先鎖單再判斷，會出現兩種競態。(a) 簽核人取消急件和排程升級同時發生：排程在 task_sla_apply 鎖單後改指派，取消入口若沒鎖單就用舊的指派對象判斷資格，被移走的人仍能取消，或剛升上來的人被拒。(b) 申請人和負責人同時按續期：兩邊都查不到進行中的續期，各自 insert，其中一個撞唯一索引，丟出不在 error_catalog 的原始 23505 錯誤（違反「SQL 只能透過 raise_error 丟錯」）。",
+   "fix": "§4.1 寫明：case_urgent_set、case_urgent_withdraw 先 case_lock(p_case_id)，再判斷狀態與目前的指派對象；case_renew_draft 先 case_lock(來源單)，再查進行中的續期、檢查開放期間、建立草稿；urgent_settle 逐張 case_lock 並重新確認。§6 加測試：兩條連線交錯對同一來源呼叫 case_renew_draft，一個建立，另一個回同一張或 RENEW_IN_PROGRESS，不出現 23505",
+   "needs_owner": false
+  },
+  {
+   "id": "5-abuse-test-12",
+   "severity": "minor",
+   "section": "§3.4 顯示摘要（第 83 行）、§4.1 續期草稿 4（第 112 行）、§8 #6（第 204 行）",
+   "problem": "續期的 `display.baseline` 取「來源單目前版本」，但來源在續期簽核期間可能被縮小（active 的 reduce 轉移，§8 #6 自己也提到）。基準會在簽核人眼前變動：同一張續期，前一關看到「與前案相同」，後一關看到「擴大」。顯示摘要在驗章時重算並簽進去，來源一縮小，已發出的挑戰值就驗不過（SIGNED_CONTENT_MISMATCH）。事件記了來源版本，表上卻沒有欄位可以把基準固定。",
+   "fix": "§3.1 的 request_case 再加 source_version int，建立時寫入、之後不改。display.baseline、R3 報告的來源、5-code-fit-11 的比較，都以「來源單的 source_version 那一版」為準。來源之後被縮小時，續期的顯示摘要另加一行「前案已於 X 縮小」（來自來源的事件），基準本身不改。§6 加測試：續期簽核中來源被縮小 → baseline 不變",
+   "needs_owner": false
+  }
+ ],
+ "summary": "這份規格還不能直接交給實作。查證結果：37 項中成立 26 項，其餘 11 項中，9 項併入其他項，5-code-fit-10 與 5-abuse-test-3 判不成立。只有 5-rules-fit-1 需要負責人決定：上班時段的起訖時刻，負責人提供前建議用 09:00–18:00。\n\n最大的三個風險：\n(1) 急件與續期的動作沒有接上授權的唯一入口。case_actions 只列會改狀態的動作，沒有 actor_rule，畫面永遠看不到「取消急件」「續期」按鈕（5-code-fit-1）。\n\n(2) 續期的測試依據與報告接不起來，還開了繞過的路。整理內容的 hook 看不到來源，原樣複製會把舊的 test_basis 和 test_exception 一起帶過來，導致報告對不上、重複開例外（5-code-fit-2、5-code-fit-3）。續期分支沒有要求來源涵蓋續期的內容，可以藉續期偷加正式區欄位，既不用測試依據，也不開例外（5-abuse-test-1）。續期的 terms 沒鎖住，起日與被授權者都能改（5-abuse-test-2）。\n\n(3) 規格違反 D103 (2) 的裁決。急件仍以日曆小時計，核心也沒有「加 N 個上班小時」的入口（5-rules-fit-1、5-rules-fit-2）。急件公式還丟掉了 570 的 greatest 保證，排程晚跑時，催辦後幾乎立刻升級（5-code-fit-5）。\n\n其他須修的：進行中續期的狀態清單與已續期的判斷（5-code-fit-6）、環境期限上限（5-code-fit-4）、要取代的既有 function 版本（5-code-fit-7）、時間模擬方式（5-abuse-test-8、5-abuse-test-9）、測試檔編號（89 與 90 都已被用）。"
+}

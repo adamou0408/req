@@ -1,0 +1,223 @@
+{
+ "spec": "docs/packs/data-access/specs/7-audit-case-review.md",
+ "raised": 36,
+ "confirmed": [
+  {
+   "id": "7-code-fit-1",
+   "severity": "blocker",
+   "section": "§4.1 decider_denial 列（行 134）、§2 條文「查核案負責人不能簽引用它的申請」（行 46）、§6 DA-AUDIT-SCOPE 第二列（行 220）",
+   "problem": "規格假設要在 decider_denial 新增「查核案負責人不能決定」，但現有程式已有兩件事會和它衝突。(1) 被授權者負責人＝查核案負責人（A2）。成員代為申請時，路徑第 1 關是「被授權者負責人確認」（resolver principal_owner），這一關一定會解析到查核案負責人。如果照規格全面擋下他，每一張查核單第一關都找不到人；如果只擋其他關，又和既有的 SOD_PRINCIPAL_OWNER 完全重複。(2) 查核案負責人通常持有 auditor 角色，而 approval.excluded_decider_roles 預設就排除 auditor，所以他在第一關一樣會被擋（DECIDER_ROLE_EXCLUDED），只能往主管線升級。規格沒有決定負責人確認關在查核情境下怎麼處理。另外 K-SOD-BENEFICIARY 沒有登記在 sgn.rule，也不在 §4.3。",
+   "fix": "刪除 §4.1 decider_denial 那一列。§2 第 3 點改為「查核案負責人不能簽引用它的申請的其他關卡」，並註明這已由既有的 SOD_PRINCIPAL_OWNER 擋下（580）。K-SOD-BENEFICIARY 不寫「部分實作」，改引用 K-OWNER-SOD／SOD_PRINCIPAL_OWNER（成員的部分見 7-rules-fit-2）。負責人確認關怎麼處理要負責人決定，建議預設：保留這一關，由查核案負責人照常確認。理由是這一關屬於需求端確認，rules.md:82 的代填規則不用改。另一個做法是新增一版路徑，在 applies_when 排除 audit_engagement 來源，但這樣要改 rules.md:82，所以要負責人核准。§6 DA-AUDIT-SCOPE 第二列改成兩案：(1) 成員申請時，負責人確認關由查核案負責人簽；(2) 他被解析到其他關卡時，回 SOD_PRINCIPAL_OWNER 並沿主管線改派。另外標一個需要負責人決定的選項：引用查核案的單，decider_denial 是否也排除查核案的提出人（proposed_by）與核准人。建議預設是排除，撞到時照 360 的做法改派或升級並開例外。§6 對應加一案。",
+   "needs_owner": true
+  },
+  {
+   "id": "7-code-fit-2",
+   "severity": "blocker",
+   "section": "§4.1 normalize_content、display_content、review_submission 三列（行 131-133）",
+   "problem": "規格要 create or replace 的三個 function 不是目前登記的 hook。現在的 hook 是層層包起來的：normalize_surveyed → normalize_reported → normalize_environment；新內容（有 environment 鍵）的整理走 normalize_scoped，根本不會呼叫 normalize_content。所以只改 normalize_content，engagement_id 照樣會被丟掉。compare 這條鏈也不比對 engagement_id：送審後換掉引用的查核案會判為 same 或 reduce，不會被當成擴大而要求重簽。display_content 在鏈的最底層，加在那裡位置不對。",
+   "fix": "§4.1 這三列改寫：在 200_audit_case.sql 新增 normalize_engaged、compare_engaged、display_engaged、review_engaged 四個 function，分別包住 *_surveyed，再用 sgn_sdk.register_hook 重新登記這四個 hook，做法同 130→170。compare_engaged 規定：engagement_id 不同（含新增或拿掉）就判為 expand。不得 create or replace 既有的基底 function。review_submission 那一列也改成 review_engaged。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-3",
+   "severity": "major",
+   "section": "§4.4 ENGAGEMENT_REQUIRED、ENGAGEMENT_SCOPE（行 184-185）；§6 DA-AUDIT-ENGAGEMENT、DA-AUDIT-SCOPE（行 218-219）",
+   "problem": "送審複核 hook 不丟錯，而是回傳 errors 陣列；核心再把它包成 CONTENT_INVALID 丟出，錯誤細節放在 detail。流程包的錯誤用 DA-E-* 代碼，經 sgn_sdk.register_message 登記，不寫進 sgn.error_catalog。規格把這兩個代碼放進核心錯誤目錄，測試也預期收到 ENGAGEMENT_REQUIRED／ENGAGEMENT_SCOPE，實作出來的回應會是 CONTENT_INVALID，測試對不上。若改成在 hook 裡直接 raise，又會破壞送審錯誤一次列完的行為。",
+   "fix": "§4.4 分成「核心」與「流程包」兩張小表。ENGAGEMENT_REQUIRED、ENGAGEMENT_SCOPE 移到流程包，改名 DA-E-ENGAGEMENT-REQUIRED（路徑 engagement_id）與 DA-E-ENGAGEMENT-SCOPE（路徑 scope、data_period、terms.valid_to），用 register_message 登記（kind error，可帶 %s 參數，同 DA-E-ENV-VALIDITY），由 review_engaged 經 pack_data_access.error 放進 errors。§6 改為「送審 → CONTENT_INVALID，errors 含 DA-E-ENGAGEMENT-REQUIRED（或 SCOPE）」。草稿階段 normalize_engaged 也回同一個錯誤。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-4",
+   "severity": "major",
+   "section": "§4.4 ENGAGEMENT_FIELDS、ENGAGEMENT_SCOPE、REVIEW_GROUP_INVALID（行 181、185、188）",
+   "problem": "這三個錯誤訊息含 %s，但 raise_error 不代入參數，後端也直接把 error_catalog 的原文傳給前端，畫面會顯示字面上的「%s」。目前核心的錯誤目錄沒有任何一筆帶 %s；帶參數的訊息只有 kind = notice，經 message_text 產生。",
+   "fix": "核心錯誤 ENGAGEMENT_FIELDS、REVIEW_GROUP_INVALID 拿掉 %s，改成固定文字，例如「查核案要寫依據文號、範圍、資料期間、查核期間（不得超過上限）、負責人與成員」「分組確認只能放同一個被授權者、沒有風險訊號的項目，筆數不得超過上限」。上限數字放進回傳內容給畫面：audit_engagement_list 帶 limits，review_inbox 帶 group_max_items。ENGAGEMENT_SCOPE 依 7-code-fit-3 改成流程包訊息，可以保留參數。ENGAGEMENT_NOT_PROPOSER 改為「你沒有提出這種查核案的角色」；可提出的角色由 audit_engagement_list 或提出畫面從 kind_role 表讀出顯示。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-5",
+   "severity": "major",
+   "section": "§4.2 review_decide（行 149）、行 156「縮小……一律走 grant_redeliver」、§3.2 控制段合併（行 97）",
+   "problem": "依第六批規格，grant_redeliver 只把目前版本重新交付，不寫新版本。現有的生效後縮小還有幾件事，都在 api.case_reduce 裡：DELIVERY_MANUAL_ONLY 檢查、version_store 寫新版本、case.reduced 事件記內容指紋（K-AUDIT-CHAIN）、case_transition('reduce')，最後才交付。只呼叫 grant_redeliver 會變成重送舊版本，沒有新版本，也沒有進鏈。另外，「合併各包的縮小」需要懂主題包範圍，屬於流程包邏輯，規格卻沒有對應的 hook，核心無從合併。",
+   "fix": "§4.2 改為：先把 api.case_reduce 的本體抽成 sgn_internal.grant_reduce_apply(p_case, p_actor, p_content, p_terms, p_reason, p_rules jsonb)，內容是 decision_input、手動交付檢查、version_store、case.reduced 事件、轉移 reduce、grant_redeliver；case_reduce 與複查都呼叫它。人工交付的授權在複查時只能保留或撤銷，選縮小回 DELIVERY_MANUAL_ONLY。控制段新增流程包 hook merge_review_reductions(p_content jsonb, p_parts jsonb) returns jsonb。p_parts 是各包的刪減（只收該 scope_ref 要移除的欄位或主題包，不收完整 content），超出自己範圍就回錯誤。合併以 item 目前 grant 版本的內容為基準套用所有刪減，結果再經 compare_content 確認是 reduce。§6 DA-REVIEW 加測試：A 包擁有者試圖縮 B 包的欄位 → 擋下。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-6",
+   "severity": "major",
+   "section": "§4.1 engagement_end／audit_engagement_due（行 128）、§8 #6（行 256）",
+   "problem": "結案只對生效中的授權呼叫 grant_end，沒有處理引用這個查核案、但還在簽核、待套用或驗證中的單。被授權者一結束，case_principal_usable 就變成 false：核准、執行與確認都被擋（PRINCIPAL_UNAVAILABLE），計時也暫停。結果這些單永遠卡住、不催辦，grant_activate 還會丟錯。principal_end_pending 只看 grant_record，同樣不會處理它們。另外核心沒有「把被授權者標為 ended」的入口：principal_upsert 不改 status，規格也沒有指定。",
+   "fix": "§4.1 engagement_end 改寫：先經新的單一入口 sgn_internal.principal_end(p_principal_id, p_reason) 把狀態改成 ended，並寫一筆事件（principal.ended）。再對 principal_live_cases(principal_id) 逐張鎖住處理：active、pending_fulfilment、verifying 一律 grant_end（到期結案用 expired，提前結案用 revoked）；in_approval 照 owner_gap_expire 的做法開例外並通知申請人。規則代碼依 7-code-fit-12 (d) 用核心的 K-ENGAGEMENT。§6 DA-AUDIT-CLOSE 補兩案：(1) 提前結案時有一張 verifying 的單 → 交付撤回、狀態終局；(2) 有一張簽核中的單 → 不能再核准，並且有例外。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-7",
+   "severity": "major",
+   "section": "§3.1 audit_engagement.owner_person_id「建立後不改」（行 76）、A2（行 16）",
+   "problem": "查核案負責人寫在 audit_engagement.owner_person_id，規定不能改；被授權者負責人寫在 sgn.principal.owner_person_id，第四批的缺口機制會改它。查核案負責人離職時，現有排程會替這個專案開負責人缺口，改指派後 principal.owner 換成新的人，audit_engagement.owner 仍是離職的人。之後的資格與通知會兩邊不一致：決定者資格擋的是新負責人，提前結案權限、退回通知、結案報告卻還是給離職的人。",
+   "fix": "要負責人決定，建議預設：來源是 audit_engagement 的被授權者不開改指派缺口。owner_gaps_open 排除 source = 'audit_engagement'；查核案負責人不在職時，由 api_job.audit_engagement_due 經 engagement_end 提前結案（原因：負責人離職或停用），要繼續就開新案。負責人一律從 principal.owner_person_id 讀，audit_engagement 不另存副本；提出到核准之間暫存在提出內容裡，核准時寫進 principal_upsert。如果負責人選擇允許改指派，候選人限該案成員，並由核准角色確認。§6 加測試：查核案負責人停用 → 不出現一般改指派，查核案結案、授權失效、通知送核准人。",
+   "needs_owner": true
+  },
+  {
+   "id": "7-code-fit-8",
+   "severity": "major",
+   "section": "A3（行 17）、§4.1 review_submission 列（行 131）、§7 威脅表第一列（行 239）",
+   "problem": "規格只檢查一個方向：分類是查核時，被授權者必須是查核案的專案。反過來沒有檢查。api.principal_list 會把所有能用的被授權者列給每一個人，查核案專案也在裡面，所以任何人都能用一般分類（例如 reporting）選這個專案提出申請。這種單不受查核案的範圍、資料期間與 30 天上限約束，申請人也不必是成員。",
+   "fix": "review_engaged 加反向規則：被授權者來源是 audit_engagement 時，分類必須是 requires_engagement、engagement_id 必須指向它、申請人必須是成員，不符就回 DA-E-ENGAGEMENT-REQUIRED。create or replace api.principal_list（370 的簽章）：來源是 audit_engagement 的被授權者，只列給該案的成員、負責人、提出人與核准人。§6 加兩個測試：一般分類選查核案專案 → 擋下；非成員的 principal_list 看不到這個專案。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-9",
+   "severity": "major",
+   "section": "§4.2 行 154「控制段的複查人解析……（360 的同一套）」、§3.2 行 97「每個主題包的資料擁有者各決定一次」",
+   "problem": "360 的「找同角色其他持有人」只用在 role_holder；data_owner 是 scoped_role，不會找其他持有人，同一範圍的每一位持有人都各拿到一件工作（全部都要簽），不合格的直接走 resolve_eligible 往主管線升級。而且這套函式都綁在申請單與關卡上（decider_denial(case_id, person, stage_id)、resolve_eligible、stage_open 開的 K-SOD-ROLE-ESCALATED 例外），複查項目沒有 case_stage，無法直接沿用。照規格寫，不是做不出來，就是語意和簽核路徑不同：簽核時同一包的每位持有人都簽，複查時只要一人。",
+   "fix": "§4.2 改寫：新增核心函式 sgn_internal.review_control_reviewers(p_item) returns jsonb。資格判斷抽成共用的 sgn_internal.person_decider_denial(p_person, p_applicant, p_beneficiaries uuid[])，涵蓋在職、不是申請人、不是受益人、不持 excluded_decider_roles；decider_denial 也改為呼叫它，行為不變。規格明定：同一主題包有多位 data_owner 時，任一位合格持有人決定即可（第一位合格者為指派人，其餘不派）；並寫明這和簽核路徑 mode all 的差別。都不合格時沿第一位的主管線往上，以 case_id 開 K-SOD-ROLE-ESCALATED。解析結果寫進 7-abuse-test-6 的指派表。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-10",
+   "severity": "major",
+   "section": "§3.2 review_item_step 唯一 (item_id, stage, step)（行 92）、review_item 欄位不可改（行 90）、§4.2 行 154「期限從接下時重算」",
+   "problem": "規格說「同第四批 case_task_sla 的做法」，但 case_task_sla 的唯一鍵帶 round：換人時 round 加一，催辦與升級可以在新一輪重做。review_item_step 少了 round。需求段遇到負責人缺口、改指派接下後期限要重算，但 remind 或 escalate 已經記過一次，唯一鍵擋住，新的負責人永遠不會被催辦或升級。同時 demand_due_at、control_due_at 規定不能改，重算的期限也沒有地方寫。",
+   "fix": "review_item_step 加 round int，唯一鍵改成 (item_id, stage, round, step)。review_item 不存 demand_due_at／control_due_at；round 與 restart_at 放進 7-abuse-test-6 的指派表（或放在 item 上，並寫明只有「負責人接下」「升級」「改派」三個入口能改，每次都寫事件）。期限一律由 sgn_internal.review_item_due(item, stage) 算出：起點是 restart_at（沒有就用 frozen_at），加上參數，算法同 task_sla_due。撤銷步驟的期限＝escalate 步驟的 done_at＋review.escalate_grace_days，必須在升級通知送出之後才能撤銷。§6 加一案：直接跳 20 天只跑一輪 → 只升級、不撤銷。e2e 改成先走 15 天、跑排程、確認升級通知，再走 5 天、跑排程、確認撤銷。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-11",
+   "severity": "major",
+   "section": "§3.1 流程包「usage_report.kind 的 check 加 engagement_close、review」（行 83）、hook after_engagement_closed（行 130）、§6 DA-AUDIT-CLOSE（行 222）",
+   "problem": "pack_data_access.usage_report 的 case_id 與 created_by 都是 not null，一筆報告對一張單。查核案的結案報告是對整個查核案，到期時由排程產生，沒有行為人。只改 kind 的 check 寫不進去：要嘛 case_id 違反 not null，要嘛 created_by 沒有值可填。測試預期的「一筆 engagement_close」也對不上一張單一筆的結構。",
+   "fix": "另立只增不改的表 pack_data_access.engagement_report(id, engagement_id uuid not null, report jsonb, report_sha256, created_at, event_seq)，掛上同一組 append-only trigger。排程產生，事件的 actor 是 null（system），不必有 created_by。report 內含每張引用單的使用摘要（單號、期間、使用紀錄）。usage_report 不改；刪掉 kind 'review'。§6 改為「engagement_report 一筆，內含每張引用單的摘要」。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-code-fit-12",
+   "severity": "minor",
+   "section": "§4.1 audit_engagement_challenge／decide_passkey（行 124-125）、§4.2 review_challenge、signoff（行 147-151）、case_return_notify 與 §8 #7（行 135、257）、§3.3 界限欄（行 101-113）",
+   "problem": "幾個實作時會撞到的漏接點：(a) auth_challenge.purpose 的 check 列舉了所有用途，規格沒有說要加 audit_engagement.decision、review.decision、review.signoff，發挑戰值時就會違反 constraint。(b) §8 #7 說退回與駁回「沒有共同的通知入口、要由兩處呼叫」，其實兩者都走 decision_apply 的同一段程式。照規格在兩處各加一次，會重複通知，或漏改真正的那一處。(c) §3.3 的「界限」欄，現有的 setting_definition 沒有地方存，register_setting_definition 也不接受範圍。(d) 核心的 engagement_end 把流程包的規則代碼 DA-AUDIT-CLOSE 傳給 grant_end，等於核心依賴流程包。",
+   "fix": "(a) 600、605 各自 drop／add auth_challenge_purpose_check，清單以當時最新的版本（目前是 580）為基礎，加入 audit_engagement.decision、review.decision、review.signoff。(b) §8 #7 改為：create or replace sgn_internal.decision_apply（170 的簽章），只在第 245-251 行的通知之後呼叫 case_return_notify，只有這一處。(c) §3.3「界限」欄改為「由各 api 入口與登記值的入口驗證；第一版不入定義表」，或明寫在 600 對 setting_definition 加 min_value／max_value，並同步讓 register_setting_value 檢查，二擇一寫明。(d) 核心傳 K-ENGAGEMENT；流程包的 DA-AUDIT-CLOSE 由 after_engagement_closed 寫進它自己的事件。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-2",
+   "severity": "major",
+   "section": "§2 定期複查第 1 點、§4.1 decider_denial、§4.3 K-REVIEW-SOD",
+   "problem": "規格把「受益人」縮成只有被授權者負責人。骨幹對受益人的定義是「被授權者的負責人、成員」：K-SOD-BENEFICIARY 規定受益人不得簽控制側關卡，需求側關卡也不得由專案的直接成員簽；K-REVIEW-SOD 規定控制側複查人不得是申請人或受益人。查核案的成員都是查核專案的直接成員，規格卻只擋負責人。結果：別的成員可以被解析成申請人主管（需求側），或成為資料擁有者關／控制段複查人，替同案的資料簽核或複查。",
+   "fix": "引用查核案的單：decider_denial（或 7-code-fit-9 的共用 person_decider_denial）把 audit_engagement_member 的每一位都當受益人，不能決定任何關卡；負責人照 7-code-fit-1 處理。條文草稿第 3 點加上「查核案的成員也不能簽引用它的申請」。K-REVIEW-SOD、REVIEW_SOD 訊息與定期複查條文的「被授權者負責人」改為「受益人（被授權者的負責人與成員；第八批前只有查核專案有成員資料）」。§6 加測試：另一位成員被解析到主管關或擁有者關 → 改派。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-3",
+   "severity": "major",
+   "section": "§3.1 轉移表、§4.1 review_submission、§2 第 2 點",
+   "problem": "「有效查核案」只靠 state = active 判斷，而查核案一核准就是 active。提出時只要求起日不早於今天，所以查核期間可以在核准後很久才開始。規格框住了授權迄日（≤ period_to），沒有框起日，結果查核期間還沒開始，成員就能取得正式區資料。這和「查核期間」與 A3「迄日受查核案框住」的用意矛盾。",
+   "fix": "review_engaged 加 valid_from ≥ period_from（不符回 DA-E-ENGAGEMENT-SCOPE，路徑 terms.valid_from）。條文草稿第 2 點改為「授權起迄必須在查核期間內」。§6 DA-AUDIT-SCOPE 加測試：起日早於查核期間 → 擋下。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-4",
+   "severity": "major",
+   "section": "§1 A1、§3.1 kind、§4.1 audit_engagement_propose、§8 Q1",
+   "problem": "D103 (3) 已經裁決：外部會計師不登入平台，由內部稽核開查核案申請，走匯出調查後提供。規格仍把這件事當成開放問題 Q1。`external_audit` 的成員限制只寫「在職（第八批再加正職）」，條文草稿也沒有寫會計師的資料要怎麼取得。照現在的寫法，第七批會接受外部人員當成員；而且 external_audit 的申請可以不帶匯出，等於沒有交付給會計師的出口。另外 L4 在查核情境不能匯出，所以 external_audit 拿不到 L4，規格也沒有說。",
+   "fix": "刪除規格的 Q1 與 README 的 Q5，改寫成既定設計並註明依據 D103 (4)。(a) 每種查核案的成員與負責人都是平台上的在職人員；會計師不建帳號，不列為成員。(b) external_audit 的申請必須含匯出調查，目的 external_handover，收件單位填會計師事務所；由 review_engaged 檢查，錯誤寫成 DA-E-ENGAGEMENT-HANDOVER。(c) 條文草稿加一點：「會計師查核由內部稽核成員申請、經匯出調查交付；會計師不登入平台；L4 欄位不能交付。」(d) §6 加兩個測試：external_audit 沒有匯出 → 擋下；含 L4 欄位的匯出 → 擋下。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-5",
+   "severity": "major",
+   "section": "§2 第 4 點「不能續期」、§4",
+   "problem": "條文草稿寫「不能續期」，但第五批的續期規則是「生效中的授權在到期前 30 天內…可以申請續期」，沒有排除查核授權。第七批的 §4 只改了 review_submission、normalize_content、display_content，沒有改續期的入口，沒有規則代碼，也沒有測試。查核授權最長 30 天，一生效就落在續期開放期間內，實作後仍然可以續期。",
+   "fix": "§4.1 加一列：create or replace api.case_renew_draft（第五批的簽章），來源單的被授權者來源是 audit_engagement 時，丟核心錯誤 RENEW_ENGAGEMENT「查核授權不能續期；要延長請開新的查核案」（409）。規則併入 K-ENGAGEMENT 的說明（核心判斷被授權者來源，不依流程包）。續期按鈕依 actions 隱藏。§6 加測試：查核授權申請續期 → RENEW_ENGAGEMENT。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-6",
+   "severity": "major",
+   "section": "§4.2 api.review_challenge／api.review_decide、§2 定期複查第 1 點",
+   "problem": "rules.md 規定撤銷「必須填原因」。規格只在有風險訊號的逐筆項目要求理由；api.review_decide 吃 p_item_ids 陣列，所以分組的需求段 `drop`（不需要＝撤銷）與控制段 `revoke` 可以不填理由就撤銷。實作照規格做，會產生沒有原因的撤銷，和 rules.md 衝突，稽核證據也缺原因。",
+   "fix": "§4.2 api.review_decide：decision 是 drop、revoke、reduce 時，p_input.reason 一律必填（不分逐筆或分組），沒填回 REVIEW_REASON_REQUIRED，訊息改為「不需要、縮小或撤銷要寫原因；有風險訊號的項目每個決定都要寫理由」。逾期撤銷由系統以 K-REVIEW-NORESPONSE 的固定通知文字（kind notice，帶參數值）當原因。§6 加測試：分組 drop 沒有原因 → 擋下。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-7",
+   "severity": "major",
+   "section": "§1 不做、§4.3 K-REVIEW-CYCLE／K-REVIEW-SOD、§8 #2",
+   "problem": "K-REVIEW-CYCLE 與 K-REVIEW-SOD 是骨幹已有的代碼，涵蓋範圍比這一批大：K-REVIEW-CYCLE 要包含平台角色與 api_client，K-REVIEW-SOD 有 `review.recusal_months` 迴避。規格把它們當成新代碼列出，說明也改窄了；§8 與 README §3 只列了 K-REVIEW-NORESPONSE 要改骨幹。實作會以縮窄後的說明把代碼登記進 sgn.rule，並標成完成（full），覆蓋檢查也會通過，但實際上骨幹要求的平台角色複查與迴避都沒做。",
+   "fix": "§4.3 改成「沿用骨幹代碼」：K-REVIEW-CYCLE 與 K-REVIEW-SOD 的說明照骨幹原文，登記為 partial，註記分別是「平台角色與 api_client 未納入」「review.recusal_months 迴避未做」。§8 與 README §3 補上這兩項。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-9",
+   "severity": "major",
+   "section": "§2 條文草稿、§4.3 DA-AUDIT-SCOPE、§4.4",
+   "problem": "條文本文與規則說明寫死了參數值，而且同一個數字寫在兩個地方。本文寫「最長 30 天（參數）」「每 6 個月」「30 天內到期」「每組最多 20 筆」「15 天…再 5 天」，同時又寫在「預設時限」表。規則代碼 DA-AUDIT-SCOPE 的說明寫「迄日最長 30 天」，可是這個參數依級別設定。§6 的測試名稱也寫「超過 30 天」「15 天」。另外，「預設時限」表只加了四列，`review.skip_within_days`、`review.group_max_items`、`review.remind_before_due_days`、`review.signoff_due_days` 的值只出現在本文，或根本不在 rules.md。參數一改，rules.md 本文、sgn.rule 說明與表格就會互相不一致，違反 SSOT 與「不得寫死門檻」。同一節也重複：「稽核與法遵查核」第 2 點與新加的「環境」一點，把免測試區依據寫了兩次。",
+   "fix": "條文本文不寫數字，改成「依『預設時限』」。「預設時限」表補齊：複查不列入決定的到期門檻 30 日曆天、分組上限 20 筆、到期前提醒 3 日曆天、活動簽核期限 10 日曆天，現有四列也標明日曆天。DA-AUDIT-SCOPE 的說明改為「迄日不超過 data_access.audit_validity_max_days」。§6 的測試名稱改用參數名稱，測試中讀參數取值。「環境」那一點只寫「引用查核案的正式區申請見『稽核與法遵查核』」。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-10",
+   "severity": "minor",
+   "section": "§3.3 末段、開頭沿用清單、§2 預設時限新增列",
+   "problem": "複查的時限計算單位前後不一。§3.3 說「逾期與升級以日曆天計」，開頭的沿用清單卻列了營業日 `add_workdays`；條文草稿表格寫「15 天；升級後再 5 天」，而旁邊既有的催辦、升級都是「工作天」。D103 (1) 剛把急件改成只算上班時段，實作者很可能照簽核關卡的慣例用工作天，或套上新的工作時段參數，算出和規格不同的期限。",
+   "fix": "表格改為「15 個日曆天；升級後再 5 個日曆天未回應撤銷」，條文加一句「複查不是簽核關卡，不適用工作天與工作時段」。沿用清單刪掉 add_workdays；如果哪一個計算確實要用，就寫明是哪一個。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-rules-fit-11",
+   "severity": "minor",
+   "section": "§3.2 表名、§4.2、§4.3 K-REVIEW-STALLED",
+   "problem": "同一個概念有兩個名字。(a) 骨幹的實體名稱是 `access_review_campaign`、`access_review_item`，規格建的表是 `sgn.review_campaign`、`sgn.review_item`，轉移表的 entity 也用新名字。(b) 活動簽核人在條文裡叫「控制負責人」（control_owner 角色），在 §4.2、§4.3 叫「簽核負責人」，實際定義卻是參數 `review.signoff_role` 的持有人。K-REVIEW-STALLED 的例外要開給「簽核負責人」，實作者分不清是 control_owner 角色，還是參數指定的角色。",
+   "fix": "表名與轉移表的 entity 改用 sgn.access_review_campaign、sgn.access_review_item，其餘子表加同一前綴，和骨幹一致。全文統一叫「活動簽核人（review.signoff_role 的持有人，預設 control_owner）」；K-REVIEW-STALLED、K-REVIEW-SIGNOFF 的責任人寫明是這個角色。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-abuse-test-2",
+   "severity": "major",
+   "section": "§3.1 audit_engagement、audit_engagement_kind_role；§4.1 audit_engagement_challenge",
+   "problem": "compliance 種類有兩列角色對（compliance_officer→legal_head、legal_head→compliance_officer），但查核案沒有存提出時用的是哪個角色。實作若寫成「核准人持有該種類任一 approver_role」，一位法遵提出的案，另一位法遵也能用 legal_head→compliance_officer 那一列核准，「法遵與法務互相」就落空。同時持兩個角色的人提出時，該用哪一列也無法判定。",
+   "fix": "sgn.audit_engagement 加 proposer_role：提出時由 p_engagement.proposer_role 明示，必須是提出人持有、而且在 kind_role 表內的角色。核准角色由 (kind, proposer_role) 唯一查出，並規定核准人不得持有 proposer_role。§6 加測試：法遵提出、另一位法遵核准 → ENGAGEMENT_NOT_APPROVER。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-abuse-test-6",
+   "severity": "major",
+   "section": "§3.2 review_item、§4.2 控制段複查人解析",
+   "problem": "控制段每個主題包的複查人（含 SoD 改派與升級後的人）沒有地方存。review_item 只有 demand_person_id。實作只能每次呼叫時重新解析，於是活動期間有人被指派 data_owner 角色就能當場決定，被拔掉角色的人收件匣也對不上；升級後的 on_behalf_of 與 control_due_at 都沒有依據。內部人可以趁活動進行中申請角色異動，搶到某一包的控制段決定權。",
+   "fix": "新增只增不改的表 sgn.access_review_assignment(item_id, stage, scope_ref, person_id, round, restart_at, reason: resolved/alternate/escalated/reassigned, assigned_at, event_seq)。凍結時（需求段）與進入 pending_control 時（控制段）寫入；升級或改派時新增一列，取代前一列。決定時只認每個 (item, stage, scope_ref) 最新的那一列。review_item 拿掉 demand_person_id。§6 加測試：活動中才被指派 data_owner 的人 → REVIEW_NOT_REVIEWER。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-abuse-test-8",
+   "severity": "major",
+   "section": "§3.2 review_item.grant_version、§4.2 review_challenge／review_decide_passkey、review_due",
+   "problem": "三種情況下簽到的是過期的內容，規格都沒有要求在確認時重新檢查。(1) 需求段 demand_reduce 立即執行，或第六批補簽、其他縮小讓 grant 換了版本，控制段的「保留」卻可能簽凍結時的 grant_version。(2) 複查人在升級前拿到挑戰值、升級後才簽，規格沒說原複查人此時還能不能決定。(3) review_due 撤銷與人的決定同時進行。實作若不鎖列、不重驗，就會出現「已撤銷的項目被保留」或「升級後兩人都決定」。",
+   "fix": "§4.2 寫明三點。(1) 挑戰值綁定每筆 item 的 id、state、目前 grant 版本與雜湊，以及目前的指派列（7-abuse-test-6）。(2) review_decide_passkey 與 review_decide 都要 for update 鎖住 item，重驗這些值：版本不同回 SIGNED_CONTENT_MISMATCH，指派人已經不是他回 REVIEW_NOT_REVIEWER，已終局回 REVIEW_STATE。升級後原複查人不能再決定（STALLED 改派前除外）。(3) review_due 鎖同一列，跳過已終局的項目。§6 加三個測試：需求段縮小後拿舊挑戰值保留 → MISMATCH；升級後原複查人用舊挑戰值 → REVIEW_NOT_REVIEWER；撤銷與決定的兩種先後順序各一。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-abuse-test-9",
+   "severity": "major",
+   "section": "§4.2 review_due 升級對象、K-REVIEW-SOD、review_signoff",
+   "problem": "兩段之間的人沒有要求必須不同。升級對象只排除「申請人或受益人」。需求段負責人和控制段擁有者若有同一位上層主管，逾期升級後同一人以 on_behalf_of 完成「仍需要」與「保留」兩段。控制段升級對象也沒有排除被授權者負責人。簽核人只排除「複查人」，沒說升級代決的人算不算，同一人可以代決項目後再簽核整個活動。",
+   "fix": "§4.2 依原則 ② 規定三點。(1) 同一筆 item 的需求段決定人（含 on_behalf_of 代決）不得是控制段決定人，反之亦然。(2) 控制段的升級對象也套 K-REVIEW-SOD。(3) 簽核人的排除對象是本期所有 review_decision.actor_person_id 與 access_review_assignment 的人。撞到時沿主管線往上找，找不到就開 K-REVIEW-STALLED。§6 加測試：兩段升級到同一位主管 → 控制段改派；代決過的人簽核活動 → 擋下。",
+   "needs_owner": false
+  },
+  {
+   "id": "7-abuse-test-10",
+   "severity": "major",
+   "section": "§4.2 review_due（K-REVIEW-STALLED）、review_signoff、§4.3 K-REVIEW-STALLED",
+   "problem": "升級找不到合格的人時，項目留給原複查人、不撤銷，但規格沒有給任何人處理的入口。不想被複查的人只要讓主管線上沒有合格的人（例如主管就是申請人，或自己就在頂層），再不回應，授權就永遠不會被撤。簽核又要求「所有 decide 項目都已終局」，結果整期活動簽不了，只剩一個例外掛著。",
+   "fix": "新增 api.review_reassign(p_session, p_item_id, p_stage, p_person_id, p_reason)：活動簽核人指定新複查人，新複查人過同一套資格檢查（7-code-fit-9），寫進指派表，期限重算，例外結案。STALLED 之後過多久要逾期撤銷，要負責人決定。建議預設：新參數 review.stalled_due_days（10 日曆天），期限內沒有改派也沒有決定，就照 K-REVIEW-NORESPONSE 撤銷，和 D99 (3)「不預設保留」一致。§6 加兩個測試：STALLED → 改派 → 決定 → 活動可簽核；STALLED 逾期 → 撤銷。",
+   "needs_owner": true
+  },
+  {
+   "id": "7-abuse-test-11",
+   "severity": "major",
+   "section": "§3.3 段落「部署後第一輪…立刻建立」、§4.2 review_campaign_due、§6",
+   "problem": "晚建立的活動沒有定義時限的起算點。若 demand_due_at 從 period_start 算，在 11 月部署時第一輪就建立 7/1 那一期，所有項目當場逾期，下一輪升級、再一輪撤銷，等於全公司授權在幾天內被大量撤銷；持排程帳號的人延後啟動排程，也能故意製造這個結果。測試面也有問題：db/tools/jobs.mjs 每輪照 schedulerCalls 全部呼叫，加入 review_campaign_due 與 review_due 之後，現有 e2e 與用假時鐘往後跳 20 天以上的測試，都會意外建立活動、撤銷無關的授權，結果依執行順序而定。",
+   "fix": "§3.3 明訂：所有複查期限從指派時（frozen_at 或指派列的 restart_at）起算，不從 period_start 起算；晚建立時事件記下實際起算點。§6 加測試：晚建立的活動第一輪不升級；同一期重跑不重複建立；假時鐘倒退不會重建已簽核的活動。另外規定 e2e 與其他測試的隔離方式：既有測試的 setup 把 review.interval_months／anchor_month 設在測試期間外（以參數的 process 範圍設定），或者 DB 測試直接呼叫 sgn_internal 函式、不經 jobs.mjs。",
+   "needs_owner": false
+  }
+ ],
+ "summary": "這份規格還不能直接交給實作。36 項查證後，成立 26 項，另外 10 項併入其他項（不是誤報）。要改的方向很清楚，大多不必負責人決定，只有 3 項要他拍板：7-code-fit-1 負責人確認關要不要保留、要不要排除提出人與核准人；7-code-fit-7 查核案負責人離職時是結案還是改指派；7-abuse-test-10 STALLED 之後多久撤銷。\n\n最大的三個風險：\n(1) 職責分離和既有路徑衝突。第 2 版路徑第一關是被授權者負責人確認，查核案負責人就是被授權者負責人。照規格全面擋下，每張查核單的第一關都會被升級。另外，既有的 SOD_PRINCIPAL_OWNER 已經擋下負責人簽其他關卡，規格新增的那一列等於重複。成員也是受益人，規格卻沒有擋。\n(2) 規格指名的改動點和現有程式對不上。內容整理、比對、顯示、送審複核的 hook 已經包到 *_surveyed，只改最底層的 function，新內容不會經過。流程包的錯誤會被包成 CONTENT_INVALID，核心錯誤訊息也不能帶 %s。縮小只呼叫 grant_redeliver 會重送舊版本，沒有新版本，也沒有進鏈。退回與駁回其實只有 decision_apply 一個入口，規格說要兩處呼叫是錯的。\n(3) 生命週期有缺口。結案只處理生效中的授權，執行中、驗證中、簽核中的單會卡住，而且沒有把被授權者標為 ended 的入口。查核案負責人離職時，既有的改指派會讓兩邊的負責人不一致。複查的指派、輪次與期限沒有地方存，STALLED 沒有出口，可以拿過期的挑戰值決定，也可以縮別人範圍的主題包。另外，D103 (4) 已裁決會計師不登入，規格仍列為開放問題；「不能續期」也沒有任何入口擋下。"
+}

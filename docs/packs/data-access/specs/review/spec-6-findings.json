@@ -1,0 +1,215 @@
+{
+ "spec": "docs/packs/data-access/specs/6-reclassify-resign.md",
+ "raised": 35,
+ "confirmed": [
+  {
+   "id": "6-code-fit-1",
+   "severity": "major",
+   "section": "§4.1 sgn_internal.stage_applies_for；§3.2 末段；§8 #7",
+   "problem": "規格以為依單判斷關卡適用要新做 stage_applies_for(p_case, p_stage) 並去改 stage_applies 的呼叫端。實際上依單判斷的唯一入口早就存在：sgn_internal.stage_applies_to_case(p_stage, p_case)，參數順序相反，而且已支援 applicant_not_principal_owner。stage_applies(p_stage, p_tier) 刻意只看級別，只給 process_type_list 用。照規格做會有兩個並存的入口；改 stage_applies 的呼叫端也沒用，因為真正推進關卡的 case_advance 呼叫的是 stage_applies_to_case，missing_on_source 不會生效。另外 stage_applies 遇到不認得的鍵就當成適用，補簽類型在新申請畫面會顯示四關都要簽。§8 #7 說「只新增運算子、tier_in 行為不變」，漏了 applicant_not_principal_owner。",
+   "fix": "§4.1 刪除 stage_applies_for 一列，改成「sgn_internal.stage_applies_to_case（create or replace，簽章不變：(p_stage sgn.policy_stage, p_case sgn.request_case)）加 missing_on_source 分支；tier_in 與 applicant_not_principal_owner 的行為不變；呼叫端都不用改」。另外寫明兩點。一、遇到沒登記的運算子要丟錯，不能當成適用（配合 §6 的架構測試：applies_when 只能用登記過的運算子）。二、只看級別的 stage_applies 遇到 missing_on_source 回 false，而且 process_type_list 不列補簽類型（見 6-code-fit-11）。第 7 行「沿用的入口」改成 stage_applies_to_case（370）。§8 #7 改成：「tier_in、applicant_not_principal_owner 的行為不變；76-flow、20-flow、40-principal-owner 全部通過」。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-2",
+   "severity": "blocker",
+   "section": "§3.2 流程類型 has_validity false；§4.1 supplement_open「terms 同來源」、supplement_apply「寫入補簽單 terms」；§6「新級別上限較短：迄日已縮短」",
+   "problem": "補簽類型設 has_validity false 時，核心整理 terms 會把 valid_from、valid_to 拿掉。結果有三個：補簽單上看不到也簽不到縮短後的迄日；validity.max_months 的檢查不會跑；supplement_apply 把補簽單的 terms 寫進來源單新的一版後，來源單就沒有迄日，grant_redeliver 會把 grant_record.valid_to 改成 null，授權變成沒有期限。",
+   "fix": "把 data_access_supplement 改成 has_validity true，並寫明以下幾點。(1) 補簽單的 terms 由核心從來源單目前版本複製，迄日依 6-rules-fit-7 的公式算。(2) 上限要用 validity_scopes('data_access', 新級別) 檢查，不能用補簽類型自己的 scope。(3) 起日沿用來源單，所以補簽單的 terms 檢查不套用 K-NO-BACKDATE：在 terms_errors 加流程類型選項（例如 inherits_validity），或由 supplement_open 走不檢查起日的內部路徑，兩種寫法擇一並寫明。(4) supplement_apply 與系統縮小寫入來源單的 terms 一定要帶 valid_from、valid_to。§6 加一個測試：核准後 grant_record.valid_to 不是 null，而且等於補簽單的迄日。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-3",
+   "severity": "major",
+   "section": "§3.2「hooks 同 data_access 的 normalize_content、classify_tier、compare_content、stage_scopes、display_content」",
+   "problem": "data_access 現在登記的 hook 已不是 030 的基本函式，而是後面幾批一層層包起來的版本：綁目錄（normalize_bound）、環境（normalize_environment）、匯出調查（normalize_surveyed、compare_surveyed、display_surveyed）。照字面登記 pack_data_access.normalize_content 等基本函式，補簽單的內容不會綁目錄版本，也不帶環境與匯出調查欄，內容雜湊與顯示摘要都會和來源單不一致：supplement_apply 寫回來源單的會是缺欄位的內容，§6 的 SIGNED_CONTENT_MISMATCH 與「綁新目錄」也做不出來。之後的批次若只重登 data_access 的 hook，補簽類型會被留在舊版。",
+   "fix": "§3.2 改成：「補簽類型的 hook（normalize_content、classify_tier、compare_content、stage_scopes、display_content，以及送審與交付以外其他適用的 hook）在 190 登記時，從 sgn.process_type where code = 'data_access' 的 hooks 逐項複製，不寫死函式名；另外加 on_supplement_closed」。§6 加一個架構測試：兩個類型的這些 hook 必須相同，之後任何批次重登 data_access 卻沒有同步補簽類型，測試就失敗。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-4",
+   "severity": "major",
+   "section": "§3.2 missing_on_source 的判斷；§4.1 supplement_missing_stages",
+   "problem": "判斷只看來源單自己的 case_stage 有沒有這個代碼的 done。補簽核准後，資安長那一關是簽在補簽單上，來源單自己並沒有 ciso 的 done。所以來源單已經是 L4、後來又有另一欄 L3→L4 時，會再算出缺 ciso，又開一張補簽單，和 §6「L4 單某欄 L3→L4（沒有缺的關卡）→ 不建補簽單」矛盾。此外，來源單曾經從第一關重簽過時，舊的關卡是 cancelled 或 restart，也要寫清楚只算哪些。",
+   "fix": "§3.2 的判斷改寫成：「已簽過」＝ 來源鏈上任何一張單有同代碼、status = 'done' 的關卡。來源鏈指來源單本身，加上 source_case_id = 來源單、case_supplement_outcome.outcome = 'approved'、source_action = 'apply' 的補簽單。cancelled 與 returned 不算，也不依版本號篩選。來源鏈的定義寫在 §3.2，6-abuse-test-4 的職責分離也用同一個定義。§6 加兩個測試：縮小過的 L3 單調成 L4 時只開 ciso 關；補簽核准後的 L4 單又有另一欄 L3→L4 時不建補簽單。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-5",
+   "severity": "major",
+   "section": "§4.2「已有開著的補簽單又調高 → 用新內容 case_rebind」；§8 #6「以縮小後的內容重新綁定」",
+   "problem": "既有的 case_rebind(p_case_id, p_rule_code, p_detail) 沒有內容參數，只會用這張單目前的內容重跑 normalize，所以「用新內容」、「用縮小後的內容」都做不到，自動縮小（關匯出、縮迄日）不會重算。它還有兩個和補簽單衝突的行為：整理後有錯就走 rebind_return 轉到 returned，而補簽單規定不能退回，退回後申請人還能改內容再送審；另外它通知申請人的 case.rebound 範本寫的是「從第一關重新簽核；有問題已退回給你修正」，不適用補簽單。",
+   "fix": "§4.1 加 sgn_internal.supplement_rebind(p_supplement_case_id uuid, p_content jsonb, p_terms jsonb, p_rule_code text, p_detail jsonb)，經 sgn_sdk 包裝給流程包用。做法：先鎖補簽單；以指定的內容與 terms 呼叫 version_prepare、version_store，再 case_restart_stages、case_advance；期限不變；通知用 data_access.tier_raised。整理出錯時不退回，改成 supplement_close(…, 'rejected')，依 DA-TIER-RAISE-SHRINK 從嚴縮小。§4.2 第 2 列與 §8 #6 都改成呼叫它；補簽單不得走 case_rebind。denial_reason 對 source_kind = 'supplement' 的單，revise、submit、discard 也回 SUPPLEMENT_NO_RETURN。§6 加一個測試：補簽單重新整理出錯時不會進入 returned，而是走縮小。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-6",
+   "severity": "major",
+   "section": "§4.1 sgn_internal.supplement_close「最後一關核准、駁回、逾期、取消時呼叫」",
+   "problem": "規格沒說要改哪些既有 function 來接上 supplement_close。最後一關核准時 finish_approval_final 寫在 case_advance 裡（最新版在 530），駁回寫在 decision_apply 的 reject 分支裡。兩者都沒列為 create or replace，實作時很可能只在新寫的排程裡接上逾期與取消，核准與駁回時來源單就不會換版也不會縮小。另外 case_advance 已被重寫 5 次（370、420、470、480、530），新的一版必須以 530 為底。",
+   "fix": "§4.1 加兩列。第一列：「sgn_internal.case_advance（create or replace，以 530 為底，簽章不變）：finish_approval_final 之後，若 source_kind = 'supplement'，呼叫 supplement_close(id, 'approved')」。第二列：「sgn_internal.decision_apply（create or replace，簽章不變）：補簽單駁回、case_transition(reject) 之後呼叫 supplement_close(id, 'rejected')」。§6 的核准與駁回測試都要確認：來源單換版或縮小，和決定在同一個交易裡完成。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-7",
+   "severity": "major",
+   "section": "§4.1 只列 sgn_sdk.supplement_missing_stages、supplement_open；§4.2 的 revoke_redraft 與系統縮小",
+   "problem": "流程包的 SQL 完全不直接呼叫 sgn_internal，只能用 sgn_sdk。現有 sgn_sdk 沒有撤銷（grant_end）、建草稿（case_new）、系統縮小（version_store＋reduce 轉移＋grant_reduce_deliver）的入口，可是 §4.2 要 190_tier_raise 在 catalog_drift 裡做這三件事。另外核心新寫的 supplement_open、close、apply、due 都會呼叫 case_transition，但 system 動作無法經 authorize（denial_reason 對 actor_rule = 'system' 回 ACTION_UNKNOWN），架構測試會要求把它們列進白名單，規格也沒提。",
+   "fix": "§4.1 加三個 sgn_sdk 入口，只給目錄改版的交易用，實際工作在核心內部做。一、sgn_sdk.grant_system_end(p_case_id, p_rule_code, p_detail)：包 grant_end('revoked', null, …)。二、sgn_sdk.grant_system_reduce(p_case_id, p_content, p_terms, p_rule_code, p_detail)：做 version_store('reduce')、reduce 轉移、grant_redeliver，行為人為 null，事件記規則代碼與參數值。三、sgn_sdk.case_redraft(p_source_case_id, p_content, p_terms, p_rule_code)：以來源單的申請人建草稿，記來源單號。§6 註明：supplement_open、supplement_close、supplement_apply、supplement_due、supplement_rebind 和上面三個入口的核心函式，都要加進 90-contract 的 TRANSITION_WITHOUT_AUTHORIZE，逐項寫理由。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-8",
+   "severity": "major",
+   "section": "§4.1 case_display 加三行與使用報告；§5",
+   "problem": "case_display 是核心函式（sgn_internal，300）。規格要它產生「主題包／欄位、在○○區從 L3 調為 L4、目錄第 N 版」的文字，還要呼叫 pack_data_access.test_report_for。這有兩個問題：核心直接呼叫流程包函式，依賴方向反了；核心組出領域文字，違反核心與領域無關。何況 test_report_for 要第五批才有。",
+   "fix": "§4.1 改成：三行說明與使用報告由流程包產生。補簽類型的 normalize_content 在 supplement_open 和每次 supplement_rebind 時，把以下資料凍結寫進補簽單的內容：supplement_notice（調高的欄、新舊級別、目錄版本與雜湊、來源單號與版本、期限、逾期會移除的欄位），以及 test_report_frozen(來源單, 內容)。版本雜湊和簽核人簽的內容都涵蓋這兩項，display_content 只讀凍結的那一份。核心 case_display 不改。報告用途：在 test_report_for 加 p_purpose = 'supplement'，或把 'review' 提前到第六批；不顯示「與前案差異」、應用面編輯、「版本識別變了」和一鍵縮小草稿。usage_report.kind 同步加上這個值，README 第 1 節的相依表也要更新。§6 加一個測試：發出 challenge 之後新增一筆使用紀錄，仍然簽得成功，簽到的報告雜湊不變。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-9",
+   "severity": "major",
+   "section": "§1 T3「寬限期內原核准的那一版繼續有效」；§8 #6；§6「寬限期內調高的欄 DC 仍查得到」",
+   "problem": "目錄引用摘要含每一欄的分級。調高後，來源單仍綁舊版本，使用方系統換成新版後，引用摘要就不同了。對帳每一輪都會開 DA-CATALOG-MISMATCH。寬限期內任何一次交付（例如 §8 #6 申請人自己縮小，或交付重送）都會被 check_delivery_result 當成拒絕：不生效、撤回、開例外。所以「寬限期內照用」做不到，§8 #6 的縮小甚至會變成撤回。",
+   "fix": "§4.1 寫明：寬限期內來源單也接受調高後的目錄版本。pack_data_access.case_catalog_versions 用 create or replace（簽章不變），加上「這張單在 pack_data_access.tier_raise 裡、補簽單還開著的那幾列的 catalog_version_to」；case_catalog_version（drift 的起點）不改。補簽單一結束（apply、reduce、revoke），新版本就綁新目錄；結果是 none 時恢復原本的判斷。§6 加一個測試：寬限期內做一次對帳、來源單縮小重新交付，都不開 DA-CATALOG-MISMATCH，也不撤回。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-10",
+   "severity": "major",
+   "section": "§4.1 grant_redeliver、supplement_apply；§4.2 系統縮小；DA-TIER-RAISE-SHRINK",
+   "problem": "grant_reduce_deliver 只會送到自動交付的通道。人工執行的受管系統不會收到縮小，所以 api.case_reduce 一開頭就擋 DELIVERY_MANUAL_ONLY。規格要系統自動縮小、逾期拿掉調高的欄、補簽換版，卻沒交代人工交付的授權。照抽出的 grant_redeliver 做，人工系統上那一欄不會被拿掉，平台卻記成已縮小，DC 驗證也驗不到。",
+   "fix": "§4.1 的 grant_redeliver 加一句：「自動通道照送；來源單有人工交付時（grant_has_manual_delivery），另外呼叫 grant_manual_followup(p_case, 'reduced')。系統發起的縮小（逾期、駁回、自動縮小、補簽換版）不因人工交付而被擋下」。申請人自己做的 api.case_reduce 照舊擋。§6 加一個測試：人工受管系統上的單逾期縮小後，有一筆 K-DELIVERY-MANUAL 例外，管理人收到通知。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-code-fit-11",
+   "severity": "major",
+   "section": "§7 威脅「補簽單只能由核心從目錄改版的交易建立」；§3.2 流程類型登記",
+   "problem": "api.case_create 和 case_submit_new 收任何已登記的 process_type，case_new 只檢查類型存在。登記 data_access_supplement 之後，任何人都能自己建一張補簽類型的單並送審。這張單沒有 source_kind、沒有來源單，missing_on_source 的判斷會遇到 null；一般申請的路徑也可能被它繞過。api.process_type_list 也會把它列在新申請畫面。規格的威脅表說擋住了，但沒有指定任何機制。",
+   "fix": "§3.2 加流程類型選項 system_only: true（用 register_process_options 登記）。§4.1 加兩列：「sgn_internal.case_new（create or replace，簽章不變）：system_only 的類型丟 PROCESS_UNKNOWN；supplement_open 走自己的內部建單」、「api.process_type_list（create or replace）不列 system_only 的類型」。supplement_open 不經 case_submit_draft：直接 transition submit，行為人為 null，事件記 K-SUPPLEMENT。§6 加一個測試：用 api.case_create 或 case_submit_new 建補簽類型的單，會被擋下。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-rules-fit-1",
+   "severity": "blocker",
+   "section": "§1 T7；§2 草稿第 5 點；§3.3 auto_field_notify_lookback_days；§4.1 auto_field_raised；§4.4 DA-AUTO-FIELD-RAISED；§4.5 通知範本；§6 測試；§7 末列；§8 Q1",
+   "problem": "D103 (3) 已裁決：L1、L2 自動給的存取改成 L3 後，由 DC 依目錄版本自動停，本站只管已簽核授權的補簽與縮欄，並在限制清單註明本站沒有這段的證據。規格仍照 D103 之前的建議，要本站開例外，並通知「最近用過那一欄的被授權者負責人」。這件事也做不出來：自動給的存取沒有申請單，使用摘要是「每張單 × 每人 × 時段」，本站查不到誰用過那一欄（規格自己的威脅表也寫了「平台沒有那些存取的單」）。照規格實作，不是要捏造資料來源，就是只能做出空殼。另外 Q1 已經有答案，但規格仍列為開放問題；D103 說的「限制清單」在規格裡沒有指明是哪一份文件。",
+   "fix": "刪除 T7、DA-AUTO-FIELD-RAISED、pack_data_access.auto_field_raised、data_access.auto_field_notify_lookback_days、通知範本 data_access.auto_field_raised，以及 §6 第 186 行的測試。§2 第 5 點改成：「原本自動給的欄位（L1、L2）調成 L3 以上時，由 DC 依交付的目錄版本自動停止；本站只處理已簽核授權的補簽與縮欄，本站沒有這段的證據（見已知限制）。」在 docs/contract/05-integration.md 附錄 C（尚待確認的設計點與已知限制，第 4263 行）加一條，使用方義務也加一條「依交付的目錄版本停止自動給」。§7 末列改成引用這條限制。Q1 標為已由 D103 (3) 回答。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-rules-fit-2",
+   "severity": "major",
+   "section": "§2 條文草稿與「原則 ③ 的說明」；§8 #1；README C3、X1",
+   "problem": "D103 (1) 已授權主代理照建議貼條文，而且 C3、C4 已照建議定案。規格仍寫「要負責人確認後才貼」，也沒有提供原則 ③ 例外的條文。草稿貼進 rules.md 後，「分級調高只補缺的關」和原則 ③「任何擴大都從第一關重簽」、第 72 行「其他修改從第一關重簽」直接衝突。骨幹 `K-CHANGE-EXPAND`「級別升高一律視為擴大」也會讓 `supplement_apply` 寫入較高級別的新版本時被當成擴大，但 README 列出的「要改骨幹」清單沒有 `K-CHANGE-EXPAND`，也沒有 `source_kind` 加 `supplement`。",
+   "fix": "第 3 行改成：「依 D103 (1) 由主代理貼入 rules.md，做完附白話差異表」。§2 加原則 ③ 的修改原文：「縮小範圍或期間只需通知；任何擴大都從第一關重簽。資料目錄調高分級不算申請人的擴大，依『分級調高』一節補簽（D97 (2)、D103）。」§8 #1 與 README 的 C3、X1 標為已定案。README 第 54 行的骨幹修改清單補上兩項：K-CHANGE-EXPAND（目錄重新評估造成的級別升高除外，走 K-SUPPLEMENT），以及 case.source_kind 加 supplement。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-rules-fit-3",
+   "severity": "major",
+   "section": "§2 草稿第 3 點 vs §4.2 第 3、4 列",
+   "problem": "條文草稿寫「不需要補關卡的調高，只做縮小或更新目錄版本，免簽、通知」。但 §4.2 對「沒有缺的關卡、沒有縮小」的處理是「現況（`DA-CATALOG-DRIFT`）」，也就是只開例外、不換目錄版本。另一列「沒缺關卡、有自動縮小」走 `K-GRANT-REDUCE`，但沒說新版本要不要綁新目錄。實作照 §4.2，規則照草稿，兩邊做出來的行為不同；測試依哪一份寫都會和另一份不符。",
+   "fix": "條文第 3 點改成：「不需要補關卡的調高：新級別要縮小時，系統直接縮小（新的一版綁新目錄）並通知；不需要縮小時，照目錄異動的既有處理（通知資料擁有者）。」§4.2 第 117 列寫明縮小後的版本綁 p_to 的目錄，而且不再另開 DA-CATALOG-DRIFT；第 118 列維持現況。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-rules-fit-6",
+   "severity": "major",
+   "section": "§4.2；§4.1 catalog_drift",
+   "problem": "既有的 `catalog_drift` 只掃 `data_access` 流程類型，補簽單（`data_access_supplement`）不會被重新綁定。§4.2 只處理「已有開著的補簽單又調高」，沒處理在補簽期間發生的其他目錄異動（改名、改對照、別的欄位調低）。這時補簽單的內容還綁著舊目錄版本，核准後 `supplement_apply` 把舊版本內容寫進來源單並重新交付，會被 `DA-CATALOG-MISMATCH` 擋下。另外，規格說「先 tier_raise_assess……再照舊判斷 DA-CATALOG-DRIFT」，同一次調高會對來源單同時開 `DA-TIER-RAISED` 和沒有期限的 `DA-CATALOG-DRIFT`，規格沒說誰來結案。",
+   "fix": "§4.2 加一列：「補簽單在簽核中、遇到引用部分改變的任何目錄異動 → 以新目錄重新整理後 supplement_rebind（見 6-code-fit-5），期限不延長；重新整理後已不含調高的欄 → supplement_close(…, 'cancelled')」。catalog_drift 也要掃 data_access_supplement。另外寫明：同一次改版已經以 DA-TIER-RAISED 處理的來源單，不再開 DA-CATALOG-DRIFT。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-rules-fit-7",
+   "severity": "major",
+   "section": "§4.1 tier_raise_assess；§2 草稿第 1 點；§6「新級別上限較短：迄日已縮短」",
+   "problem": "「新級別期限上限較短就縮短迄日」沒有說從哪一天起算。rules.md 的授權上限（L3 一年、L4 半年）是從起日算的授權長度；設計 e 寫的是「新級別期限上限比剩餘期限短，就把迄日縮到上限」，看起來是從現在起算。兩種算法差很多：已經生效 7 個月的 L3 單調成 L4，從起日算時迄日已經過了，等於立即失效；從現在算則還有 6 個月。實作可能挑任一種。",
+   "fix": "§4.1 tier_raise_assess 寫明公式：新迄日 = min(原迄日, 原 valid_from + 新級別的 validity.max_months − 1 天)。條文草稿也寫明「從授權起日算」。建議的預設：算出來的迄日早於補簽期限 due_at 時，改成 due_at（寬限期內照用，D99 (a)），核准後在 due_at 到期；detail 記原值、新值與參數值。另一個選項是立即撤銷，由負責人決定。§6 加一個測試：起日在 8 個月前的 L3 單調成 L4，補簽內容的迄日等於 due_at。",
+   "needs_owner": true
+  },
+  {
+   "id": "6-rules-fit-10",
+   "severity": "minor",
+   "section": "§2 草稿第 1 點與「預設時限」表",
+   "problem": "補簽期限的預設值同時寫在條文內文（「預設 30 天，L4 14 天」）和「預設時限」表兩處。rules.md 其他時限的寫法都是內文只說「寬限期內」、「天數做成設定」，數字只放在表裡。寫在兩處，日後只改其中一處就會不一致，違反工程規範第 1 節。另外同一件事叫了三個名字：參數叫 grace（寬限期）、表叫「補簽期限」、內文寫「寬限期」。",
+   "fix": "條文內文改成「在補簽期限內補簽（天數見預設時限）」，數字只留在表裡。全文統一叫「補簽期限」，並在 §3.3 註明它對應參數 grant.reapproval_grace_days。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-rules-fit-11",
+   "severity": "minor",
+   "section": "§4.1 sgn_internal.supplement_open（例外責任角色）",
+   "problem": "`DA-TIER-RAISED` 例外的責任角色借用 `grant.owner_reassign_roles`，這是第四批「負責人離職改指派」的參數。同一個參數管兩個不相干的控制：日後調整負責人改指派的角色，補簽例外的責任人也會跟著變，稽核事件記的參數名稱也和這個控制對不上。設計 e 指定的是資料授權流程的控制負責人。",
+   "fix": "登記新參數 grant.supplement_exception_roles（json，預設 [\"control_owner\"]，適用範圍 process），supplement_open 用它找責任人，並把參數值記進事件。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-abuse-test-2",
+   "severity": "blocker",
+   "section": "§4.1 supplement_apply、on_supplement_closed；§8 #6",
+   "problem": "`supplement_apply` 把「補簽單最後核准的內容與 terms」整份蓋到來源單上。寬限期內來源單可能已經變過：被申請人 `case_reduce`、被系統或治理角色 `K-GRANT-REDUCE` 縮小，或迄日被縮短（`case_supplement.source_version` 記的是建立時的版本）。這時補簽核准會把已經縮掉的欄位或較長的迄日恢復回來，等於免簽延長或擴大授權。§8 #6 說「以縮小後的內容重新綁定」，但 `case_rebind(p_case_id, p_rule_code, p_detail)` 沒有內容參數，只會重新整理補簽單自己的內容，照規格做不出來。hook `on_supplement_closed` 回傳的 `reduce` 內容，規格也沒要求核心驗證它確實是縮小。",
+   "fix": "§4.1 supplement_apply 改成以下做法。先鎖補簽單，再 case_lock 來源單（鎖的順序固定）。如果來源單的 current_version 不等於 case_supplement 最近一次記下的版本，要寫入的內容取「來源單目前內容綁新目錄」和「補簽核准內容」的交集，terms 每一項取較嚴的那一個（迄日取較早者）。寫入前一律以 compare_content(來源單目前內容, 要寫入的內容) 確認結果是 reduce 或相同，不是就丟錯、不套用。hook 回傳的 reduce、revoke 也用同一個檢查。§8 #6 改成呼叫 supplement_rebind。§6 加兩個測試：寬限期內來源單縮小，補簽核准後被縮掉的欄不會恢復；寬限期內迄日縮短，核准後迄日不會變長。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-abuse-test-3",
+   "severity": "major",
+   "section": "§3.1 case_supplement.detail、§4.2 第 2 列、§4.1 on_supplement_closed",
+   "problem": "「調高的欄」只在建單時寫進 `case_supplement.detail`，而這張表只增不改。寬限期內第二次調高另一欄 B 時，補簽單只重新綁定、期限不變，B 不會出現在 detail 裡。之後駁回或逾期，`on_supplement_closed` 若照 detail 拿欄位，只會拿掉第一次調高的 A；B 留在來源單，而且「綁新目錄」後 B 是 L4，來源單變成沒有資安長簽過的 L4 授權。駁回或逾期的結果是放寬，不是從嚴。",
+   "fix": "§4.1 on_supplement_closed 寫明：要拿掉的欄位＝pack_data_access.tier_raise 裡 supplement_case_id 等於這張補簽單的所有列的 fields 聯集。拿掉後對剩下的內容依新目錄再跑一次 classify_tier，若仍需要沒簽過的關卡，就把那些欄也拿掉；全部拿掉就撤銷。§6 加一個測試：A 調高、建補簽單，寬限期內 B 也調高，駁回後 A、B 都被拿掉。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-abuse-test-4",
+   "severity": "major",
+   "section": "§3.2 missing_on_source 的判斷；§4.1 decider_denial",
+   "problem": "`missing_on_source` 和跨單職責分離都只看「來源單自己的 case_stage／case_task」。補簽核准、`supplement_apply` 之後，資安長是在補簽單上簽的，來源單上沒有 `ciso` 的 done 關。下次目錄再改版（即使只是同一欄又改名、或另一欄也調成 L4），來源單已經是 L4，卻會再開一次 ciso 補簽。規格的測試「L4 單沒有缺的關卡 → 不建補簽單」對補簽過的單不成立。職責分離只把來源單上的決定者算進去，不包含先前補簽單上的決定者：前一張補簽單的簽核人能在後一張補簽單簽另一關。",
+   "fix": "decider_denial（create or replace，簽章不變）對補簽單的處理：來源鏈（定義見 6-code-fit-4）上所有單的申請人、填單人，以及所有已決定的人（簽核、負責人確認、執行），都算「本單其他關」；代理人也一樣。條文第 6 點改成：「補簽單的每一關，都不能是來源單上的申請人、填單人，或任何已在來源單和之前補簽單上做過決定的人（簽核、負責人確認、執行），代理人也一樣（原則 ②）。」§6 加一個測試：前一張補簽單的簽核人，不能簽後一張補簽單的其他關。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-abuse-test-5",
+   "severity": "major",
+   "section": "§3.3 期限照 K-VALIDITY-READTIME；§4.1 supplement_due；§6",
+   "problem": "逾期只由排程 `supplement_due` 執行，決定入口沒有檢查 `due_at`。過了 `due_at`、排程還沒跑之前（排程停擺或延遲時更明顯），補簽人仍能核准，結果是 `apply` 而不是縮小。在這段空窗裡，調高的欄在 DC 上也仍然查得到。這違反「以邏輯到期時間為準、排程停擺不順延」。核准完成與排程逾期同時發生時，規格也沒規定鎖的順序：決定路徑是先鎖補簽單、再在 apply 時鎖來源單，`supplement_due` 檢查「來源單已到期或撤銷」時可能先鎖來源單，兩邊會死結，或兩個終局都寫進去。",
+   "fix": "denial_reason（create or replace）：補簽單的 approve、approve_reduced 在 sgn_internal.now() >= due_at 時回新錯誤碼 SUPPLEMENT_OVERDUE（409，加進 §4.5）。supplement_due 的事件以 due_at 為到期時間。supplement_close 規定鎖的順序：先補簽單、後來源單；case_supplement_outcome 的主鍵確保只有一筆終局。§6 加兩個測試：時鐘越過 due_at、排程還沒跑時核准 → SUPPLEMENT_OVERDUE；排程晚 1 天才跑，事件記的到期時間仍是 due_at。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-abuse-test-6",
+   "severity": "major",
+   "section": "T3、§4.1 supplement_open（帶期限例外）、§7 補簽人列",
+   "problem": "規格只寫了核准時例外結案（測試 183 列）。駁回、逾期、取消（來源單被撤銷）時，`DA-TIER-RAISED` 例外是結案、保留，還是另開一筆，都沒有定義。例外的期限和補簽期限是同一個 due_at，`exception_followup_due` 和 `supplement_due` 誰先跑，決定了逾期有沒有升級通知。威脅小表說「逾期也是例外」可擋補簽人故意不簽，但若實作在 `supplement_close('expired')` 時把例外結案，而排程又先跑 supplement_due，這次不表態就不會出現在任何逾期升級裡。",
+   "fix": "§4.1 supplement_close 依終局明訂例外的處置：approved、rejected、cancelled 結案，結案依據記 outcome、決定者，或來源單的終止事件；expired 不自動結案，由既有的例外催辦升級處理，detail 記「補簽人未表態」與每一關的待簽人。§6 加一個測試：逾期後例外仍未結案，升級對象收到通知；不論兩個排程哪個先跑，結果都一樣。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-abuse-test-9",
+   "severity": "major",
+   "section": "§4.1 supplement_open、catalog_drift；§4.5 SUPPLEMENT_NOTHING_MISSING",
+   "problem": "`catalog_drift` 逐張讀單時沒有上鎖，而 `supplement_open` 在同一個目錄交易裡建單。同一時間若有人撤銷、縮小來源單，或來源單剛被交付成 active，補簽單就會以過期的 source_version 開立，或開在已撤銷的單上。缺的關卡由流程包（`supplement_missing_stages`）和核心（`stage_applies_for`）各算一次；只要兩邊不一致，`SUPPLEMENT_NOTHING_MISSING`（500）就會讓整個目錄版本回滾。一張單的異常就讓目錄無法更新，其他單的調高也都不會被處理。",
+   "fix": "§4.1 supplement_open：先 case_lock 來源單，重新確認狀態是 active，source_version 用鎖住後讀到的 current_version；狀態已不是 active 就回 null。缺的關卡只由核心算一次；沒有缺的關卡就回 null，由 catalog_drift 改走「沒有缺的關卡」那一列，不丟錯。§4.5 刪除 SUPPLEMENT_NOTHING_MISSING。§6 加一個測試：建補簽單時沒有缺的關卡，目錄版本照常產生。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-abuse-test-11",
+   "severity": "major",
+   "section": "§6 資料庫測試（89a）",
+   "problem": "測試會不穩，而且受執行順序影響。資料庫測試的檔案共用同一個資料庫，既有測試用「再載入一次種子」來還原目錄，每次還原都會產生一個新的目錄版本。在 89a 裡，「調高 → 還原」本身就是一次調低，下一個測試再調高就會在 90 天視窗內觸發 `DA-DETECT-TIER-FLIP`，讓「超過視窗 → 不開」依前面跑過什麼而有不同結果。`catalog_drift` 也會掃到前面測試檔留下的所有 active、待套用的單，替它們建補簽單或直接撤銷，「`case_supplement` 一筆」這類數量斷言會隨前面的檔案而變。假時鐘來回調整後，`catalog_version.created_at` 也可能落在「未來」，視窗計算跟著不穩。",
+   "fix": "§6 規定三點。一、89a 的斷言只看自己建的單（以 case_id 過濾，不數全表）。二、翻轉偵測的測試用只屬於本測試的主題包與欄位代碼，假時鐘要設得晚於所有既有目錄版本的 created_at。三、60、75、80、85 等會載入目錄的既有測試，在第六批之後要全部通過，而且不得為此修改它們自己的斷言。",
+   "needs_owner": false
+  },
+  {
+   "id": "6-abuse-test-12",
+   "severity": "major",
+   "section": "§6 測試清單、§8 #3 #4 #6",
+   "problem": "幾條最容易被濫用的行為沒有測試：§8 #6 寬限期內來源單縮小後補簽單重新綁定或取消；§8 #3 被授權者不能用時補簽單擋下核准、逾期後縮小；§8 #4 續期生效後來源單到期、補簽單取消，而且續期不會繼承補簽前的原版；來源單撤銷後、排程還沒跑前補簽人核准（apply 遇到 revoked 的處理）；T5 系統縮小時事件記規則代碼與參數值、行為人是系統；T6 草稿重送時從第一關簽、事件記來源單號。T6 撤銷別人尚未生效的授權只有通知、不開例外，治理角色在例外清單上看不到這次撤銷。",
+   "fix": "§6 各補一個測試。K-SUPPLEMENT：來源單縮小到不含調高的欄 → 補簽單 cancelled；來源單撤銷後、排程前核准 → SUPPLEMENT_SOURCE_STATE，補簽單 cancelled；被授權者不能用 → 核准回 PRINCIPAL_UNAVAILABLE，逾期 → 縮小；續期生效 → 補簽單照 §8 #4 不受影響（或依最後的決定）。DA-TIER-RAISED：T5 事件的行為人是系統，記規則代碼與參數值；T6 的草稿送審後從 manager 關開始，事件記來源單號。",
+   "needs_owner": false
+  }
+ ],
+ "summary": "結論：這份規格還不能直接交給實作。三位審查者共提 35 項，查證後 23 項成立（其中 1 項需要負責人決定），另有 12 項內容重複，已併入其他項，判為不成立。\n\n最大的三個風險：\n\n一、規格指定的核心入口和實際程式對不上，照字面做會在錯的地方接線（6-code-fit-1、6-code-fit-3、6-code-fit-5、6-code-fit-6、6-code-fit-7）。\n- 關卡適用的唯一入口其實是 stage_applies_to_case（370），規格卻要新增 stage_applies_for。\n- data_access 的 hook 已多次重登，最新是 170 的 normalize_surveyed 等，照字面登記會綁到舊函式。\n- case_rebind 沒有內容參數，出錯時會把單退到 returned，申請人就能改內容重送，等於免簽擴大。\n- 核准與駁回的接點（530 的 case_advance、170 的 decision_apply）沒有列出要改。\n- 流程包只能用 sgn_sdk，但現有 sgn_sdk 沒有撤銷、建草稿、系統縮小的入口。\n\n二、補簽單的 terms 與目錄版本處理有缺陷，寬限期內和核准後都可能給錯權限（6-code-fit-2、6-code-fit-9、6-abuse-test-2、6-abuse-test-3）。\n- 補簽類型設 has_validity false，迄日會被去掉；核准後授權的 valid_to 變成 null，等於沒有期限。改成 true 又會被「起日不得早於今天」擋下，需要另開例外。\n- 寬限期內任何一次重新交付或對帳，都會被 DA-CATALOG-MISMATCH 當成拒絕而撤回，「寬限期內照用」做不到。\n- 補簽核准時整份覆寫來源單，會把寬限期內已經縮掉的欄位或已縮短的迄日恢復。\n- 第二次調高的欄位不在 detail 裡，駁回或逾期時會留下，變成沒有資安長簽過的 L4 授權。\n\n三、「已簽過」與職責分離只看來源單自己（6-code-fit-4、6-abuse-test-4）。\n- 補簽核准後，資安長簽在補簽單上，來源單沒有那一關，之後每次調高都會再開補簽單。\n- 縮小過的單目前版本沒有簽核過程，會被判成四關全缺。\n- 前一張補簽單的簽核人能簽下一張的其他關。\n\n其他：\n- D103 (3) 已經裁決 T7 不由本站處理，規格仍保留，應整段刪除並寫進 05-integration.md 附錄 C（6-rules-fit-1）。\n- D103 (1) 已授權主代理貼條文，規格卻仍寫「要負責人確認」（6-rules-fit-2）。\n- 唯一需要負責人決定的是 6-rules-fit-7：依新級別縮短迄日、而起日算起已超過新上限的單，建議的預設是迄日取補簽期限，另一個選項是立即撤銷。\n\n有一點我沒有照審查者的建議：6-code-fit-9 提的 catalog_ack 寫法不可行（exception_id、confirmed_by 都是 not null，而且會改變 drift 的起點），改成讓 case_catalog_versions 接受補簽期間調高後的目錄版本。\n\n主要依據檔案：\n- /home/user/req/docs/packs/data-access/specs/6-reclassify-resign.md\n- /home/user/req/db/kernel/370_principal_owner_confirm.sql\n- /home/user/req/db/kernel/530_grant_late.sql\n- /home/user/req/db/kernel/540_closed_loop.sql\n- /home/user/req/db/kernel/160_case_flow.sql\n- /home/user/req/db/kernel/580_owner_continuity.sql\n- /home/user/req/db/packs/data_access/130_catalog_version.sql\n- /home/user/req/db/packs/data_access/170_export_survey.sql\n- /home/user/req/docs/decision-log.md"
+}
