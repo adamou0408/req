@@ -5,7 +5,7 @@ import { t } from '../i18n.js';
 import { packOf } from '../packs/index.js';
 import { verifyCase } from '../verify.js';
 import { programHealth } from './home.js';
-import { dateText, el, explain, facts, go, stateBadge, tierBadge } from '../ui.js';
+import { dateText, el, explain, facts, fill, go, stateBadge, tierBadge } from '../ui.js';
 
 async function stageNames() {
     const types = await api.call('process_type_list');
@@ -53,7 +53,7 @@ function resultView(v) {
 export async function renderAudit(ctx, caseNo) {
     const result = el('div', { class: 'result warn', 'data-testid': 'audit-result', 'data-status': 'pending' }, t.auditVerifying);
     const body = el('div');
-    const fill = async () => {
+    const refresh = async () => {
         result.className = 'result warn';
         result.dataset.status = 'pending';
         result.textContent = t.auditVerifying;
@@ -62,10 +62,11 @@ export async function renderAudit(ctx, caseNo) {
             const v = await verifyCase(api, audit);
             result.className = `result ${v.status}`;
             result.dataset.status = v.status;
-            result.replaceChildren(...resultView(v));
+            fill(result, ...resultView(v));
             const c = audit.case;
-            body.replaceChildren(
-                el('button', { onclick: fill }, t.auditVerifyAgain),
+            fill(
+                body,
+                el('button', { onclick: refresh }, t.auditVerifyAgain),
                 el(
                     'div',
                     { class: 'card' },
@@ -114,7 +115,7 @@ export async function renderAudit(ctx, caseNo) {
             result.textContent = explain(err);
         }
     };
-    await fill();
+    await refresh();
     // 背景程式的存活：稽核頁打開就檢查一次（裁決 D88 (3)：不只靠被檢查的程式）
     return [
         el('button', { onclick: () => go('#') }, `← ${t.home}`),

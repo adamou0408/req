@@ -13,12 +13,12 @@ import { actionBar, dateText, el, explain, facts, flash, go, section, sheet, sta
 import { versionDiff } from './diff.js';
 
 const BAR_ACTIONS = ['claim', 'fulfil', 'return', 'approve', 'confirm_verification'];
-const BODY_ACTIONS = ['approve_reduced', 'reject', 'recall', 'revise', 'reduce', 'dispute_verification', 'revoke'];
+const BODY_ACTIONS = ['approve_reduced', 'reject', 'recall', 'revise', 'reduce', 'dispute_verification', 'revoke', 'discard'];
 /**
  * 不需要通行金鑰的動作：撤銷、縮小不用簽核，但要原因（裁決 D63，自動送到外部系統）；
  * 確認驗證結果不是簽核決定（K-CONFIRM），回報不對要原因。
  */
-const NO_PROOF_ACTIONS = ['claim', 'revise', 'submit', 'revoke', 'reduce', 'confirm_verification', 'dispute_verification'];
+const NO_PROOF_ACTIONS = ['claim', 'revise', 'submit', 'revoke', 'reduce', 'confirm_verification', 'dispute_verification', 'discard'];
 const REASON_ACTIONS = new Set(['return', 'reject', 'recall']);
 const PRIMARY_ACTIONS = new Set(['approve', 'fulfil', 'claim', 'confirm_verification']);
 
@@ -155,6 +155,32 @@ function reduceSheet(ctx, c, pack, cat) {
     );
 }
 
+/** 原因欄位的說明：原因會讓誰看到，依資料庫回傳的代碼（操作者是不是申請人、被授權者負責人由資料庫判斷；K-REASON-AUDIENCE）。 */
+const reasonLabel = (c, action) => t.reasonFor[c.reason_audience?.[action]] ?? t.reasonLabel;
+
+/** 捨棄從沒送審過的草稿（K-CASE-DISCARD）：說明後果再確認一次；不用通行金鑰。 */
+export function discardSheet(c, after = () => go('#', { text: t.discard.done(c.case_no), ok: true })) {
+    const submit = async () => {
+        try {
+            await api.call('case_discard', { case_id: c.case_id });
+            panel.remove();
+            after();
+        } catch (err) {
+            flash(explain(err));
+        }
+    };
+    const panel = sheet(
+        t.discard.title,
+        el('p', {}, t.discard.hint),
+        el(
+            'div',
+            { class: 'row sheet-buttons' },
+            el('button', { onclick: () => panel.remove() }, t.cancel),
+            el('button', { class: 'primary', 'data-testid': 'discard-submit', onclick: submit }, t.discard.confirm),
+        ),
+    );
+}
+
 /** 撤銷生效中的授權：不用簽核、要原因；外部系統上的權限由平台自動撤回。 */
 function revokeSheet(c) {
     const reason = el('textarea', { id: 'revoke-reason', rows: 3, 'data-testid': 'revoke-reason' });
@@ -170,7 +196,7 @@ function revokeSheet(c) {
     const panel = sheet(
         t.revokeTitle,
         el('p', {}, t.revokeHint),
-        el('label', { for: 'revoke-reason' }, t.reasonLabel),
+        el('label', { for: 'revoke-reason' }, reasonLabel(c, 'revoke')),
         reason,
         el(
             'div',
@@ -198,7 +224,7 @@ function reduceActiveSheet(c, pack, cat) {
         t.reduceActive.title,
         el('p', {}, t.reduceActive.hint),
         inputs.nodes,
-        el('label', { for: 'reduce-reason' }, t.reasonLabel),
+        el('label', { for: 'reduce-reason' }, reasonLabel(c, 'reduce')),
         reason,
         el(
             'div',
@@ -378,6 +404,7 @@ function actionButton(ctx, c, pack, cat, action) {
         reduce: () => reduceActiveSheet(c, pack, cat),
         confirm_verification: () => confirmSheet(c),
         dispute_verification: () => disputeSheet(c),
+        discard: () => discardSheet(c),
     };
     const onclick = handlers[action] ?? (() => decide(ctx, c, pack, action));
     return el('button', { class: PRIMARY_ACTIONS.has(action) ? 'primary' : '', 'data-action': action, onclick }, t.action[action]);

@@ -109,33 +109,79 @@ export async function programHealth() {
     );
 }
 
+/** 例外的一行：單號（或全公司層級的範圍）・說明・筆數與最近的時間。說明先問流程包（核心不認得流程包的規則代碼）。 */
+function exceptionGroup(x, closed) {
+    const text = packOf(x.process_type)?.exceptionText?.(x.rule_code) ?? t.exception[x.rule_code] ?? t.exceptionUnknown;
+    return el(
+        'li',
+        { 'data-rule': x.rule_code, 'data-count': String(x.count) },
+        // 人員同步、角色來源、外部系統層級（對帳、清除）的例外不屬於任何一張單
+        x.case_no === null
+            ? (t.exceptionScope[x.rule_code] ?? t.exceptionNoCase)
+            : el('a', { href: `#audit/${x.case_no}` }, `${t.caseNo} ${x.case_no}`),
+        `・${text}`,
+        el(
+            'span',
+            { class: 'muted', 'data-testid': closed ? 'exception-closed' : 'exception-open' },
+            closed ? t.exceptionGroup.closed(x) : t.exceptionGroup.open(x),
+        ),
+    );
+}
+
+/** 例外清單（K-HOME-ORDER）：同規則同單合成一筆、順序都由資料庫決定；預設只看未結案，已結案收在下面。 */
 async function auditExceptions() {
-    const list = await api.call('audit_exceptions');
+    const groups = await api.call('audit_exception_groups');
     return section(
         'exceptions',
         t.exceptions,
-        list.length === 0
+        groups.open.length === 0
             ? empty(t.exceptionsEmpty)
             : el(
                   'ul',
                   { 'data-testid': 'audit-exceptions' },
-                  list.map((x) =>
-                      el(
-                          'li',
-                          { 'data-rule': x.rule_code },
-                          // 人員同步、角色來源、外部系統層級（對帳、清除）的例外不屬於任何一張單
-                          x.case_no === null
-                              ? (t.exceptionScope[x.rule_code] ?? t.exceptionNoCase)
-                              : el('a', { href: `#audit/${x.case_no}` }, `${t.caseNo} ${x.case_no}`),
-                          `・${t.exception[x.rule_code] ?? t.exceptionUnknown}`,
-                          x.closed_at
-                              ? el('span', { class: 'muted', 'data-testid': 'exception-closed' }, t.exceptionClosed(x.closed_at))
-                              : null,
-                      ),
-                  ),
+                  groups.open.map((x) => exceptionGroup(x, false)),
               ),
+        groups.closed.length
+            ? el(
+                  'details',
+                  { 'data-testid': 'audit-exceptions-closed' },
+                  el('summary', {}, t.exceptionGroup.closedTitle(groups.closed.length)),
+                  el(
+                      'ul',
+                      {},
+                      groups.closed.map((x) => exceptionGroup(x, true)),
+                  ),
+              )
+            : null,
     );
 }
+
+/** 通行金鑰：待核准的登記、等我背書恢復的停用；遺失裝置、停用或撤銷人人都要找得到。 */
+async function passkeySection(ctx) {
+    const endorse = ctx.me.capabilities.includes('passkey.endorse') || ctx.me.passkey_pending.some((e) => e.actions.includes('endorse'));
+    const suspensions = await api.call('passkey_suspension_list');
+    return section(
+        'passkey-endorse',
+        t.passkeys.title,
+        endorse ? el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkeys' }, t.passkeys.open) : null,
+        suspensions.some((r) => r.actions.includes('endorse_restore'))
+            ? el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkey-restore' }, t.passkeys.restoreOpen)
+            : null,
+        el('a', { href: '#passkeys', 'data-testid': 'open-passkey-manage' }, t.passkeys.manage),
+    );
+}
+
+const rolesSection = () =>
+    section('roles', t.roleChange.title, el('a', { class: 'card', href: '#roles', 'data-testid': 'open-roles' }, t.roleChange.open));
+
+/** 每個功能在首頁的區塊。區塊的順序就是資料庫回傳的 capabilities 的順序（最需要處理的在前；K-HOME-ORDER）。 */
+const SECTIONS = {
+    inbox: (ctx) => [fillInbox(ctx)],
+    audit: () => [programHealth(), Promise.resolve(auditSearch()), auditExceptions()],
+    report: () => Object.values(packs).flatMap((pack) => (pack.reportSection ? [pack.reportSection()] : [])),
+    'case.submit': () => [fillMine()],
+    role_change: () => [Promise.resolve(rolesSection())],
+};
 
 export async function renderHome(ctx) {
     const can = (c) => ctx.me.capabilities.includes(c);
@@ -144,38 +190,9 @@ export async function renderHome(ctx) {
     // 別人背書、冷卻期內的新金鑰（K-PASSKEY-NOT-ME）：本人要在首頁就看到「不是我登記的」
     if (!can('inbox') && (ctx.me.passkey_suspended > 0 || ctx.me.passkey_disownable > 0))
         parts.push(Promise.resolve(passkeyNotice(ctx.me)));
-    if (can('inbox')) parts.push(fillInbox(ctx));
-    if (can('case.submit')) parts.push(fillMine());
-    if (can('audit')) parts.push(programHealth(), Promise.resolve(auditSearch()), auditExceptions());
-    // 通行金鑰：待核准的登記（我可以背書的，或我自己用舊金鑰核准的，依資料庫回傳的 actions）、等我背書恢復的停用；
-    // 遺失裝置、停用或撤銷人人都要找得到
-    const endorse = can('passkey.endorse') || ctx.me.passkey_pending.some((e) => e.actions.includes('endorse'));
-    parts.push(
-        api
-            .call('passkey_suspension_list')
-            .then((suspensions) =>
-                section(
-                    'passkey-endorse',
-                    t.passkeys.title,
-                    endorse ? el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkeys' }, t.passkeys.open) : null,
-                    suspensions.some((r) => r.actions.includes('endorse_restore'))
-                        ? el('a', { class: 'card', href: '#passkeys', 'data-testid': 'open-passkey-restore' }, t.passkeys.restoreOpen)
-                        : null,
-                    el('a', { href: '#passkeys', 'data-testid': 'open-passkey-manage' }, t.passkeys.manage),
-                ),
-            ),
-    );
+    for (const capability of ctx.me.capabilities) parts.push(...(SECTIONS[capability]?.(ctx) ?? []));
+    parts.push(passkeySection(ctx));
     // 流程包自己的待辦（例如資料擁有者要確認的目錄異動）：清單由資料庫決定，沒有就不顯示
     for (const pack of Object.values(packs)) if (pack.homeSection) parts.push(pack.homeSection());
-    if (can('role_change'))
-        parts.push(
-            Promise.resolve(
-                section(
-                    'roles',
-                    t.roleChange.title,
-                    el('a', { class: 'card', href: '#roles', 'data-testid': 'open-roles' }, t.roleChange.open),
-                ),
-            ),
-        );
     return (await Promise.all(parts)).flat();
 }

@@ -18,4 +18,16 @@ export default tseslint.config(
         files: ['web/**/*.js', 'e2e/**/*.{mjs,ts}', 'db/tests/**/*.mjs'],
         languageOptions: { globals: { ...globals.browser, ...globals.node } },
     },
+    // 原生的 replaceChildren 會把 null 變成文字「null」（稽核證據頁的「nullnull」就是這樣來的）：
+    // 換掉節點內容一律用 web/ui.js 的 fill（和 el 一樣丟掉 null、undefined、false）。fill 本身在 ui.js 裡用原生的。
+    {
+        files: ['web/**/*.js'],
+        ignores: ['web/ui.js'],
+        rules: {
+            'no-restricted-properties': [
+                'error',
+                { property: 'replaceChildren', message: '請用 web/ui.js 的 fill（原生的會把 null 寫成文字「null」）。' },
+            ],
+        },
+    },
 );

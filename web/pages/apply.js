@@ -5,7 +5,8 @@
 import { api } from '../api.js';
 import { t } from '../i18n.js';
 import { packOf } from '../packs/index.js';
-import { el, explain, flash, go, tierBadge } from '../ui.js';
+import { el, explain, fill, flash, go, tierBadge } from '../ui.js';
+import { discardSheet } from './case.js';
 
 const SAVE_DELAY_MS = 500;
 
@@ -108,7 +109,10 @@ function summaryLine(detail) {
     return t.summaryLine(detail.tier, detail.path.map((s) => s.name).join(' → '));
 }
 
-function overlapView(pack, cat, overlap) {
+/**
+ * 重疊提示（K-OVERLAP-SHOWN）：資料庫給看的人的版本——重疊的主題包與欄位名稱；對方的單號與期間只在看的人本來就能看那張單時才有。
+ */
+function overlapView(pack, overlap) {
     if (!overlap) return null;
     const cls = { none: 'ok', partial: 'warn', covered: 'bad' }[overlap.level] ?? 'warn';
     return el(
@@ -119,14 +123,18 @@ function overlapView(pack, cat, overlap) {
             'ul',
             {},
             (overlap.items ?? []).map((i) =>
-                el('li', {}, t.overlapItem(i, i.packages.map((p) => pack.packagesLine(cat, { scope: [p] })).join('、'))),
+                el(
+                    'li',
+                    { 'data-testid': 'overlap-item', 'data-case-no': i.case_no ?? '' },
+                    t.overlapShownItem(i, pack.overlapPackages(i.packages)),
+                ),
             ),
         ),
     );
 }
 
 /** 即時檢查的結果：級別、路徑、提示、錯誤、重疊。全部來自資料庫回傳的申請單。 */
-function checkView(pack, cat, detail) {
+function checkView(pack, detail) {
     return [
         el('p', {}, `${t.tierLabel}：`, tierBadge(detail.tier) ?? '—'),
         pathView(detail),
@@ -155,7 +163,7 @@ function checkView(pack, cat, detail) {
                   ),
               )
             : null,
-        overlapView(pack, cat, detail.overlap),
+        overlapView(pack, detail.overlap_shown),
     ];
 }
 
@@ -230,6 +238,17 @@ export async function renderApply(ctx, caseId = null) {
         reason,
     );
     const submit = el('button', { class: 'primary', type: 'submit', 'data-testid': 'submit', disabled: true }, t.submit);
+    // 捨棄草稿（K-CASE-DISCARD）：只在資料庫回傳的 actions 有 discard 時顯示
+    const discard = el(
+        'button',
+        {
+            type: 'button',
+            hidden: true,
+            'data-action': 'discard',
+            onclick: () => discardSheet({ case_id: state.caseId, case_no: state.caseNo }),
+        },
+        t.action.discard,
+    );
     const parts = segmented({
         who: el('div', { class: 'card' }, termsInputs(principals, existing?.terms ?? {}, type.options)),
         data: editor.parts.scope,
@@ -241,6 +260,7 @@ export async function renderApply(ctx, caseId = null) {
                 'div',
                 { class: 'actions' },
                 el('button', { type: 'button', onclick: () => go(existing ? `#case/${existing.case_id}` : '#') }, t.cancel),
+                discard,
                 submit,
             ),
         ],
@@ -255,12 +275,19 @@ export async function renderApply(ctx, caseId = null) {
         parts.sections,
     );
     parts.open('who');
-    const state = { caseId: existing?.case_id ?? null, saved: null, chain: Promise.resolve(), timer: null };
+    const state = {
+        caseId: existing?.case_id ?? null,
+        caseNo: existing?.case_no ?? null,
+        saved: null,
+        chain: Promise.resolve(),
+        timer: null,
+    };
     const show = (detail) => {
-        check.replaceChildren(el('h3', {}, t.checkTitle), ...checkView(pack, cat, detail).filter(Boolean));
+        fill(check, el('h3', {}, t.checkTitle), ...checkView(pack, detail));
         summary.textContent = summaryLine(detail);
         reasonBlock.hidden = detail.overlap?.level !== 'partial';
         submit.disabled = !detail.actions.includes('submit');
+        discard.hidden = !detail.actions.includes('discard');
     };
     const save = () => {
         state.chain = state.chain
@@ -273,6 +300,7 @@ export async function renderApply(ctx, caseId = null) {
                     ? await api.call('case_revise', { case_id: state.caseId, ...draft })
                     : await api.call('case_create', { process_type: type.code, ...draft });
                 state.caseId = detail.case_id;
+                state.caseNo = detail.case_no;
                 state.saved = key;
                 delete check.dataset.busy;
                 show(detail);

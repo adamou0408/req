@@ -8,7 +8,7 @@ import { renderCase } from './pages/case.js';
 import { renderHome } from './pages/home.js';
 import { renderPasskeys } from './pages/passkeys.js';
 import { renderRoles } from './pages/roles.js';
-import { el, explain, flash, loading, takePendingFlash } from './ui.js';
+import { el, explain, fill, flash, loading, takePendingFlash } from './ui.js';
 
 const main = document.getElementById('main');
 const ctx = { me: null };
@@ -29,26 +29,24 @@ async function render() {
     const message = takePendingFlash();
     flash('');
     document.querySelectorAll('.sheet').forEach((s) => s.remove());
-    main.replaceChildren(loading());
+    fill(main, loading());
     try {
         const hit = pages.map(([re, page]) => [location.hash.match(re), page]).find(([m]) => m);
         const nodes = hit ? await hit[1](hit[0]) : await renderHome(ctx);
         if (ticket !== rendering) return;
-        main.replaceChildren(...nodes.flat(Infinity).filter(Boolean));
+        fill(main, ...nodes.flat(Infinity).filter(Boolean));
         main.dataset.page = hit ? location.hash.split('/')[0].slice(1) : 'home';
         window.scrollTo(0, 0);
         if (message) flash(message.text, message.ok);
     } catch (err) {
         if (ticket !== rendering) return;
-        main.replaceChildren(
-            el('p', { class: 'result bad', role: 'alert' }, t.loadFailed(explain(err))),
-            el('a', { href: '#' }, `← ${t.home}`),
-        );
+        fill(main, el('p', { class: 'result bad', role: 'alert' }, t.loadFailed(explain(err))), el('a', { href: '#' }, `← ${t.home}`));
     }
 }
 
 function renderLogin() {
-    main.replaceChildren(
+    fill(
+        main,
         el('p', {}, t.loginHint),
         el('button', { class: 'primary', 'data-testid': 'login', onclick: () => (location.href = api.loginUrl()) }, t.login),
     );
@@ -87,15 +85,14 @@ async function boot() {
             if (loginError) flash(loginError);
             return;
         }
-        main.replaceChildren(el('p', {}, explain(err)));
+        fill(main, el('p', {}, explain(err)));
         return;
     }
-    document
-        .getElementById('who')
-        .replaceChildren(
-            el('span', { 'data-testid': 'me' }, ctx.me.name),
-            el('button', { onclick: async () => (await api.logout(), (location.href = '/')) }, t.logout),
-        );
+    fill(
+        document.getElementById('who'),
+        el('span', { 'data-testid': 'me' }, ctx.me.name),
+        el('button', { onclick: async () => (await api.logout(), (location.href = '/')) }, t.logout),
+    );
     window.addEventListener('hashchange', render);
     await render();
     if (registered) flash(t.passkeyRegistered, true);

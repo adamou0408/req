@@ -63,6 +63,7 @@ export const t = {
         fulfilment_failed: '交付失敗',
         revoked: '已撤銷',
         expired: '已到期',
+        cancelled: '已取消',
     },
     stageStatus: { open: '進行中', halted: '停住', done: '完成', returned: '退回', cancelled: '作廢' },
     taskStatus: {
@@ -86,6 +87,11 @@ export const t = {
         covered: '已經被既有的有效授權完全涵蓋，不能送出。請改申請範圍，或直接使用既有授權。',
     },
     overlapItem: (i, packages) => `${t.caseNo} ${i.case_no}（${i.valid_from} 至 ${i.valid_to}）：${packages}`,
+    /** 給申請人看的重疊（K-OVERLAP-SHOWN）：對方的單號只有能看那張單時才有 */
+    overlapShownItem: (i, packages) =>
+        i.case_no
+            ? `${t.caseNo} ${i.case_no}（${i.valid_from ?? '—'} 至 ${i.valid_to ?? '—'}）重疊：${packages}`
+            : `另一筆有效授權重疊：${packages}`,
     overlapReason: '重疊的理由',
     overlapReasonGiven: (r) => `申請人說明的重疊理由：${r}`,
 
@@ -103,6 +109,7 @@ export const t = {
         reduce: '縮小',
         confirm_verification: '結果正確，確認生效',
         dispute_verification: '結果不對',
+        discard: '捨棄草稿',
     },
     autoDelivery: { pending_fulfilment: '系統自動送到外部系統中', verifying: '系統自動驗證中' },
     deliveryTitle: '交付與驗證',
@@ -157,6 +164,12 @@ export const t = {
         hint: '只能縮小：拿掉欄位、收緊列條件、縮短期間、改成不可匯出。不用重簽；新的範圍會自動送到外部系統並重新驗證。要擴大請重新申請。',
         done: (no) => `單號 ${no} 已縮小，新的範圍會自動送到外部系統並重新驗證。`,
     },
+    discard: {
+        title: '捨棄這份草稿',
+        hint: '這份草稿還沒有送出，捨棄後不會再出現在「我的申請」。內容不會被刪除，捨棄的紀錄會寫進稽核紀錄；單號不會重複使用。',
+        confirm: '確認捨棄',
+        done: (no) => `已捨棄草稿（單號 ${no}）。`,
+    },
     revokeTitle: '撤銷這筆授權',
     revokeHint: '撤銷立即生效，不需要簽核；外部系統上的權限會自動撤回。請寫下原因。',
     revokedNotice: (no) => `單號 ${no} 已撤銷，外部系統上的權限會自動撤回。`,
@@ -179,6 +192,13 @@ export const t = {
     },
     nextAfterLast: '核准完成',
     reasonLabel: '原因（必填，申請人會看到）',
+    /** 原因會讓誰看到（資料庫回傳的代碼，K-REASON-AUDIENCE） */
+    reasonFor: {
+        applicant: '原因（必填，申請人會看到）',
+        principal_owner: '原因（必填，被授權者的負責人會看到）',
+        applicant_principal_owner: '原因（必填，申請人與被授權者的負責人會看到）',
+        record: '原因（必填，會記在這張單的紀錄裡，稽核看得到）',
+    },
     quickReasons: '常見原因（按一下就用通行金鑰確認退回）',
     quickReturn: (r) => `退回：${r}`,
     orTypeReason: '或自己寫原因：',
@@ -368,6 +388,12 @@ export const t = {
         'K-PROGRAM-STALLED': '背景程式',
     },
     exceptionClosed: (at) => `・已結案（${dateText(at)}）`,
+    /** 例外清單的一組（同規則同單合成一筆，K-HOME-ORDER） */
+    exceptionGroup: {
+        open: (x) => `・${x.count > 1 ? `${x.count} 筆，` : ''}最近 ${dateText(x.last_opened_at)}`,
+        closed: (x) => `・${x.count > 1 ? `${x.count} 筆，` : ''}已結案（最近 ${dateText(x.last_closed_at)}）`,
+        closedTitle: (n) => `已結案的例外（${n} 項，預設不顯示）`,
+    },
     /** 逾期還沒被處理的單（資料庫的 overdue；K-PROGRAM-STALLED） */
     overdue: {
         line: (o) => `警示：${t.overdue.kind[o.kind] ?? o.kind}（${dateText(o.since)} 起）`,
@@ -428,6 +454,8 @@ export const t = {
         'exception.closed': '例外結案',
         'passkey.disowned': '本人回報不是自己登記的金鑰（已撤銷）',
         'directory.manager_changed': '人員同步：主管異動',
+        'case.discarded': '捨棄草稿',
+        'case.rebound': '依新的定義重新整理內容',
     },
     proofKind: { passkey: '通行金鑰簽章', idp_stepup: '身分提供者再驗證' },
     roleChange: {

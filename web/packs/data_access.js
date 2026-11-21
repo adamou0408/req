@@ -4,7 +4,7 @@
 // 資料目錄只用在新申請與縮小的編輯器（收集輸入），以及首頁卡片的一行摘要。級別、縮小或擴大、重疊一律以資料庫為準。
 import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { dateText, el, explain, facts, flash, section } from '../ui.js';
+import { dateText, el, explain, facts, fill, flash, section } from '../ui.js';
 
 const tx = t.dataAccess;
 let cached = null;
@@ -16,7 +16,7 @@ let cached = null;
 export async function homeSection() {
     const box = el('div', { 'data-testid': 'catalog-drift' });
     const draw = (list) => {
-        box.replaceChildren(...(list.length ? [el('p', { class: 'muted' }, tx.drift.hint), ...list.map(driftCard)] : []));
+        fill(box, ...(list.length ? [el('p', { class: 'muted' }, tx.drift.hint), ...list.map(driftCard)] : []));
         box.closest('section')?.toggleAttribute('hidden', list.length === 0);
     };
     const driftCard = (x) =>
@@ -75,7 +75,7 @@ async function followupSection() {
                     onclick: async () => {
                         try {
                             const r = await api.call('data_access_usage_report', { case_id: x.case_id });
-                            box.replaceChildren(reportView(r.display));
+                            fill(box, reportView(r.display));
                             flash(tx.followup.done(x.case_no), true);
                         } catch (err) {
                             flash(explain(err));
@@ -85,7 +85,7 @@ async function followupSection() {
                 tx.followup.make,
             ),
         );
-    box.replaceChildren(el('p', { class: 'muted' }, tx.followup.hint), ...list.map(card));
+    fill(box, el('p', { class: 'muted' }, tx.followup.hint), ...list.map(card));
     return section('report-followups', tx.followup.title, box);
 }
 

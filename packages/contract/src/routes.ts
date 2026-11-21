@@ -770,6 +770,12 @@ export const packRoutes = {
             params: ['session', 'case_id', 'method', 'note'],
             returns: { object: { method: { object: { code: 'text', name: 'text' } }, guidance: exportGuidance, close_export: 'bool' } },
         },
+        /** 這張單最新記錄的匯出方法（修改草稿時預選）；沒有紀錄為 null */
+        {
+            fn: 'data_access_export_method_latest',
+            params: ['session', 'case_id'],
+            returns: { nullable: { object: { method: 'text', note: { nullable: 'text' }, recorded_at: 'timestamp' } } },
+        },
         /** 匯出需求調查的彙總（DA-EXPORT-SURVEY-SUMMARY）：稽核或 MIS；每個選項有幾張單、其中幾張最後可以匯出 */
         {
             fn: 'data_access_export_survey_summary',

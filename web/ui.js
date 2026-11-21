@@ -12,6 +12,12 @@ export function el(tag, attrs = {}, ...children) {
     return node;
 }
 
+/** 換掉節點的內容；和 el 一樣丟掉 null、undefined、false（原生的 replaceChildren 會把 null 寫成文字「null」）。 */
+export function fill(node, ...children) {
+    node.replaceChildren(...children.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false));
+    return node;
+}
+
 export function flash(text, ok = false) {
     const box = document.getElementById('flash');
     box.textContent = text;

@@ -155,7 +155,7 @@ async function sign(c, decision, typed, issued) {
     });
 }
 
-function reasonBox(quickReasons, submit) {
+function reasonBox(label, quickReasons, submit) {
     return [
         quickReasons.length
             ? el(
@@ -168,7 +168,7 @@ function reasonBox(quickReasons, submit) {
                   el('p', {}, t.orTypeReason),
               )
             : null,
-        el('label', { for: 'decision-reason' }, t.reasonLabel),
+        el('label', { for: 'decision-reason' }, label),
         el('textarea', { id: 'decision-reason', rows: 3, 'data-testid': 'decision-reason', required: true }),
     ];
 }
@@ -188,7 +188,8 @@ export function confirmDecision(
         t.confirmTitle[decision],
         el('p', { 'data-testid': 'consequence' }, consequence),
         shown,
-        needsReason ? reasonBox(quickReasons, (r) => run(r)) : null,
+        // 原因會讓誰看到：依資料庫回傳的代碼（K-REASON-AUDIENCE）
+        needsReason ? reasonBox(t.reasonFor[c.reason_audience?.[decision]] ?? t.reasonLabel, quickReasons, (r) => run(r)) : null,
         el('p', { class: 'muted mono' }, t.binding(c.display.case_no, c.display.version, c.display.version_sha256.slice(0, 12))),
         error,
         el(

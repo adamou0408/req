@@ -1,8 +1,9 @@
 // 資料授權的資料範圍編輯器：環境（測試區、正式區）與測試依據、主題包 → 欄位 → 列條件、資料期間、使用情境、可否匯出。
 // limitTo 有值時是「縮小」模式：只列出目前版本已有的主題包、欄位、列條件值，使用情境不能改（改說明算擴大）。
 // 送進資料庫前不做任何判斷：L1、L2 欄位照樣可以勾，由資料庫移除並提示；級別、要不要測試依據、引用的單合不合格都以資料庫為準。
+import { api } from '../api.js';
 import { t } from '../i18n.js';
-import { el } from '../ui.js';
+import { el, explain, fill, flash } from '../ui.js';
 
 const tx = t.dataAccess;
 const fieldCode = (f) => (typeof f === 'string' ? f : f.code);
@@ -136,6 +137,94 @@ function purposeInputs(prefix, cat, content) {
     ];
 }
 
+/** 一個代碼表的下拉選單；選了之後在下面顯示資料庫給的引導（guidance）。 */
+function surveySelect(id, label, options, current, onPick) {
+    const hint = el('p', { class: 'muted', 'data-testid': `${id}-guidance`, 'aria-live': 'polite' });
+    const select = el(
+        'select',
+        { id },
+        el('option', { value: '' }, t.choose),
+        options.map((o) => el('option', { value: o.code, selected: o.code === current }, o.name)),
+    );
+    const sync = () => {
+        const g = options.find((o) => o.code === select.value)?.guidance;
+        fill(hint, g ? el('span', { class: g.kind === 'redirect' ? 'warn-text' : '' }, g.text) : null);
+        hint.dataset.kind = g?.kind ?? '';
+    };
+    select.addEventListener('change', () => {
+        sync();
+        onPick?.(select.value);
+    });
+    sync();
+    return { node: [el('label', { for: id }, label), select, hint], select, sync };
+}
+
+/**
+ * 匯出需求調查（DA-EXPORT-SURVEY；勾「需要匯出」才顯示）：目的、頻率（進申請內容，簽核人會看到）與方法（不進申請內容，
+ * 選了就記成附屬的調查紀錄 data_access_export_method_record）。方法是介面串接、資料庫回傳 close_export 時取消「需要匯出」。
+ * 要不要必填、要不要擋下都以資料庫為準。
+ */
+function surveyInputs(prefix, cat, base, exportBox) {
+    const opts = cat.export_survey;
+    const current = base.export_survey ?? {};
+    const bound = { caseId: () => null, save: async () => {} };
+    const purpose = surveySelect(`${prefix}-exp-purpose`, tx.survey.purpose, opts.purposes, current.purpose);
+    const frequency = surveySelect(`${prefix}-exp-frequency`, tx.survey.frequency, opts.frequencies, current.frequency);
+    const note = el('input', { id: `${prefix}-exp-method-note`, type: 'text' });
+    const result = el('p', { class: 'muted', 'data-testid': 'export-method-result', 'aria-live': 'polite' });
+    const record = async (method) => {
+        if (!method) return;
+        try {
+            await bound.save();
+            const r = await api.call('data_access_export_method_record', { case_id: bound.caseId(), method, note: note.value || null });
+            fill(result, r.close_export ? el('span', { class: 'warn-text' }, tx.survey.closed) : tx.survey.recorded(r.method.name));
+            result.dataset.method = r.method.code;
+            if (r.close_export) {
+                exportBox.checked = false;
+                exportBox.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+        } catch (err) {
+            flash(explain(err));
+        }
+    };
+    const method = surveySelect(`${prefix}-exp-method`, tx.survey.method, opts.methods, null, record);
+    note.addEventListener('change', () => record(method.select.value));
+    const description = el('textarea', { id: `${prefix}-exp-description`, rows: 2 }, current.description ?? '');
+    const node = el(
+        'fieldset',
+        { class: 'export-survey', 'data-testid': 'export-survey' },
+        el('legend', {}, tx.survey.legend),
+        el('p', { class: 'muted' }, tx.survey.hint),
+        purpose.node,
+        frequency.node,
+        el('label', { for: `${prefix}-exp-description` }, tx.survey.description),
+        description,
+        method.node,
+        el('label', { for: `${prefix}-exp-method-note` }, tx.survey.methodNote),
+        note,
+        el('p', { class: 'muted' }, tx.survey.methodHint),
+        result,
+    );
+    const sync = () => (node.hidden = !exportBox.checked);
+    exportBox.addEventListener('change', sync);
+    sync();
+    return {
+        node,
+        value: () => ({ purpose: purpose.select.value || null, frequency: frequency.select.value || null, description: description.value }),
+        /** 新申請畫面告訴編輯器：這張單是哪一張、怎麼先存（記錄方法前要先有草稿） */
+        bind: (b) => Object.assign(bound, b),
+        /** 修改既有的單：預選最新記錄的方法 */
+        preset: (latest) => {
+            if (!latest) return;
+            method.select.value = latest.method;
+            note.value = latest.note ?? '';
+            method.sync();
+            result.dataset.method = latest.method;
+            fill(result, tx.survey.recorded(opts.methods.find((m) => m.code === latest.method)?.name ?? latest.method));
+        },
+    };
+}
+
 /** 環境的選項（資料庫的代碼表）：沒有選過就用資料庫標為預設的那一區。 */
 function environmentInputs(prefix, cat, current) {
     const chosen = current ?? cat.environments.find((e) => e.is_default)?.code;
@@ -192,7 +281,8 @@ function basisInputs(prefix, base) {
     box.addEventListener('change', sync);
     const setBases = (bases) => {
         const current = picked() ?? base.test_basis?.case_id ?? (base.test_exception ? 'none' : null);
-        list.replaceChildren(
+        fill(
+            list,
             bases.length ? null : el('p', { class: 'muted' }, tx.basisEmpty),
             ...bases.map((b) => radio(b.case_id, tx.basisOption(b), b.case_id === current)),
             radio('none', tx.basisNone, current === 'none' || (!bases.length && current === null)),
@@ -222,7 +312,8 @@ function applicationInputs(prefix, cat, base) {
     const kept = new Map((app.field_uses ?? []).map((u) => [`${u.package}.${u.field}`, u.use]));
     const refresh = (scope) => {
         for (const i of uses.querySelectorAll('input')) kept.set(i.dataset.key, i.value);
-        uses.replaceChildren(
+        fill(
+            uses,
             ...scope.flatMap((s) =>
                 s.fields.map((f) => {
                     const key = `${s.package}.${f}`;
@@ -296,11 +387,15 @@ export function scopeEditor(prefix, cat, base, { limitTo = null } = {}) {
     const app = limitTo ? null : applicationInputs(prefix, cat, base);
     app?.refresh(readScope(scope));
     scope.addEventListener('change', () => app?.refresh(readScope(scope)));
+    const exportChoice = showExport ? choice(`${prefix}-export`, tx.exportAsk, base.export_allowed === true) : null;
+    // 縮小時調查沿用 base（不重新問）；新申請與修改時勾「需要匯出」就要填
+    const survey = limitTo || !exportChoice ? null : surveyInputs(prefix, cat, base, exportChoice.querySelector('input'));
     const purpose = el(
         'div',
         { class: 'purpose-part' },
         limitTo ? null : purposeInputs(prefix, cat, base),
-        showExport ? choice(`${prefix}-export`, tx.exportAsk, base.export_allowed === true) : null,
+        exportChoice,
+        survey?.node,
         app?.node,
     );
     const node = el('div', { class: 'scope-editor', 'data-testid': `${prefix}-editor` }, scope, purpose);
@@ -322,9 +417,16 @@ export function scopeEditor(prefix, cat, base, { limitTo = null } = {}) {
             purpose_category: limitTo ? base.purpose_category : find(`#${prefix}-purpose`).value || null,
             purpose_description: limitTo ? base.purpose_description : find(`#${prefix}-purpose-text`).value,
             export_allowed: showExport ? find(`#${prefix}-export`).checked : false,
+            ...surveyValue(),
         };
+    };
+    // 調查只在要匯出時送；縮小時沿用原本的（原本沒有就不送這個鍵：舊單不追加）
+    const surveyValue = () => {
+        if (!showExport || !find(`#${prefix}-export`).checked) return {};
+        if (survey) return { export_survey: survey.value() };
+        return base.export_survey ? { export_survey: base.export_survey } : {};
     };
     /** 可以引用的測試區單（被授權者換了就重讀；資料庫的 data_access_test_bases） */
     const setBases = (bases) => basis?.setBases(bases);
-    return { node, value, setBases, parts: { scope, purpose } };
+    return { node, value, setBases, survey, parts: { scope, purpose } };
 }

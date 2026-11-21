@@ -566,6 +566,29 @@ comment on function api.data_access_export_method_record(text, uuid, text, text)
     '只有能修改這張單的人（申請人，草稿或退回）可以記錄。回傳引導，以及方法是介面串接時要不要關閉匯出（參數 data_access.export_redirect_action）。'
     '呼叫者：sgn_app。規則：DA-EXPORT-SURVEY、DA-EXPORT-SURVEY-GUIDE';
 
+-- 這張單最新記錄的方法（修改草稿時畫面預選它）。經手人（read）才能看。
+create function api.data_access_export_method_latest(p_session text, p_case_id uuid)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_row pack_data_access.export_method_record;
+begin
+    perform sgn_sdk.authorize_case(sgn_sdk.session_person(p_session), 'read', p_case_id);
+    v_row := pack_data_access.export_method_latest(p_case_id);
+    if v_row.id is null then
+        return null;
+    end if;
+    return jsonb_build_object('method', v_row.method_code, 'note', v_row.note, 'recorded_at', v_row.recorded_at);
+end;
+$$;
+
+comment on function api.data_access_export_method_latest(text, uuid) is
+    '這張單最新記錄的匯出方法（附屬的調查紀錄，不在申請內容裡）：修改草稿時畫面預選。這張單的經手人才能看；沒有紀錄時為 null。'
+    '呼叫者：sgn_app。規則：DA-EXPORT-SURVEY';
+
 -- ── 彙總（DA-EXPORT-SURVEY-SUMMARY）──
 
 -- 送審過的單（草稿與捨棄的不算）裡，帶調查（內容有目的、頻率，或有方法的調查紀錄）的單。
