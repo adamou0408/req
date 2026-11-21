@@ -46,20 +46,18 @@ test('K-SLA-VIEW 待簽清單顯示已等幾個工作天、已逾期的排在前
         from: day(),
         to: day(1),
         packages: { sales_order: { fields: ['order_no', 'amount'], filters: { region: ['north'] } } },
-        period: { from: '2093-01-01', to: '2093-12-31' },
+        period: { from: '2193-01-01', to: '2193-12-31' },
         purpose: 'reporting',
         description: '時限端對端：剛送出',
-        overlapReason: '端對端：和前面的單重疊',
     });
     const late = await apply('p04', {
         principal: 'sales-report-bot',
         from: day(),
         to: day(1),
         packages: { sales_order: { fields: ['order_no', 'amount'], filters: { region: ['north'] } } },
-        period: { from: '2094-01-01', to: '2094-12-31' },
+        period: { from: '2194-01-01', to: '2194-12-31' },
         purpose: 'reporting',
         description: '時限端對端：等了 4 個工作天',
-        overlapReason: '端對端：和前面的單重疊',
     });
     // 模擬時間過去（測試準備）：主管關的工作從 4 個工作天前開始（催辦 3 天已過、升級再 2 天還沒到）
     await admin.query(
