@@ -2,13 +2,18 @@
 -- rules.md 還沒有這幾條（條文草稿在交接，含「不記錄媒介」要補的一句）。
 --
 -- 申請人把「可否匯出」設為要匯出時，必填三項調查：目的、頻率、方法（三張代碼表，可以在資料層調整：改名稱、停用、加項目、改引導）。
--- 調查結果進申請內容（export_survey）與顯示摘要，所以版本雜湊與簽核人簽的內容都涵蓋它。調查只給簽核人判斷與之後收斂需求用：
--- 交給使用方系統的規則不因調查結果而異，仍只有可否匯出（build_fulfilment 不讀調查）。
+-- 依負責人 2026-11-21 的範圍修正：
+--   - 「目的」與「頻率」（與目的需說明時的說明）進申請內容（export_survey）與顯示摘要，所以版本雜湊與簽核人簽的內容都涵蓋它們。
+--   - 「方法」不進申請內容、不進版本雜湊、不進顯示摘要、不給簽核人簽：存成申請的附屬調查紀錄 export_method_record
+--     （只增不改，每一筆都有稽核事件），只用在稽核頁的彙總與送審前的引導。
+-- 調查只給簽核人判斷與之後收斂需求用：交給使用方系統的規則不因調查結果而異，仍只有可否匯出（build_fulfilment 不讀調查）。
 -- 引導：
---   - 目的或方法標示 redirect（把資料送進另一個系統）：提示應由那個系統自己當被授權者申請授權；依參數 data_access.export_redirect_action
+--   - 目的標示 redirect（匯入另一個系統）：整理內容時提示應由那個系統自己當被授權者申請授權；依參數 data_access.export_redirect_action
 --     （block：關閉可否匯出；warn：只提示）。
+--   - 方法標示 redirect（介面串接到另一系統）：判斷依據是調查紀錄（不是簽的內容）。記錄的那一刻回傳引導與「要關閉匯出」；
+--     送審時（送審複核）最新的紀錄仍是 redirect 而內容仍要匯出，依同一個參數擋下送審（block）或只提示（warn）。
 --   - 目的有系統內的替代做法（alternative）：提示替代做法，不擋。
--- 必填的檢查：畫面送來調查（輸入有 export_survey 鍵）時即時列為要修正的地方；送審時一律檢查（送審複核），所以不經畫面也繞不過。
+-- 必填的檢查：畫面送來調查（輸入有 export_survey 鍵）時即時列出目的、頻率；送審時一律檢查三項（方法看調查紀錄），不經畫面也繞不過。
 -- 舊單（升版前、沒有 environment 鍵的內容）與系統整理過、輸入沒有調查的內容：不重算、不追加，照樣能簽；
 -- 生效後縮小時畫面沿用原本的調查（沒有就不送這個鍵）。
 -- 彙總：api.data_access_export_survey_summary（稽核或 MIS），依目的、頻率、方法各算有幾張單、其中幾張最後可以匯出。
@@ -69,6 +74,37 @@ insert into pack_data_access.export_method (method_code, name, requires_descript
     ('system_integration', '介面串接到另一系統', false, true, 30, true),
     ('other', '其他（需說明）', true, false, 40, true);
 
+-- 方法的調查紀錄（不進申請內容）：同一張單以最新的一筆為準；只增不改，每一筆都有稽核事件。
+create table pack_data_access.export_method_record (
+    id bigint generated always as identity primary key,
+    case_id uuid not null,
+    -- 記錄時這張單的內容版本（之後修改內容不影響這一筆）
+    version int not null,
+    method_code text not null references pack_data_access.export_method (method_code),
+    note text,
+    recorded_by uuid not null,
+    recorded_at timestamptz not null,
+    event_seq bigint not null
+);
+
+create index export_method_record_case_idx on pack_data_access.export_method_record (case_id, id);
+
+create function pack_data_access.reject_survey_change()
+returns trigger
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    perform sgn_sdk.raise_error('DA-E-SURVEY-APPEND-ONLY', tg_table_name || ' ' || tg_op);
+    return null;
+end;
+$$;
+
+create trigger export_method_record_append_only before update or delete on pack_data_access.export_method_record
+    for each row execute function pack_data_access.reject_survey_change();
+create trigger export_method_record_no_truncate before truncate on pack_data_access.export_method_record
+    for each statement execute function pack_data_access.reject_survey_change();
+
 -- ── 參數、訊息 ──
 
 select sgn_sdk.register_setting_definition(
@@ -77,8 +113,17 @@ select sgn_sdk.register_setting_definition(
     'data_access'
 );
 
+select sgn_sdk.register_message(m.code, m.kind, m.message, m.http_status)
+from (values
+    ('DA-E-SURVEY-APPEND-ONLY', 'error', '匯出方法的調查紀錄只增不改', 409),
+    ('DA-E-EXPORT-METHOD-UNKNOWN', 'error', '匯出方法沒有「%s」這個選項', 422),
+    ('DA-E-EXPORT-METHOD-NOTE', 'error', '匯出方法選了「%s」，請寫說明', 422)
+) as m (code, kind, message, http_status);
+
 select sgn_sdk.register_message(m.code, m.kind, m.message)
 from (values
+    ('DA-E-EXPORT-METHOD-REDIRECT', 'check',
+        '匯出方法是「%s」：資料要進另一個系統時，請由那個系統自己當被授權者申請授權。請把「需要匯出」取消後再送出。'),
     ('DA-E-EXPORT-SURVEY-REQUIRED', 'check', '要匯出時，請填匯出需求調查的「%s」。'),
     ('DA-E-EXPORT-SURVEY-UNKNOWN', 'check', '匯出需求調查的「%s」沒有「%s」這個選項。'),
     ('DA-E-EXPORT-SURVEY-DESCRIPTION', 'check', '匯出需求調查選了「%s」，請寫說明。'),
@@ -93,7 +138,7 @@ from (values
     ('DA-T-EXPORT-SURVEY-FREQUENCY', 'notice', '頻率'),
     ('DA-T-EXPORT-SURVEY-METHOD', 'notice', '方法'),
     ('DA-T-EXPORT-SURVEY-DESCRIPTION', 'notice', '說明'),
-    ('DA-T-EXPORT-SURVEY-LINE', 'notice', '匯出需求調查：目的「%s」、頻率「%s」、方法「%s」%s'),
+    ('DA-T-EXPORT-SURVEY-LINE', 'notice', '匯出需求調查：目的「%s」、頻率「%s」%s'),
     ('DA-T-EXPORT-SURVEY-NOTE', 'notice', '（說明：%s）'),
     ('DA-T-EXPORT-SURVEY-CLOSED', 'notice', '；已依引導改為只能查看')
 ) as m (code, kind, message);
@@ -139,7 +184,7 @@ $$;
 
 -- ── 整理 ──
 
--- 只留表上的四個鍵、去頭尾空白；不是字串的當成沒填。
+-- 只留目的、頻率、說明三個鍵（方法不進內容，見 export_method_record）、去頭尾空白；不是字串的當成沒填。
 create function pack_data_access.export_survey_normalized(p_in jsonb)
 returns jsonb
 language sql
@@ -149,12 +194,11 @@ as $$
     select jsonb_build_object(
         'purpose', to_jsonb(nullif(btrim(case when jsonb_typeof(p_in -> 'purpose') = 'string' then p_in ->> 'purpose' end), '')),
         'frequency', to_jsonb(nullif(btrim(case when jsonb_typeof(p_in -> 'frequency') = 'string' then p_in ->> 'frequency' end), '')),
-        'method', to_jsonb(nullif(btrim(case when jsonb_typeof(p_in -> 'method') = 'string' then p_in ->> 'method' end), '')),
         'description', to_jsonb(nullif(btrim(case when jsonb_typeof(p_in -> 'description') = 'string' then p_in ->> 'description' end), ''))
     )
 $$;
 
--- 調查哪裡要修正（DA-EXPORT-SURVEY）：三項必填、代碼要是啟用中的、選了需說明的項目要寫說明。
+-- 調查哪裡要修正（DA-EXPORT-SURVEY）：目的、頻率必填、代碼要是啟用中的、選了需說明的目的要寫說明。方法另由 export_method_errors 檢查。
 create function pack_data_access.export_survey_errors(p_survey jsonb)
 returns jsonb
 language plpgsql
@@ -165,14 +209,12 @@ declare
     v_errors jsonb := '[]'::jsonb;
     v_purpose pack_data_access.export_purpose := pack_data_access.export_purpose_row(p_survey ->> 'purpose');
     v_frequency pack_data_access.export_frequency := pack_data_access.export_frequency_row(p_survey ->> 'frequency');
-    v_method pack_data_access.export_method := pack_data_access.export_method_row(p_survey ->> 'method');
     v_item record;
 begin
     for v_item in
         select * from (values
             ('purpose', 'DA-T-EXPORT-SURVEY-PURPOSE', coalesce(v_purpose.is_active, false)),
-            ('frequency', 'DA-T-EXPORT-SURVEY-FREQUENCY', coalesce(v_frequency.is_active, false)),
-            ('method', 'DA-T-EXPORT-SURVEY-METHOD', coalesce(v_method.is_active, false))
+            ('frequency', 'DA-T-EXPORT-SURVEY-FREQUENCY', coalesce(v_frequency.is_active, false))
         ) as x (key, label, ok)
     loop
         if p_survey ->> v_item.key is null then
@@ -182,18 +224,50 @@ begin
                 sgn_sdk.message(v_item.label), p_survey ->> v_item.key);
         end if;
     end loop;
-    if p_survey ->> 'description' is null then
-        if coalesce(v_purpose.requires_description, false) then
-            v_errors := v_errors || pack_data_access.error('export_survey.description', 'DA-E-EXPORT-SURVEY-DESCRIPTION', v_purpose.name);
-        elsif coalesce(v_method.requires_description, false) then
-            v_errors := v_errors || pack_data_access.error('export_survey.description', 'DA-E-EXPORT-SURVEY-DESCRIPTION', v_method.name);
-        end if;
+    if p_survey ->> 'description' is null and coalesce(v_purpose.requires_description, false) then
+        v_errors := v_errors || pack_data_access.error('export_survey.description', 'DA-E-EXPORT-SURVEY-DESCRIPTION', v_purpose.name);
     end if;
     return v_errors;
 end;
 $$;
 
--- 引導（DA-EXPORT-SURVEY-GUIDE）：回傳 {export_allowed, notices}。redirect 依參數關閉匯出或只提示；有替代做法的目的提示替代做法。
+-- 這張單最新的方法調查紀錄（沒有時為 null）。
+create function pack_data_access.export_method_latest(p_case_id uuid)
+returns pack_data_access.export_method_record
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select * from pack_data_access.export_method_record where case_id = p_case_id order by id desc limit 1
+$$;
+
+-- 送審時方法的檢查：沒有紀錄＝沒填；最新的紀錄是 redirect 而且參數是 block＝擋下送審（判斷依據是調查紀錄，不是簽的內容）。
+create function pack_data_access.export_method_errors(p_case_id uuid, p_tier text)
+returns jsonb
+language plpgsql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_row pack_data_access.export_method_record := pack_data_access.export_method_latest(p_case_id);
+    v_method pack_data_access.export_method;
+begin
+    if v_row.id is null then
+        return jsonb_build_array(pack_data_access.error('export_survey.method', 'DA-E-EXPORT-SURVEY-REQUIRED', sgn_sdk.message('DA-T-EXPORT-SURVEY-METHOD')));
+    end if;
+    v_method := pack_data_access.export_method_row(v_row.method_code);
+    if not v_method.is_active then
+        return jsonb_build_array(pack_data_access.error('export_survey.method', 'DA-E-EXPORT-SURVEY-UNKNOWN',
+            sgn_sdk.message('DA-T-EXPORT-SURVEY-METHOD'), v_row.method_code));
+    end if;
+    if v_method.redirect and pack_data_access.export_redirect_action(p_tier) = 'block' then
+        return jsonb_build_array(pack_data_access.error('export_survey.method', 'DA-E-EXPORT-METHOD-REDIRECT', v_method.name));
+    end if;
+    return '[]'::jsonb;
+end;
+$$;
+
+-- 引導（DA-EXPORT-SURVEY-GUIDE）：回傳 {export_allowed, notices}。目的是 redirect 時依參數關閉匯出或只提示；有替代做法的目的提示替代做法。
 create function pack_data_access.export_survey_guided(p_survey jsonb, p_export boolean, p_tier text)
 returns jsonb
 language plpgsql
@@ -202,30 +276,18 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
     v_purpose pack_data_access.export_purpose := pack_data_access.export_purpose_row(p_survey ->> 'purpose');
-    v_method pack_data_access.export_method := pack_data_access.export_method_row(p_survey ->> 'method');
     v_block boolean := pack_data_access.export_redirect_action(p_tier) = 'block';
-    v_export boolean := p_export;
-    v_notices jsonb := '[]'::jsonb;
-    v_label text;
-    v_name text;
 begin
     if coalesce(v_purpose.redirect and v_purpose.is_active, false) then
-        v_label := sgn_sdk.message('DA-T-EXPORT-SURVEY-PURPOSE');
-        v_name := v_purpose.name;
-    elsif coalesce(v_method.redirect and v_method.is_active, false) then
-        v_label := sgn_sdk.message('DA-T-EXPORT-SURVEY-METHOD');
-        v_name := v_method.name;
+        return jsonb_build_object('export_allowed', p_export and not v_block, 'notices', jsonb_build_array(pack_data_access.notice(
+            case when v_block then 'DA-N-EXPORT-REDIRECT-BLOCKED' else 'DA-N-EXPORT-REDIRECT' end,
+            sgn_sdk.message('DA-T-EXPORT-SURVEY-PURPOSE'), v_purpose.name)));
     end if;
-    if v_name is not null then
-        if v_block then
-            v_export := false;
-        end if;
-        v_notices := v_notices || pack_data_access.notice(
-            case when v_block then 'DA-N-EXPORT-REDIRECT-BLOCKED' else 'DA-N-EXPORT-REDIRECT' end, v_label, v_name);
-    elsif v_purpose.alternative is not null and v_purpose.is_active then
-        v_notices := v_notices || pack_data_access.notice('DA-N-EXPORT-ALTERNATIVE', v_purpose.name, v_purpose.alternative);
+    if v_purpose.alternative is not null and v_purpose.is_active then
+        return jsonb_build_object('export_allowed', p_export,
+            'notices', jsonb_build_array(pack_data_access.notice('DA-N-EXPORT-ALTERNATIVE', v_purpose.name, v_purpose.alternative)));
     end if;
-    return jsonb_build_object('export_allowed', v_export, 'notices', v_notices);
+    return jsonb_build_object('export_allowed', p_export, 'notices', '[]'::jsonb);
 end;
 $$;
 
@@ -274,7 +336,8 @@ as $$
     end
 $$;
 
--- 送審複核（hook）：160 之後；新的內容（有 environment 鍵）要匯出時，調查必填（不經畫面也繞不過）。舊單不追加。
+-- 送審複核（hook）：160 之後；新的內容（有 environment 鍵）要匯出時，目的、頻率必填，方法要有調查紀錄、而且不是要擋下的 redirect
+-- （不經畫面也繞不過）。舊單不追加。
 create function pack_data_access.review_surveyed(p_case_id uuid, p_content jsonb)
 returns jsonb
 language plpgsql
@@ -284,9 +347,12 @@ declare
     v_r jsonb := pack_data_access.review_reported(p_case_id, p_content);
 begin
     if (p_content -> 'export_allowed') = 'true'::jsonb and p_content ? 'environment' then
-        return v_r || jsonb_build_object('errors', (v_r -> 'errors') || pack_data_access.export_survey_errors(
-            pack_data_access.export_survey_normalized(case when jsonb_typeof(p_content -> 'export_survey') = 'object'
-                                                           then p_content -> 'export_survey' else '{}'::jsonb end)));
+        return v_r || jsonb_build_object('errors', (v_r -> 'errors')
+            || pack_data_access.export_survey_errors(pack_data_access.export_survey_normalized(
+                case when jsonb_typeof(p_content -> 'export_survey') = 'object' then p_content -> 'export_survey' else '{}'::jsonb end))
+            || pack_data_access.export_method_errors(p_case_id, pack_data_access.classify_tier(p_content)),
+            'settings', (v_r -> 'settings') || jsonb_build_object('data_access.export_redirect_action',
+                pack_data_access.export_redirect_action(pack_data_access.classify_tier(p_content))));
     end if;
     return v_r;
 end;
@@ -303,12 +369,10 @@ as $$
     select jsonb_build_object(
         'purpose', jsonb_build_object('code', p_survey ->> 'purpose', 'name', coalesce(p.name, p_survey ->> 'purpose')),
         'frequency', jsonb_build_object('code', p_survey ->> 'frequency', 'name', coalesce(f.name, p_survey ->> 'frequency')),
-        'method', jsonb_build_object('code', p_survey ->> 'method', 'name', coalesce(m.name, p_survey ->> 'method')),
         'description', p_survey ->> 'description',
         'text', sgn_sdk.message('DA-T-EXPORT-SURVEY-LINE',
             coalesce(p.name, p_survey ->> 'purpose', '-'),
             coalesce(f.name, p_survey ->> 'frequency', '-'),
-            coalesce(m.name, p_survey ->> 'method', '-'),
             case when p_survey ->> 'description' is not null
                  then sgn_sdk.message('DA-T-EXPORT-SURVEY-NOTE', p_survey ->> 'description') else '' end
             || case when not p_export then sgn_sdk.message('DA-T-EXPORT-SURVEY-CLOSED') else '' end)
@@ -316,7 +380,6 @@ as $$
     from (select 1) as one
     left join pack_data_access.export_purpose as p on p.purpose_code = p_survey ->> 'purpose'
     left join pack_data_access.export_frequency as f on f.frequency_code = p_survey ->> 'frequency'
-    left join pack_data_access.export_method as m on m.method_code = p_survey ->> 'method'
 $$;
 
 -- 顯示摘要（hook）：160 之後，多了匯出需求調查（沒有調查的內容不多這個鍵，舊的顯示摘要不變）。
@@ -460,9 +523,65 @@ comment on function api.data_access_catalog(text) is
     '使用情境分類、環境的選項（是否要測試依據、期限上限），以及匯出需求調查的選項（目的、頻率、方法）與引導。呼叫者：sgn_app。'
     '規則：DA-SCOPE-STRUCTURED、DA-TIER-AUTO-GRANT、DA-PURPOSE、DA-ENV-FIELD、DA-ENV-TIER、DA-ENV-VALIDITY、DA-EXPORT-SURVEY、DA-EXPORT-SURVEY-GUIDE';
 
+-- ── 方法的調查紀錄（不進申請內容）──
+
+create function api.data_access_export_method_record(p_session text, p_case_id uuid, p_method text, p_note text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_person uuid := sgn_sdk.session_person(p_session);
+    v_method pack_data_access.export_method;
+    v_case jsonb;
+    v_note text := nullif(btrim(coalesce(p_note, '')), '');
+    v_seq bigint;
+begin
+    -- 能修改這張單的人（申請人，草稿或退回）才能記錄
+    perform sgn_sdk.authorize_case(v_person, 'revise', p_case_id);
+    v_method := pack_data_access.export_method_row(p_method);
+    if not coalesce(v_method.is_active, false) then
+        perform sgn_sdk.raise_error('DA-E-EXPORT-METHOD-UNKNOWN', coalesce(p_method, ''));
+    end if;
+    if v_method.requires_description and v_note is null then
+        perform sgn_sdk.raise_error('DA-E-EXPORT-METHOD-NOTE', v_method.name);
+    end if;
+    v_case := sgn_sdk.case_context(p_case_id);
+    v_seq := sgn_sdk.audit_append('data_access.export_method_recorded', p_case_id, v_person, jsonb_build_object(
+        'version', (v_case ->> 'version')::int, 'method', v_method.method_code, 'note', v_note,
+        'rules', jsonb_build_array('DA-EXPORT-SURVEY', 'DA-EXPORT-SURVEY-GUIDE')));
+    insert into pack_data_access.export_method_record (case_id, version, method_code, note, recorded_by, recorded_at, event_seq)
+    values (p_case_id, (v_case ->> 'version')::int, v_method.method_code, v_note, v_person, sgn_sdk.now(), v_seq);
+    return jsonb_build_object(
+        'method', jsonb_build_object('code', v_method.method_code, 'name', v_method.name),
+        'guidance', pack_data_access.export_guidance(v_method.redirect, null),
+        'close_export', v_method.redirect and pack_data_access.export_redirect_action(pack_data_access.classify_tier(v_case -> 'content')) = 'block'
+    );
+end;
+$$;
+
+comment on function api.data_access_export_method_record(text, uuid, text, text) is
+    '使用者動作「記錄匯出方法」：匯出需求調查的方法不進申請內容與簽的內容，存成這張單的附屬調查紀錄（只增不改，進稽核鏈）；'
+    '只有能修改這張單的人（申請人，草稿或退回）可以記錄。回傳引導，以及方法是介面串接時要不要關閉匯出（參數 data_access.export_redirect_action）。'
+    '呼叫者：sgn_app。規則：DA-EXPORT-SURVEY、DA-EXPORT-SURVEY-GUIDE';
+
 -- ── 彙總（DA-EXPORT-SURVEY-SUMMARY）──
 
--- 送審過的單（草稿與捨棄的不算）裡，帶調查的單依某一項分組：每個選項幾張、其中幾張最後可以匯出。停用的選項有單時也列出。
+-- 送審過的單（草稿與捨棄的不算）裡，帶調查（內容有目的、頻率，或有方法的調查紀錄）的單。
+create function pack_data_access.surveyed_cases()
+returns table (case_id uuid, content jsonb)
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select c.case_id, c.content
+    from sgn_sdk.cases_in_states('data_access', array['in_approval', 'returned', 'rejected', 'pending_fulfilment', 'verifying', 'active',
+        'completed', 'expired', 'revoked', 'fulfilment_failed']) as c
+    where jsonb_typeof(c.content -> 'export_survey') = 'object' or (pack_data_access.export_method_latest(c.case_id)).id is not null
+$$;
+
+-- 依某一項分組：每個選項幾張、其中幾張最後可以匯出。目的、頻率取內容；方法取最新的調查紀錄。停用的選項有單時也列出。
 create function pack_data_access.export_survey_counts(p_key text)
 returns jsonb
 language sql
@@ -470,10 +589,10 @@ stable
 set search_path = pg_catalog, pg_temp
 as $$
     with s as (
-        select c.content -> 'export_survey' ->> p_key as code, (c.content -> 'export_allowed') = 'true'::jsonb as exported
-        from sgn_sdk.cases_in_states('data_access', array['in_approval', 'returned', 'rejected', 'pending_fulfilment', 'verifying', 'active',
-            'completed', 'expired', 'revoked', 'fulfilment_failed']) as c
-        where jsonb_typeof(c.content -> 'export_survey') = 'object'
+        select case when p_key = 'method' then (pack_data_access.export_method_latest(c.case_id)).method_code
+                    else c.content -> 'export_survey' ->> p_key end as code,
+               (c.content -> 'export_allowed') = 'true'::jsonb as exported
+        from pack_data_access.surveyed_cases() as c
     ),
     o as (
         select purpose_code as code, name, sort_order, is_active from pack_data_access.export_purpose where p_key = 'purpose'
@@ -502,12 +621,7 @@ as $$
 begin
     perform sgn_sdk.authorize_any(sgn_sdk.session_person(p_session), array['audit.read', 'report.mis_read']);
     return jsonb_build_object(
-        'total', (
-            select count(*)
-            from sgn_sdk.cases_in_states('data_access', array['in_approval', 'returned', 'rejected', 'pending_fulfilment', 'verifying', 'active',
-                'completed', 'expired', 'revoked', 'fulfilment_failed']) as c
-            where jsonb_typeof(c.content -> 'export_survey') = 'object'
-        ),
+        'total', (select count(*) from pack_data_access.surveyed_cases()),
         'by_purpose', pack_data_access.export_survey_counts('purpose'),
         'by_frequency', pack_data_access.export_survey_counts('frequency'),
         'by_method', pack_data_access.export_survey_counts('method')
@@ -532,9 +646,10 @@ from (values
 select sgn_sdk.register_rule(r.code, r.description, 'data_access', r.coverage, r.note)
 from (values
     ('DA-EXPORT-SURVEY', '要匯出時必填匯出需求調查：目的、頻率、方法（三張代碼表，可以在資料層調整；選了需說明的項目要寫說明）；'
-        '調查進申請內容與顯示摘要（版本雜湊與簽核人簽的內容涵蓋它）；舊單沒有調查不重算、照樣能簽', 'full', null),
-    ('DA-EXPORT-SURVEY-GUIDE', '目的或方法是「把資料送進另一個系統」時提示由那個系統自己申請，依參數關閉可否匯出（初始值 block）；'
-        '能在系統內完成的目的提示替代做法', 'full', null),
+        '目的與頻率進申請內容與顯示摘要（版本雜湊與簽核人簽的內容涵蓋它們）；方法不進內容，存成附屬的調查紀錄（只增不改、進稽核鏈）；'
+        '舊單沒有調查不重算、照樣能簽', 'full', null),
+    ('DA-EXPORT-SURVEY-GUIDE', '目的是「匯入另一個系統」或方法是「介面串接到另一系統」時提示由那個系統自己申請，依參數關閉可否匯出或擋下送審'
+        '（初始值 block；方法的判斷依據是調查紀錄，不是簽的內容）；能在系統內完成的目的提示替代做法', 'full', null),
     ('DA-EXPORT-SURVEY-RULES', '交給使用方系統的規則不因匯出需求調查而異：仍只有可否匯出', 'full', null),
     ('DA-EXPORT-SURVEY-SUMMARY', '稽核與 MIS 可以看匯出需求調查依目的、頻率、方法的彙總', 'full', null)
 ) as r (code, description, coverage, note);

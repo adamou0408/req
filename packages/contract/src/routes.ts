@@ -761,6 +761,15 @@ export const packRoutes = {
                 },
             },
         },
+        /**
+         * 記錄匯出方法（DA-EXPORT-SURVEY）：方法不進申請內容與簽的內容，存成附屬的調查紀錄（只增不改）。
+         * close_export：方法是介面串接、參數要擋下時為 true，畫面就把「需要匯出」取消（DA-EXPORT-SURVEY-GUIDE）
+         */
+        {
+            fn: 'data_access_export_method_record',
+            params: ['session', 'case_id', 'method', 'note'],
+            returns: { object: { method: { object: { code: 'text', name: 'text' } }, guidance: exportGuidance, close_export: 'bool' } },
+        },
         /** 匯出需求調查的彙總（DA-EXPORT-SURVEY-SUMMARY）：稽核或 MIS；每個選項有幾張單、其中幾張最後可以匯出 */
         {
             fn: 'data_access_export_survey_summary',

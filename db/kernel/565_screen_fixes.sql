@@ -36,7 +36,7 @@ stable
 set search_path = pg_catalog, pg_temp
 as $$
 begin
-    if not exists (select 1 from unnest(p_actions) as a (action) where sgn_internal.denial_reason(p_person_id, a.action, null) is null) then
+    if not exists (select 1 from unnest(p_actions) as a (action) where sgn_internal.denial_reason(p_person_id, a.action, null::sgn.request_case) is null) then
         perform sgn_internal.authorize(p_person_id, p_actions[1]);
     end if;
 end;
@@ -52,6 +52,19 @@ as $$
 $$;
 
 revoke all on function sgn_sdk.authorize_any(uuid, text[]) from public;
+
+-- 給流程包：對一張單的動作授權（同一個入口 denial_reason）；例如「能不能修改這張單」＝ revise。單不存在時丟 CASE_UNKNOWN。
+create function sgn_sdk.authorize_case(p_person_id uuid, p_action text, p_case_id uuid)
+returns void
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    perform sgn_internal.authorize(p_person_id, p_action, sgn_internal.case_lock(p_case_id));
+end;
+$$;
+
+revoke all on function sgn_sdk.authorize_case(uuid, text, uuid) from public;
 
 -- ── 首頁區塊的順序（同 270 的簽章）：陣列的順序就是首頁的順序；多了 report（稽核或 MIS 可以看的唯讀彙總） ──
 
