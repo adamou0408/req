@@ -21,6 +21,8 @@ type RuleSet = {
     valid: { from: string; to: string };
     export: boolean | null;
     rules: Rule[];
+    /** 規則所在的區（D93 (3)）；舊單沒有寫，是正式區 */
+    environment?: string;
 };
 type Query = {
     package: string;
@@ -29,6 +31,7 @@ type Query = {
     data_date: string | null;
     action: string;
     as_of: string;
+    environment?: string;
 };
 type Stored = { set: RuleSet; payload: string; withdrawn: boolean };
 type Reply = { http_status: number; result: Record<string, unknown> };
@@ -51,6 +54,9 @@ export type DcMockOptions = {
 
 const reply = (http_status: number, result: Record<string, unknown>): Reply => ({ http_status, result });
 
+/** 規則或查詢所在的區：沒有寫是正式區（和 sim/dc 相同）。 */
+const zoneOf = (x: { environment?: string }): string => x.environment ?? 'prod';
+
 function conditionHolds(c: Condition, v: string | number | undefined): boolean {
     if (v === undefined || v === null) return false;
     if (c.op === 'in') return c.values.includes(v);
@@ -61,7 +67,8 @@ function conditionHolds(c: Condition, v: string | number | undefined): boolean {
 /** 契約 02 §8.5「規則的語意」：一份規則對一個查詢的判斷（含擋下的原因）。 */
 export function evaluate(rs: RuleSet, q: Query): { actual: 'allow' | 'deny'; reason: string | null } {
     const r = rs.rules.find((x) => x.package === q.package);
-    if (r === undefined) return { actual: 'deny', reason: 'no_rule' };
+    // 兩區是不同的資料：另一區的規則不放行
+    if (r === undefined || zoneOf(rs) !== zoneOf(q)) return { actual: 'deny', reason: 'no_rule' };
     if (q.as_of < rs.valid.from) return { actual: 'deny', reason: 'not_yet_valid' };
     if (q.as_of > rs.valid.to) return { actual: 'deny', reason: 'expired' };
     if (q.fields.length === 0 || q.fields.some((f) => !r.fields.includes(f))) return { actual: 'deny', reason: 'field_not_granted' };
@@ -117,7 +124,12 @@ function apply(store: Map<string, Stored>, archived: Set<string>, payload: unkno
         return reply(409, { status: 'failed', code: 'conflict', error: 'version conflict' });
     }
     store.set(set.case_no, { set, payload: text, withdrawn: false });
-    return reply(200, { status: 'applied', dc_ref: `mock:${set.case_no}:v${set.case_version_no}`, catalog_sha256: catalog });
+    return reply(200, {
+        status: 'applied',
+        dc_ref: `mock:${set.case_no}:v${set.case_version_no}`,
+        catalog_sha256: catalog,
+        environment: zoneOf(set),
+    });
 }
 
 function withdraw(store: Map<string, Stored>, archived: Set<string>, seen: Set<string>, payload: unknown): Reply {
@@ -137,10 +149,18 @@ function testQueries(store: Map<string, Stored>, item: DeliveryItem, catalog: st
         .filter((s) => !s.withdrawn && s.set.grantee.principal_id === req.rule_set.grantee.principal_id)
         .map((s) => s.set);
     const results = req.cases.map((c) => ({ code: c.code, ...evaluateUnion(live, req.rule_set, c.query) }));
-    return reply(200, { status: 'completed', results, catalog_sha256: catalog });
+    // 這張單實際套用在哪一區（記下的規則；還沒套用就照請求的規則）
+    const environment = zoneOf(store.get(req.rule_set.case_no)?.set ?? req.rule_set);
+    return reply(200, { status: 'completed', results, catalog_sha256: catalog, environment });
 }
 
 type Request = { method: string; path: string; body: string; nonce: string | null };
+
+/** 一筆套用或驗證帶的規則（套用：信封的 payload；驗證：本文的 rule_set）。 */
+function ruleSetOf(item: DeliveryItem): { environment?: string } {
+    const body = JSON.parse(item.body) as { payload?: { environment?: string }; rule_set?: { environment?: string } };
+    return (item.kind === 'verify' ? body.rule_set : body.payload) ?? {};
+}
 
 // 簽發時間嚴格遞增（同一毫秒內簽兩份時往後推 1 毫秒）：平台只收比上一份新的對帳回報（裁決 D84 (5)），真的外部系統每一輪間隔數十秒
 let lastIssuedMs = 0;
@@ -216,12 +236,12 @@ export function dcMockDelivery(options: DcMockOptions): DcMock {
             return Promise.resolve(attested(options, item, handle(options, keys, state, item)));
         },
         reply(item: DeliveryItem, http_status: number, result: Record<string, unknown>): DeliveryOutcome {
-            // 照實回覆的成功結果也帶這個模擬外部系統的目錄版本（外部系統一律回報；測試要模擬「沒有回報」時明給 catalog_sha256: null）
-            const withCatalog =
-                http_status < 300 && (item.kind === 'apply' || item.kind === 'verify') && !('catalog_sha256' in result)
-                    ? { ...result, catalog_sha256: options.catalog.sha256 }
-                    : result;
-            return attested(options, item, reply(http_status, withCatalog));
+            // 照實回覆的成功結果也帶這個模擬外部系統的目錄版本與規則的區（外部系統一律回報；測試要模擬「沒有回報」時明給 null）
+            const success = http_status < 300 && (item.kind === 'apply' || item.kind === 'verify');
+            const withCatalog = success && !('catalog_sha256' in result) ? { ...result, catalog_sha256: options.catalog.sha256 } : result;
+            const withZone =
+                success && !('environment' in withCatalog) ? { ...withCatalog, environment: zoneOf(ruleSetOf(item)) } : withCatalog;
+            return attested(options, item, reply(http_status, withZone));
         },
         reconciliation(report: Record<string, unknown>): unknown {
             return attested(options, { method: 'GET', path: '/reconciliation', body: '', nonce: null }, reply(200, report)).response;

@@ -2,9 +2,11 @@
 //   欄位權限  has_column_privilege（含資料表層級的授權、角色繼承、PUBLIC、pg_read_all_data）
 //   列的限制  pg_policy 的運算式（pg_get_expr），解析回規則內容
 //   主體      角色說明（pg_shdescription）
+//   區        資料表所在的 schema（data＝正式區、data_test＝測試區；D93 (3)）：每一項的限制條件帶 environment
 // 不讀服務自己記的規則表（simdc_meta.rule_set）。格式對齊 05-integration.md §8.3 的上傳項目。
 import { PACKAGES, ROW_ID } from './catalog.ts';
 import { currentCatalogSha256 } from './catalogVersion.ts';
+import { DATA_ENVIRONMENTS, dataSchema, environmentOfSchema, type DataEnvironment } from './dataEnvironment.ts';
 import type { Db } from './db.ts';
 import { exportPrivileges } from './exportView.ts';
 import { parsePolicyExpression, type PolicySpec } from './policy.ts';
@@ -13,10 +15,12 @@ interface Privilege {
     rolname: string;
     tbl: string;
     col: string;
+    environment: DataEnvironment;
 }
 
 interface PolicyRow {
     relname: string;
+    nspname: string;
     polname: string;
     expr: string | null;
     roles: string[];
@@ -39,37 +43,42 @@ interface ReconciliationItem {
 }
 
 async function privileges(db: Db): Promise<Privilege[]> {
-    const tables: string[] = [];
-    const cols: string[] = [];
-    for (const pkg of PACKAGES) {
-        for (const c of pkg.columns) {
-            tables.push(pkg.code);
-            cols.push(c.code);
+    const out: Privilege[] = [];
+    for (const environment of DATA_ENVIRONMENTS) {
+        const tables: string[] = [];
+        const cols: string[] = [];
+        for (const pkg of PACKAGES) {
+            for (const c of pkg.columns) {
+                tables.push(pkg.code);
+                cols.push(c.code);
+            }
         }
+        // 排除：superuser（另外列出）、內建的 pg_* 角色（它們的成員會各自出現）、資料表擁有者（服務自己）
+        const r = await db.query<Omit<Privilege, 'environment'>>(
+            `select r.rolname, x.tbl, x.col
+             from pg_roles r
+             cross join unnest($1::text[], $2::text[]) as x (tbl, col)
+             where not r.rolsuper and r.rolname !~ '^pg_' and r.rolname <> current_user
+               and has_column_privilege(r.oid, format('%I.%I', $3::text, x.tbl), x.col, 'SELECT')
+             order by r.rolname, x.tbl, x.col`,
+            [tables, cols, dataSchema(environment)],
+        );
+        out.push(...r.rows.map((x) => ({ ...x, environment })));
     }
-    // 排除：superuser（另外列出）、內建的 pg_* 角色（它們的成員會各自出現）、資料表擁有者（服務自己）
-    const r = await db.query<Privilege>(
-        `select r.rolname, x.tbl, x.col
-         from pg_roles r
-         cross join unnest($1::text[], $2::text[]) as x (tbl, col)
-         where not r.rolsuper and r.rolname !~ '^pg_' and r.rolname <> current_user
-           and has_column_privilege(r.oid, format('data.%I', x.tbl), x.col, 'SELECT')
-         order by r.rolname, x.tbl, x.col`,
-        [tables, cols],
-    );
-    return r.rows;
+    return out;
 }
 
 async function policies(db: Db): Promise<PolicyRow[]> {
     const r = await db.query<PolicyRow>(
-        `select c.relname, p.polname, pg_get_expr(p.polqual, p.polrelid) as expr,
+        `select c.relname, n.nspname, p.polname, pg_get_expr(p.polqual, p.polrelid) as expr,
                 array(select case when o = 0 then 'public' else (select rolname::text from pg_roles where oid = o) end
                       from unnest(p.polroles) as o) as roles
          from pg_policy p
          join pg_class c on c.oid = p.polrelid
          join pg_namespace n on n.oid = c.relnamespace
-         where n.nspname = 'data' and p.polpermissive and p.polcmd in ('r', '*')
-         order by c.relname, p.polname`,
+         where n.nspname = any($1::text[]) and p.polpermissive and p.polcmd in ('r', '*')
+         order by n.nspname, c.relname, p.polname`,
+        [DATA_ENVIRONMENTS.map(dataSchema)],
     );
     return r.rows;
 }
@@ -108,9 +117,11 @@ async function memberships(db: Db, roles: string[], policyRoles: string[]): Prom
     return new Set(r.rows.map((x) => `${x.member}\u0000${x.role}`));
 }
 
-function constraintsOf(spec: PolicySpec): Record<string, unknown> {
+function constraintsOf(spec: PolicySpec, environment: DataEnvironment): Record<string, unknown> {
     const out: Record<string, unknown> = {
         row_filter: spec.row_filter.map((c) => ({ filter: c.filter, op: c.op, values: c.values })),
+        // 權限實際在哪一區（資料表所在的 schema），不是 policy 裡寫的（兩者不同就是被搬過）
+        environment,
     };
     if (spec.data_period !== null) out['data_period'] = spec.data_period;
     return out;
@@ -141,13 +152,22 @@ export async function reconciliationReport(db: Db, today: string): Promise<Recon
     const roles = [...new Set(privs.map((p) => p.rolname))];
     const subj = await subjects(db, roles);
     const member = await memberships(db, roles, [...new Set(pols.flatMap((p) => p.roles))]);
-    const rls = await db.query<{ relname: string; relrowsecurity: boolean }>(
-        `select c.relname, c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace
-         where n.nspname = 'data' and c.relkind = 'r'`,
+    const rls = await db.query<{ relname: string; nspname: string; relrowsecurity: boolean }>(
+        `select c.relname, n.nspname, c.relrowsecurity from pg_class c join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = any($1::text[]) and c.relkind = 'r'`,
+        [DATA_ENVIRONMENTS.map(dataSchema)],
     );
-    const rlsOn = new Map(rls.rows.map((r) => [r.relname, r.relrowsecurity]));
+    // 正式區的表照舊以表名回報，測試區的加上 schema（data_test.<表>）
+    const tableKey = (environment: DataEnvironment, tbl: string): string =>
+        environment === 'prod' ? tbl : `${dataSchema(environment)}.${tbl}`;
+    const rlsOn = new Map(
+        rls.rows.flatMap((r) => {
+            const environment = environmentOfSchema(r.nspname);
+            return environment === undefined ? [] : [[tableKey(environment, r.relname), r.relrowsecurity] as const];
+        }),
+    );
     const supers = await db.query<{ rolname: string }>(`select rolname from pg_roles where rolsuper order by rolname`);
-    const exportable = new Set((await exportPrivileges(db)).map((p) => `${p.rolname}|${p.tbl}|${p.col}`));
+    const exportable = new Set((await exportPrivileges(db)).map((p) => `${p.rolname}|${p.environment}|${p.tbl}|${p.col}`));
 
     const items: ReconciliationItem[] = [];
     for (const p of privs) {
@@ -156,27 +176,28 @@ export async function reconciliationReport(db: Db, today: string): Promise<Recon
         if (subject === undefined) continue;
         const actions: ('read' | 'export')[] = ['read'];
         // 匯出要同時有匯出檢視表與底表的權限（檢視表以呼叫者身分讀底表）
-        if (exportable.has(`${p.rolname}|${p.tbl}|${p.col}`)) actions.push('export');
+        if (exportable.has(`${p.rolname}|${p.environment}|${p.tbl}|${p.col}`)) actions.push('export');
         const applicable = pols.filter(
             (x) =>
                 x.relname === p.tbl &&
+                x.nspname === dataSchema(p.environment) &&
                 (x.roles.includes(p.rolname) || x.roles.includes('public') || x.roles.some((r) => member.has(`${p.rolname}\u0000${r}`))),
         );
         const entries: { constraints: Record<string, unknown>; properties: Record<string, unknown>; policy: string }[] = [];
-        if (rlsOn.get(p.tbl) !== true) {
-            entries.push({ constraints: {}, properties: { row_level_security: 'disabled' }, policy: '-' });
+        if (rlsOn.get(tableKey(p.environment, p.tbl)) !== true) {
+            entries.push({ constraints: { environment: p.environment }, properties: { row_level_security: 'disabled' }, policy: '-' });
         } else {
             const parsed = applicable.map((x) => ({ x, spec: x.expr === null ? null : parsePolicyExpression(x.expr) }));
             for (const { x, spec } of parsed) {
                 if (spec === null) {
                     entries.push({
-                        constraints: {},
+                        constraints: { environment: p.environment },
                         properties: { policy_expression: x.expr, unrecognized_policy: true },
                         policy: x.polname,
                     });
                 } else if (spec.fields.includes(p.col) || parsed.every((e) => e.spec === null || !e.spec.fields.includes(p.col))) {
                     entries.push({
-                        constraints: constraintsOf(spec),
+                        constraints: constraintsOf(spec, p.environment),
                         properties: {
                             rule_id: spec.rule_id,
                             case_no: spec.case_no,
@@ -192,19 +213,23 @@ export async function reconciliationReport(db: Db, today: string): Promise<Recon
             }
             if (entries.length === 0) {
                 // 有欄位權限但沒有任何 policy：目前一列都看不到，但權限確實存在（例如 policy 被刪掉）
-                entries.push({ constraints: {}, properties: { rows_visible: 'none', no_policy: true }, policy: '-' });
+                entries.push({
+                    constraints: { environment: p.environment },
+                    properties: { rows_visible: 'none', no_policy: true },
+                    policy: '-',
+                });
             }
         }
         for (const action of actions) {
             for (const e of entries) {
                 items.push({
-                    item_key: `${p.rolname}|${p.tbl}.${p.col}|${action}|${e.policy}`,
+                    item_key: `${p.rolname}|${tableKey(p.environment, p.tbl)}.${p.col}|${action}|${e.policy}`,
                     subject,
                     resource: { type: 'data_field', id: `${p.tbl}.${p.col}` },
                     action: { name: action },
                     entitlement_id: null,
                     constraints: e.constraints,
-                    properties: { db_role: p.rolname, policy: e.policy, ...e.properties },
+                    properties: { db_role: p.rolname, policy: e.policy, environment: p.environment, ...e.properties },
                 });
             }
         }

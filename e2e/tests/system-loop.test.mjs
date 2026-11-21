@@ -94,6 +94,8 @@ test('DA-CATALOG-BOUND K-USAGE-ATTESTED 端對端：簽核畫面顯示綁定的�
         data_date: '2031-03-01',
         action: 'query',
         as_of: day(),
+        // 新申請畫面沒有改環境時是測試區（DA-ENV-FIELD）
+        environment: 'test',
     };
     for (const q of [query, { ...query, fields: ['gross_margin'] }]) {
         const r = await fetch(`${dcBase}/use`, {

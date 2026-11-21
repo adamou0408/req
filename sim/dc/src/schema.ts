@@ -1,23 +1,26 @@
-// 資料庫結構：資料表（schema data）、匯出用的檢視表（schema export，每個角色一個，見 exportView.ts）、
+// 資料庫結構：資料表（正式區 schema data、測試區 data_test；dataEnvironment.ts）、匯出用的檢視表（export、export_test，每個角色一個，見 exportView.ts）、
 // 列層級安全用的判斷函式（schema simdc）、服務自己的紀錄（schema simdc_meta）。
 // 被授權者角色只會拿到 data 的欄位權限、自己的匯出檢視表與 simdc 的 usage；simdc_meta 對它們不可見。
 
+import { DATA_SCHEMAS, EXPORT_SCHEMAS } from './dataEnvironment.ts';
 import { ident, lit } from './db.ts';
 import { PACKAGES, ROW_ID, type ColumnType } from './catalog.ts';
 
 // 結構改變時加一：啟動時發現版本不同，就整個重建（只是模擬資料，重建即可）。
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 
 const SQL_TYPE: Record<ColumnType, string> = { text: 'text', numeric: 'numeric', date: 'date' };
 
 function tablesSql(): string[] {
     const out: string[] = [];
-    for (const pkg of PACKAGES) {
-        const cols = pkg.columns.map((c) => `${ident(c.code)} ${SQL_TYPE[c.type]}`).join(', ');
-        out.push(`create table data.${ident(pkg.code)} (${ROW_ID} bigint generated always as identity primary key, ${cols})`);
-        out.push(`alter table data.${ident(pkg.code)} enable row level security`);
-        if (pkg.periodField !== null) {
-            out.push(`create index on data.${ident(pkg.code)} (${ident(pkg.periodField)})`);
+    for (const schema of DATA_SCHEMAS) {
+        for (const pkg of PACKAGES) {
+            const cols = pkg.columns.map((c) => `${ident(c.code)} ${SQL_TYPE[c.type]}`).join(', ');
+            out.push(`create table ${schema}.${ident(pkg.code)} (${ROW_ID} bigint generated always as identity primary key, ${cols})`);
+            out.push(`alter table ${schema}.${ident(pkg.code)} enable row level security`);
+            if (pkg.periodField !== null) {
+                out.push(`create index on ${schema}.${ident(pkg.code)} (${ident(pkg.periodField)})`);
+            }
         }
     }
     return out;
@@ -116,7 +119,12 @@ function metaSql(): string[] {
             actor_provider text not null,
             actor_external_id text not null,
             action text not null check (action in ('query', 'export')),
-            allowed boolean not null
+            allowed boolean not null,
+            -- 這次使用查的是哪一區（D93 (3)）、哪些欄位（D94 (7)）、使用方系統帶的程式版本識別（D94 (6)；沒有帶是 null）
+            environment text not null,
+            package text not null,
+            fields text[] not null,
+            client_version text
         )`,
         // 管理後門：覆寫「代碼 → 實體資源」的對照（模擬使用方的對照改了；目錄版本跟著變）
         `create table simdc_meta.catalog_remap (key text primary key, resource text not null)`,
@@ -132,13 +140,13 @@ function metaSql(): string[] {
     ];
 }
 
-export const DROP_SCHEMAS_SQL = 'drop schema if exists data, export, simdc, simdc_meta cascade';
+export const DROP_SCHEMAS_SQL = `drop schema if exists ${[...DATA_SCHEMAS, ...EXPORT_SCHEMAS].join(', ')}, simdc, simdc_meta cascade`;
 
 export function schemaSql(serviceRole: string): string[] {
     return [
         `revoke all on schema public from public`,
-        `create schema data`,
-        `create schema export`,
+        ...DATA_SCHEMAS.map((x) => `create schema ${x}`),
+        ...EXPORT_SCHEMAS.map((x) => `create schema ${x}`),
         `create schema simdc`,
         `create schema simdc_meta`,
         ...tablesSql(),

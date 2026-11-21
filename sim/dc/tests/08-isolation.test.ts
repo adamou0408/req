@@ -140,10 +140,14 @@ describe('對帳如實反映每條規則的欄位×列範圍', () => {
             items.filter((i) => i.resource.id === `sales_order.${field}` && i.action.name === action).map((i) => i.constraints);
         for (const action of ['read', 'export']) {
             for (const f of ['amount', 'order_no']) {
-                assert.deepEqual(regionOf(f, action), [{ row_filter: [{ filter: 'region', op: 'in', values: ['north'] }] }]);
+                assert.deepEqual(regionOf(f, action), [
+                    { row_filter: [{ filter: 'region', op: 'in', values: ['north'] }], environment: 'prod' },
+                ]);
             }
             for (const f of ['gross_margin', 'channel']) {
-                assert.deepEqual(regionOf(f, action), [{ row_filter: [{ filter: 'region', op: 'in', values: ['south'] }] }]);
+                assert.deepEqual(regionOf(f, action), [
+                    { row_filter: [{ filter: 'region', op: 'in', values: ['south'] }], environment: 'prod' },
+                ]);
             }
         }
         assert.ok(items.every((i) => i.properties['column_not_in_rule'] === undefined));
@@ -153,6 +157,9 @@ describe('對帳如實反映每條規則的欄位×列範圍', () => {
         assert.equal(items.length, 2);
         assert.equal(new Set(items.map((i) => i.item_key)).size, 2);
         const margin = items.find((i) => i.resource.id === 'sales_order.gross_margin');
-        assert.deepEqual(margin?.constraints, { row_filter: [{ filter: 'region', op: 'in', values: ['north', 'south'] }] });
+        assert.deepEqual(margin?.constraints, {
+            row_filter: [{ filter: 'region', op: 'in', values: ['north', 'south'] }],
+            environment: 'prod',
+        });
     });
 });

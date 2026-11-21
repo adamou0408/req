@@ -3,6 +3,7 @@
 // 算出雜湊，在套用、驗證與對帳的回應裡回報。對照改了而代碼沒變，雜湊也會變（平台因此看得出來）。
 //   快照：{format, packages[{code, name, system, period_field, resource, fields[...], filters[...]}]}，只含平台目錄上的欄位
 //   （列條件專用的欄不算欄位），依代碼、列舉值依值排序；雜湊＝RFC 8785 標準化後的 SHA-256（小寫十六進位）。
+//   格式 data_access_catalog/2：欄位有分區標示時多一個 environments（[{environment, treatment, classification}]，依區排序；D93 (2)）。
 import { createHash } from 'node:crypto';
 import { PACKAGES } from './catalog.ts';
 import type { Db } from './db.ts';
@@ -26,7 +27,7 @@ const byCode = <T extends { readonly code: string }>(a: T, b: T): number => (a.c
 export function catalogSnapshot(remap: ReadonlyMap<string, string> = new Map()): Json {
     const resource = (pkg: string, code: string, fallback: string): string => remap.get(`${pkg}.${code}`) ?? fallback;
     return {
-        format: 'data_access_catalog/1',
+        format: 'data_access_catalog/2',
         packages: [...PACKAGES].sort(byCode).map((p) => ({
             code: p.code,
             name: p.name,
@@ -36,7 +37,19 @@ export function catalogSnapshot(remap: ReadonlyMap<string, string> = new Map()):
             fields: p.columns
                 .filter((c) => c.classification !== null)
                 .sort(byCode)
-                .map((c) => ({ code: c.code, name: c.name, classification: c.classification, resource: resource(p.code, c.code, c.code) })),
+                .map((c) => ({
+                    code: c.code,
+                    name: c.name,
+                    classification: c.classification,
+                    resource: resource(p.code, c.code, c.code),
+                    ...(c.environments === undefined || c.environments.length === 0
+                        ? {}
+                        : {
+                              environments: [...c.environments]
+                                  .sort((a, b) => (a.environment < b.environment ? -1 : a.environment > b.environment ? 1 : 0))
+                                  .map((z) => ({ environment: z.environment, treatment: z.treatment, classification: z.classification })),
+                          }),
+                })),
             filters: [...p.filters].sort(byCode).map((f) => ({
                 code: f.code,
                 name: f.name,

@@ -43,6 +43,7 @@ test('回報的格式對齊 05 §8.3 的上傳項目', async () => {
     assert.deepEqual(amount?.constraints, {
         row_filter: [{ filter: 'region', op: 'in', values: ['central', 'north'] }],
         data_period: { field: 'order_date', from: '2025-01-01', to: '2026-12-31' },
+        environment: 'prod',
     });
     assert.equal(amount?.properties['rule_id'], `${CASE}-2`);
     // 不可匯出：沒有 export 的項目
@@ -85,14 +86,14 @@ test('後門少給一個欄位 → 對帳看不到它', async () => {
 test('後門拿掉列條件 → 對帳回報的限制變寬', async () => {
     assert.equal((await backdoor('clear_row_filter', { package: 'customer_master', rule_id: `${CASE}-1` })).status, 200);
     const item = find(await reconciliation(), 'customer_master.customer_id')[0];
-    assert.deepEqual(item?.constraints, { row_filter: [] });
+    assert.deepEqual(item?.constraints, { row_filter: [], environment: 'prod' });
 });
 
 test('後門刪掉 policy → 對帳標出「有欄位權限但沒有 policy」', async () => {
     assert.equal((await backdoor('drop_policy', { package: 'customer_master', rule_id: `${CASE}-1` })).status, 200);
     const item = find(await reconciliation(), 'customer_master.customer_id')[0];
     assert.equal(item?.properties['no_policy'], true);
-    assert.deepEqual(item?.constraints, {});
+    assert.deepEqual(item?.constraints, { environment: 'prod' });
 });
 
 test('重新套用同一份規則，資料庫回到規則描述的狀態', async () => {
@@ -103,6 +104,7 @@ test('重新套用同一份規則，資料庫回到規則描述的狀態', async
     assert.equal(find(items, 'sales_order.order_no').length, 1);
     assert.deepEqual(find(items, 'customer_master.customer_id')[0]?.constraints, {
         row_filter: [{ filter: 'region', op: 'in', values: ['central', 'north'] }],
+        environment: 'prod',
     });
 });
 

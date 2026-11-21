@@ -86,6 +86,7 @@ async function dcQuery(principalId, query) {
     });
     return (await res.json()).decision;
 }
+// 新申請畫面沒有改環境時是測試區（DA-ENV-FIELD）：查測試區那一份
 const inScope = (year) => ({
     package: 'sales_order',
     fields: ['amount', 'order_date', 'order_no'],
@@ -93,6 +94,7 @@ const inScope = (year) => ({
     data_date: `${year}-03-01`,
     action: 'query',
     as_of: day(),
+    environment: 'test',
 });
 
 let revokeCaseNo;

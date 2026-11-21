@@ -94,11 +94,11 @@ test('DA-CAPABILITY-GAP L4 預設擋下（參數 data_access.capability_gap_acti
     await declare('hr_saas', 'column', false);
     try {
         const content = l4Content({ data_period: { from: '2026-01-01', to: '2026-12-31' } });
-        const c = await draft(content, terms(P['ap-recon-bot'], 3));
+        const c = await draft(content, terms(P['ap-recon-bot'], 2));
         assert.ok(c.errors.some((e) => e.code === 'DA-E-CAPABILITY-GAP' && e.message.includes('hr_saas')));
         await rejectsWith(call(app, 'case_submit', users.p04.session, c.case_id, null), 'CONTENT_INVALID');
         await setSetting(admin, 'data_access.capability_gap_action', 'warn', 'tier:data_access:L4');
-        const warned = await draft(content, terms(P['ap-recon-bot'], 3));
+        const warned = await draft(content, terms(P['ap-recon-bot'], 2));
         assert.deepEqual(warned.errors, []);
         assert.equal(warned.content.capability_gaps[0].aspect, 'column');
     } finally {

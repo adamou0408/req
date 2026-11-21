@@ -668,7 +668,19 @@ export const packRoutes = {
                                 code: 'text',
                                 name: 'text',
                                 period_field: { nullable: 'text' },
-                                fields: { array: { object: { code: 'text', name: 'text', classification: 'text' } } },
+                                fields: {
+                                    array: {
+                                        object: {
+                                            code: 'text',
+                                            name: 'text',
+                                            classification: 'text',
+                                            /** 這個欄位在某一區已去識別或遮罩後的分級（D93 (2)） */
+                                            environments: {
+                                                array: { object: { environment: 'text', classification: 'text', treatment_name: 'text' } },
+                                            },
+                                        },
+                                    },
+                                },
                                 filters: {
                                     array: {
                                         object: {
@@ -683,6 +695,50 @@ export const packRoutes = {
                         },
                     },
                     purpose_categories: { array: { object: { code: 'text', name: 'text', requires_description: 'bool' } } },
+                    /** 環境的選項（D93）：is_default＝沒有指定時以它處理；requires_test_basis＝送審要引用測試區單或填理由 */
+                    environments: {
+                        array: {
+                            object: {
+                                code: 'text',
+                                name: 'text',
+                                description: 'text',
+                                requires_test_basis: 'bool',
+                                is_default: 'bool',
+                                applies_to_legacy: 'bool',
+                                max_months: 'int',
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        /** 上線後的使用報告（D94 (4)）：申請人以這張單自己的使用紀錄產生，結掉限期補報告的例外；display 是報告的顯示（同送審的測試報告） */
+        {
+            fn: 'data_access_usage_report',
+            params: ['session', 'case_id'],
+            returns: { object: { case_id: 'uuid', report_sha256: 'hex', display: 'json' } },
+        },
+        /** 首頁：等看的人補的上線後使用報告（D94 (4)） */
+        {
+            fn: 'data_access_report_pending',
+            params: ['session'],
+            returns: { array: { object: { exception_id: 'int', case_id: 'uuid', case_no: 'int', due_at: 'timestamp', due_text: 'text' } } },
+        },
+        /** 申請正式區時可以引用的測試區單（D93 (4)）：涵蓋與否在送審時判定 */
+        {
+            fn: 'data_access_test_bases',
+            params: ['session', 'principal_id'],
+            returns: {
+                array: {
+                    object: {
+                        case_id: 'uuid',
+                        case_no: 'int',
+                        state: 'text',
+                        principal_name: { nullable: 'text' },
+                        valid_from: { nullable: 'date' },
+                        valid_to: { nullable: 'date' },
+                        packages: { array: 'text' },
+                    },
                 },
             },
         },

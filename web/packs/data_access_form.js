@@ -1,6 +1,6 @@
-// 資料授權的資料範圍編輯器：主題包 → 欄位 → 列條件、資料期間、使用情境、可否匯出。
+// 資料授權的資料範圍編輯器：環境（測試區、正式區）與測試依據、主題包 → 欄位 → 列條件、資料期間、使用情境、可否匯出。
 // limitTo 有值時是「縮小」模式：只列出目前版本已有的主題包、欄位、列條件值，使用情境不能改（改說明算擴大）。
-// 送進資料庫前不做任何判斷：L1、L2 欄位照樣可以勾，由資料庫移除並提示。
+// 送進資料庫前不做任何判斷：L1、L2 欄位照樣可以勾，由資料庫移除並提示；級別、要不要測試依據、引用的單合不合格都以資料庫為準。
 import { t } from '../i18n.js';
 import { el } from '../ui.js';
 
@@ -12,12 +12,18 @@ export function choice(id, label, checked, extra = {}) {
     return el('label', { class: 'choice', for: id }, el('input', { type: 'checkbox', id, checked, ...extra }), el('span', {}, label));
 }
 
+/** 欄位在各區的分級（目錄的標示；決定級別的是資料庫）。 */
+const zoneNote = (f) =>
+    (f.environments ?? []).length
+        ? el('small', { class: 'muted', 'data-testid': 'zone-classification' }, ` ${f.environments.map(tx.zoneClassification).join('、')}`)
+        : null;
+
 function fieldChoices(prefix, pkg, selected, limit) {
     const fields = limit ? pkg.fields.filter((f) => limit.fields.map(fieldCode).includes(f.code)) : pkg.fields;
     return fields.map((f) =>
         choice(
             `${prefix}-${pkg.code}-f-${f.code}`,
-            [f.name, el('small', { class: 'muted' }, ` ${tx.classification(f.classification)}`)],
+            [f.name, el('small', { class: 'muted' }, ` ${tx.classification(f.classification)}`), zoneNote(f)],
             selected.has(f.code),
             {
                 'data-field': f.code,
@@ -130,6 +136,131 @@ function purposeInputs(prefix, cat, content) {
     ];
 }
 
+/** 環境的選項（資料庫的代碼表）：沒有選過就用資料庫標為預設的那一區。 */
+function environmentInputs(prefix, cat, current) {
+    const chosen = current ?? cat.environments.find((e) => e.is_default)?.code;
+    return el(
+        'fieldset',
+        { class: 'environment', 'data-testid': 'environment' },
+        el('legend', {}, tx.environmentLegend),
+        cat.environments.map((e) =>
+            el(
+                'label',
+                { class: 'choice', for: `${prefix}-env-${e.code}` },
+                el('input', {
+                    type: 'radio',
+                    name: `${prefix}-env`,
+                    id: `${prefix}-env-${e.code}`,
+                    value: e.code,
+                    checked: e.code === chosen,
+                }),
+                el(
+                    'span',
+                    {},
+                    el('strong', {}, e.name),
+                    el(
+                        'small',
+                        { class: 'muted' },
+                        ` ${e.description}・${tx.environmentMax(e.max_months)}${e.requires_test_basis ? `・${tx.environmentNeedsBasis}` : ''}`,
+                    ),
+                ),
+            ),
+        ),
+    );
+}
+
+/** 測試依據：可以引用的測試區單（資料庫給的清單）或「沒有測試紀錄」加理由。只在選的區要測試依據時顯示（代碼表的 requires_test_basis）。 */
+function basisInputs(prefix, base) {
+    const list = el('div', { 'data-testid': 'test-basis-list' });
+    const reason = el('textarea', { id: `${prefix}-basis-reason`, rows: 2 }, base.test_exception?.reason ?? '');
+    const reasonBlock = el(
+        'div',
+        { 'data-testid': 'test-basis-reason' },
+        el('label', { for: `${prefix}-basis-reason` }, tx.basisReason),
+        reason,
+    );
+    const box = el('fieldset', { class: 'test-basis', 'data-testid': 'test-basis' }, el('legend', {}, tx.basisLegend), list, reasonBlock);
+    const radio = (value, label, checked) =>
+        el(
+            'label',
+            { class: 'choice', for: `${prefix}-basis-${value}` },
+            el('input', { type: 'radio', name: `${prefix}-basis`, id: `${prefix}-basis-${value}`, value, checked }),
+            el('span', {}, label),
+        );
+    const picked = () => box.querySelector(`input[name=${prefix}-basis]:checked`)?.value ?? null;
+    const sync = () => (reasonBlock.hidden = picked() !== 'none');
+    box.addEventListener('change', sync);
+    const setBases = (bases) => {
+        const current = picked() ?? base.test_basis?.case_id ?? (base.test_exception ? 'none' : null);
+        list.replaceChildren(
+            bases.length ? null : el('p', { class: 'muted' }, tx.basisEmpty),
+            ...bases.map((b) => radio(b.case_id, tx.basisOption(b), b.case_id === current)),
+            radio('none', tx.basisNone, current === 'none' || (!bases.length && current === null)),
+        );
+        sync();
+    };
+    const value = () => {
+        const p = picked();
+        if (p === 'none') return { test_exception: { reason: reason.value } };
+        return p ? { test_basis: { case_id: p } } : {};
+    };
+    setBases([]);
+    return { node: box, setBases, value };
+}
+
+/**
+ * 應用面（D94 (1) 的第六區塊，申請人填）：程式或報表、版本識別、結果給誰看、每個勾選的欄位的用途。
+ * 欄位清單跟著「哪些資料」勾選的欄位重畫（refresh）；要不要必填由資料庫判定（正式區送審時）。
+ */
+function applicationInputs(prefix, cat, base) {
+    const app = base.application ?? {};
+    const input = (key, label) => [
+        el('label', { for: `${prefix}-app-${key}` }, label),
+        el('input', { id: `${prefix}-app-${key}`, type: 'text', value: app[key] ?? '' }),
+    ];
+    const uses = el('div', { 'data-testid': 'field-uses' });
+    const kept = new Map((app.field_uses ?? []).map((u) => [`${u.package}.${u.field}`, u.use]));
+    const refresh = (scope) => {
+        for (const i of uses.querySelectorAll('input')) kept.set(i.dataset.key, i.value);
+        uses.replaceChildren(
+            ...scope.flatMap((s) =>
+                s.fields.map((f) => {
+                    const key = `${s.package}.${f}`;
+                    const pkg = cat.packages.find((p) => p.code === s.package);
+                    const name = `${pkg?.name ?? s.package}・${pkg?.fields.find((x) => x.code === f)?.name ?? f}`;
+                    const id = `${prefix}-use-${s.package}-${f}`;
+                    return el(
+                        'div',
+                        {},
+                        el('label', { for: id }, tx.fieldUse(name)),
+                        el('input', { id, type: 'text', value: kept.get(key) ?? '', 'data-key': key }),
+                    );
+                }),
+            ),
+        );
+    };
+    const node = el(
+        'fieldset',
+        { class: 'application', 'data-testid': 'application' },
+        el('legend', {}, tx.applicationLegend),
+        el('p', { class: 'muted' }, tx.applicationHint),
+        input('program', tx.appProgram),
+        input('version', tx.appVersion),
+        input('audience', tx.appAudience),
+        uses,
+    );
+    const value = () => ({
+        program: node.querySelector(`#${prefix}-app-program`).value,
+        version: node.querySelector(`#${prefix}-app-version`).value,
+        audience: node.querySelector(`#${prefix}-app-audience`).value,
+        field_uses: [...uses.querySelectorAll('input')].map((i) => {
+            const [pkg, field] = i.dataset.key.split('.');
+            return { package: pkg, field, use: i.value };
+        }),
+    });
+    return { node, value, refresh };
+}
+
 /**
  * 建立編輯器。回傳 { node, value(), parts }；value() 讀出目前的內容（流程包的 content 結構）。
  * parts：{ scope（主題包與資料期間）, purpose（使用情境與可否匯出） }，新申請畫面把它們放在不同的段落；
@@ -141,25 +272,51 @@ export function scopeEditor(prefix, cat, base, { limitTo = null } = {}) {
     const limits = limitTo ? new Map(limitTo.scope.map((s) => [s.package, s])) : null;
     const packages = limits ? cat.packages.filter((p) => limits.has(p.code)) : cat.packages;
     const showExport = !limitTo || limitTo.export_allowed;
+    // 已經有內容、但沒有環境的是舊單：資料庫把它當成代碼表標 applies_to_legacy 的那一區
+    const baseEnv = base.environment ?? (base.scope ? cat.environments.find((e) => e.applies_to_legacy)?.code : undefined);
+    // 縮小時環境與測試依據不能改（換區、換依據都算擴大），沿用 base
+    const env = limitTo ? null : environmentInputs(prefix, cat, baseEnv);
+    const basis = limitTo ? null : basisInputs(prefix, base);
+    const envOf = () => env?.querySelector(`input[name=${prefix}-env]:checked`)?.value ?? baseEnv;
+    const syncBasis = () => {
+        if (basis) basis.node.hidden = !cat.environments.find((e) => e.code === envOf())?.requires_test_basis;
+    };
+    env?.addEventListener('change', syncBasis);
+    syncBasis();
     const scope = el(
         'div',
         { class: 'scope-part' },
         el('h3', {}, tx.scopeTitle),
+        env,
+        basis?.node,
         packages.map((p) => packageBlock(prefix, p, items.get(p.code), limits?.get(p.code))),
         periodInputs(prefix, base.data_period),
     );
+    // 縮小時應用面沿用 base（改用途算擴大）
+    const app = limitTo ? null : applicationInputs(prefix, cat, base);
+    app?.refresh(readScope(scope));
+    scope.addEventListener('change', () => app?.refresh(readScope(scope)));
     const purpose = el(
         'div',
         { class: 'purpose-part' },
         limitTo ? null : purposeInputs(prefix, cat, base),
         showExport ? choice(`${prefix}-export`, tx.exportAsk, base.export_allowed === true) : null,
+        app?.node,
     );
     const node = el('div', { class: 'scope-editor', 'data-testid': `${prefix}-editor` }, scope, purpose);
     const find = (sel) => scope.querySelector(sel) ?? purpose.querySelector(sel);
     const value = () => {
         const from = find(`#${prefix}-period-from`).value;
         const to = find(`#${prefix}-period-to`).value;
+        const zone = limitTo
+            ? { test_basis: base.test_basis ?? null, test_exception: base.test_exception ?? null }
+            : basis.node.hidden
+              ? {}
+              : basis.value();
         return {
+            ...(envOf() ? { environment: envOf() } : {}),
+            ...zone,
+            application: limitTo ? (base.application ?? null) : app.value(),
             scope: readScope(scope),
             data_period: from || to ? { from: from || null, to: to || null } : null,
             purpose_category: limitTo ? base.purpose_category : find(`#${prefix}-purpose`).value || null,
@@ -167,5 +324,7 @@ export function scopeEditor(prefix, cat, base, { limitTo = null } = {}) {
             export_allowed: showExport ? find(`#${prefix}-export`).checked : false,
         };
     };
-    return { node, value, parts: { scope, purpose } };
+    /** 可以引用的測試區單（被授權者換了就重讀；資料庫的 data_access_test_bases） */
+    const setBases = (bases) => basis?.setBases(bases);
+    return { node, value, setBases, parts: { scope, purpose } };
 }

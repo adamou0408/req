@@ -47,17 +47,57 @@ export async function homeSection() {
                 tx.drift.confirm,
             ),
         );
-    const list = await api.call('data_access_catalog_pending');
-    if (!list.length) return null;
+    const [list, followups] = await Promise.all([api.call('data_access_catalog_pending'), followupSection()]);
+    if (!list.length) return followups ? [followups] : null;
     const out = section('catalog-drift', tx.drift.title, box);
     draw(list);
-    return out;
+    return [out, followups].filter(Boolean);
+}
+
+/**
+ * 首頁：等看的人（申請人）補的上線後使用報告（D94 (4)）。清單由資料庫決定（data_access_report_pending），按「產生使用報告」就送出，
+ * 再依回傳的報告顯示結果。沒有待補的就不顯示。
+ */
+async function followupSection() {
+    const list = await api.call('data_access_report_pending');
+    if (!list.length) return null;
+    const box = el('div', { 'data-testid': 'report-followups' });
+    const card = (x) =>
+        el(
+            'div',
+            { class: 'card', 'data-testid': 'report-followup', 'data-case-no': String(x.case_no) },
+            el('a', { href: `#case/${x.case_id}` }, tx.followup.item(x)),
+            el(
+                'button',
+                {
+                    class: 'primary',
+                    'data-testid': 'report-make',
+                    onclick: async () => {
+                        try {
+                            const r = await api.call('data_access_usage_report', { case_id: x.case_id });
+                            box.replaceChildren(reportView(r.display));
+                            flash(tx.followup.done(x.case_no), true);
+                        } catch (err) {
+                            flash(explain(err));
+                        }
+                    },
+                },
+                tx.followup.make,
+            ),
+        );
+    box.replaceChildren(el('p', { class: 'muted' }, tx.followup.hint), ...list.map(card));
+    return section('report-followups', tx.followup.title, box);
 }
 
 /** 資料目錄（主題包、欄位與分級、列條件、使用情境分類）。同一個頁面期間只讀一次。 */
 export async function catalog() {
     cached ??= await api.call('data_access_catalog');
     return cached;
+}
+
+/** 新申請畫面：被授權者換了就重讀可以引用的測試區單（D93 (4)；清單由資料庫決定）。 */
+export async function termsChanged(editor, terms) {
+    editor.setBases(terms.principal_id ? await api.call('data_access_test_bases', { principal_id: terms.principal_id }) : []);
 }
 
 /** 退回時的常見原因（按一下就用它當原因）。 */
@@ -106,11 +146,61 @@ const capabilityGaps = (gaps) =>
           )
         : null;
 
-/** 「哪些資料」：主題包、欄位、列條件、資料期間、綁定的資料目錄版本、做不到的限制（display.content）。 */
+/** 環境與測試依據（display.content.environment、test_basis、test_exception；D93）：舊單沒有這幾項。 */
+const zoneLines = (shown) => [
+    shown.environment
+        ? el(
+              'div',
+              { 'data-testid': 'environment-line', 'data-environment': shown.environment.code },
+              el('strong', {}, shown.environment.text),
+          )
+        : null,
+    shown.test_basis ? el('div', { 'data-testid': 'test-basis-line' }, shown.test_basis.text) : null,
+    shown.test_exception ? el('div', { class: 'warn-text', 'data-testid': 'test-exception-line' }, shown.test_exception.text) : null,
+];
+
+/**
+ * 測試報告（display.content.test_report；D94）：警示在最上面，七個區塊各一段。每一個字都由資料庫產生（簽到的內容包含它）。
+ * 送審時的測試報告與上線後的使用報告用同一個元件。
+ */
+export const reportView = (r) =>
+    el(
+        'div',
+        { class: 'card report', 'data-testid': 'test-report' },
+        el('h4', {}, tx.reportTitle),
+        el('p', { class: 'muted mono' }, r.title),
+        r.warnings.length
+            ? el(
+                  'div',
+                  { class: 'result warn', 'data-testid': 'report-warnings' },
+                  el('strong', {}, tx.reportWarnings),
+                  el(
+                      'ul',
+                      {},
+                      r.warnings.map((w) => el('li', { 'data-code': w.code }, w.text)),
+                  ),
+              )
+            : null,
+        r.sections.map((sec) =>
+            el(
+                'details',
+                { 'data-section': sec.key, open: sec.key === 'used' || sec.key === 'diff' },
+                el('summary', {}, tx.reportSections[sec.key] ?? sec.key),
+                el(
+                    'ul',
+                    {},
+                    sec.lines.map((line) => el('li', {}, line)),
+                ),
+            ),
+        ),
+    );
+
+/** 「哪些資料」：環境、主題包、欄位、列條件、資料期間、綁定的資料目錄版本、做不到的限制（display.content）。 */
 export const scopeView = (shown) =>
     el(
         'div',
         { 'data-testid': 'scope-view' },
+        zoneLines(shown),
         el(
             'ul',
             { class: 'scope' },
@@ -119,6 +209,8 @@ export const scopeView = (shown) =>
         el('div', {}, `${tx.dataPeriod}：${periodText(shown.data_period)}`),
         shown.catalog ? el('div', { class: 'muted', 'data-testid': 'catalog-version' }, shown.catalog.text) : null,
         capabilityGaps(shown.capability_gaps),
+        shown.application ? el('div', { 'data-testid': 'application-line' }, shown.application.text) : null,
+        shown.test_report ? reportView(shown.test_report) : null,
     );
 
 /** 流程包的例外說明（核心頁面不認得流程包的規則代碼）。 */
@@ -157,7 +249,17 @@ function scopeDiff(before, after) {
 
 /** 兩份顯示內容的差異，逐項以文字列出（只是呈現；縮小或擴大由資料庫判定）。 */
 export function contentDiff(before, after) {
-    const out = scopeDiff(before, after);
+    const out = [];
+    if (before.environment && after.environment && before.environment.code !== after.environment.code)
+        out.push(tx.diffEnvironment(before.environment.name, after.environment.name));
+    if ((before.test_basis?.text ?? before.test_exception?.text) !== (after.test_basis?.text ?? after.test_exception?.text))
+        out.push(
+            tx.diffBasis(
+                before.test_basis?.text ?? before.test_exception?.text ?? '—',
+                after.test_basis?.text ?? after.test_exception?.text ?? '—',
+            ),
+        );
+    out.push(...scopeDiff(before, after));
     if (periodText(before.data_period) !== periodText(after.data_period))
         out.push(tx.diffPeriod(periodText(before.data_period), periodText(after.data_period)));
     if (before.purpose.category !== after.purpose.category || before.purpose.description !== after.purpose.description)

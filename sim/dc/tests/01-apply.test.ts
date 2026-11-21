@@ -19,7 +19,12 @@ before(async () => {
     const r = await putRuleSet(example1(PRINCIPAL_A));
     assert.equal(r.status, 200, JSON.stringify(r.body));
     // 套用時用的目錄版本也在已簽的結果裡（D92 (1)）
-    assert.deepEqual(attested(r).result, { status: 'applied', dc_ref: 'DC-DA-2026-0004-v1', catalog_sha256: catalogSha256() });
+    assert.deepEqual(attested(r).result, {
+        status: 'applied',
+        dc_ref: 'DC-DA-2026-0004-v1',
+        catalog_sha256: catalogSha256(),
+        environment: 'prod',
+    });
 });
 after(stopServer);
 

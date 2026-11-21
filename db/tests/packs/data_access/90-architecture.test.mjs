@@ -86,9 +86,10 @@ test('架構：應用程式角色對流程包的 schema 與 sgn_sdk 沒有任何
     assert.deepEqual(open.rows, []);
 });
 
-test('架構：資料授權登記了十四個 hook（簽章由核心檢查；顯示的兩個是 D75 新增；交付、驗證、對帳的四個是 D63 新增；交付結果與對帳回報的判定是 D92 新增），路徑的關卡與 resolver 是資料；第 2 版路徑多了代填時的負責人確認（K-PRINCIPAL-OWNER-CONFIRM）', async () => {
+test('架構：資料授權登記了十六個 hook（簽章由核心檢查；顯示的兩個是 D75 新增；交付、驗證、對帳的四個是 D63 新增；交付結果與對帳回報的判定是 D92 新增；送審複核是 D93 新增，K-SUBMIT-REVIEW；生效後的後續是 D94 新增，K-GRANT-FOLLOWUP），路徑的關卡與 resolver 是資料；第 2 版路徑多了代填時的負責人確認（K-PRINCIPAL-OWNER-CONFIRM）', async () => {
     const pt = (await admin.query(`select hooks from sgn.process_type where code = 'data_access'`)).rows[0];
     assert.deepEqual(Object.keys(pt.hooks).sort(), [
+        'after_grant_activated',
         'build_delivery',
         'build_fulfilment',
         'build_verification_cases',
@@ -102,6 +103,7 @@ test('架構：資料授權登記了十四個 hook（簽章由核心檢查；顯
         'find_overlaps',
         'normalize_constraints',
         'normalize_content',
+        'review_submission',
         'stage_scopes',
     ]);
     const { rows } = await admin.query(
@@ -152,4 +154,13 @@ test('契約：流程包的每個路由都存在、參數相符，回傳結構�
         ['customer_master', 'sales_order', 'product_cost', 'payroll'],
     );
     assert.equal(catalog.purpose_categories.length, 6);
+    assert.deepEqual(
+        catalog.environments.map((e) => [e.code, e.requires_test_basis, e.is_default, e.applies_to_legacy]),
+        [
+            ['test', false, true, false],
+            ['prod', true, false, true],
+        ],
+    );
+    const bases = await call(app, 'data_access_test_bases', user.session, '00000000-0000-0000-0000-000000000000');
+    assert.deepEqual(shapeProblems(bases, packRoutes.data_access.find((r) => r.fn === 'data_access_test_bases').returns), []);
 });

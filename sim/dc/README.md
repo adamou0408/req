@@ -35,8 +35,9 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 
 | schema | 內容 | 被授權者看得到什麼 |
 |---|---|---|
-| `data` | 四張表：`customer_master`、`sales_order`、`product_cost`、`payroll`。欄名就是平台目錄的欄位代碼，另有列條件欄（`region`、`product_line`、`pay_type`）與技術鍵 `row_id` | 每條規則的角色：該規則給的欄位＋`row_id` 的欄位權限、該規則的一個 RLS policy |
-| `export` | 每個可以匯出的規則角色、每個主題包一個檢視表（`security_invoker`） | 只有自己的那一個 |
+| `data` | 正式區的四張表：`customer_master`、`sales_order`、`product_cost`、`payroll`。欄名就是平台目錄的欄位代碼，另有列條件欄（`region`、`product_line`、`pay_type`）與技術鍵 `row_id` | 每條規則的角色：該規則給的欄位＋`row_id` 的欄位權限、該規則的一個 RLS policy |
+| `data_test` | 測試區（D93）：同樣的四張表，資料是正式區的副本，目錄標示「測試區已遮罩」的欄位已遮罩（`catalog.ts` 的 `environments`） | 規則的 `environment` 是 `test` 時，權限與 policy 只在這裡 |
+| `export`、`export_test` | 正式區、測試區的匯出檢視表：每個可以匯出的規則角色、每個主題包一個（`security_invoker`） | 只有自己的那一個 |
 | `simdc` | RLS 用的判斷函式（`rule_match`、`rule_reason`、`as_of`） | 執行權 |
 | `simdc_meta` | 服務收到的規則、撤回請求、呼叫紀錄 | 沒有 |
 
@@ -66,8 +67,8 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 | `POST {base}/test-query` | 以某個被授權者的身分真的查一次 | `{"principal_id","query","probe_missing_row"?}` → 見下 |
 | `POST {base}/test-queries` | 平台的驗證（02 §8.8） | `{"request_id","run_id","rule_set","cases"}` → `{"status":"completed","results":[{"code","actual","reason","detail"}],"catalog_sha256"}` |
 | `GET {base}/reconciliation[?exclude_inactive=1]` | 對帳回報：資料庫裡實際存在的權限 | → 見下 |
-| `GET {base}/usage-summaries` | 使用紀錄的批次摘要（02 §8.7） | → `usage_summary_batch/1` |
-| `POST {base}/use` | 代替實際操作的人查一次並記下使用 | 見「使用紀錄」 |
+| `GET {base}/usage-summaries` | 使用紀錄的批次摘要（02 §8.7） | → `usage_summary_batch/2`（每筆帶區、逐欄的次數、版本識別） |
+| `POST {base}/use` | 代替實際操作的人查一次並記下使用（`{"principal_id","actor","query","client_version"?}`；`query.environment` 省略＝正式區） | 見「使用紀錄」 |
 | `POST /masked/v1/sandbox/runs` | 遮罩環境的沙箱 | `{"queries":[{"name","sql"}]}` → 見下 |
 | `POST {base}/admin/{操作}` | **管理後門，只供測試** | 見下 |
 
@@ -159,7 +160,7 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 
 | 方法與路徑 | 呼叫方 | 用途 |
 |---|---|---|
-| `POST {base}/use` | `admin`（代替使用方系統自己的前端；範圍 `data.use`） | `{"principal_id","actor":{"provider","external_id"},"query"}`：以被授權者的身分查一次（同測試查詢，PostgreSQL 判定，不回資料），並記一筆使用（這個被授權者在這個主題包上有規則的每張單各一筆；放行算查詢或匯出、擋下算被擋） |
+| `POST {base}/use` | `admin`（代替使用方系統自己的前端；範圍 `data.use`） | `{"principal_id","actor":{"provider","external_id"},"query","client_version"?}`：以被授權者的身分在 `query.environment` 那一區查一次（同測試查詢，PostgreSQL 判定，不回資料），並記一筆使用（這個被授權者在這個主題包、這一區有規則的每張單各一筆；放行算查詢或匯出、擋下算被擋；查的每個欄位都記；`client_version` 是使用方系統的程式版本識別） |
 | `GET {base}/usage-summaries` | `auditor`、`admin`（範圍 `usage.read`） | 最近 `SIM_DC_USAGE_WINDOW_DAYS` 天、每 `SIM_DC_USAGE_PERIOD_SECONDS` 秒一個時段的批次摘要 |
 
 ### 管理後門（只供測試）
@@ -168,7 +169,7 @@ sim/dc/test.sh             # 型別檢查＋全部測試；可以只給檔案：
 
 | 操作 | 本文 | 效果 |
 |---|---|---|
-| `grant_column` | `{"principal_id","package","field","action":"read"\|"export","rule_id"?}` | 多給一個欄位（或匯出）給 `rule_id` 的角色；省略時給該主題包第一條規則的角色 |
+| `grant_column` | `{"principal_id","package","field","action":"read"\|"export","rule_id"?,"environment"?}` | 多給一個欄位（或匯出）給 `rule_id` 的角色；省略時給該主題包第一條規則的角色。改在哪一區：`environment`，省略時是那條規則所在的區（找不到規則是正式區） |
 | `revoke_column` | 同上 | 少給一個欄位（省略 `rule_id` 時，該被授權者的所有規則角色都收回） |
 | `drop_policy` | `{"package","rule_id"}` | 刪掉一條規則的 policy |
 | `clear_row_filter` | `{"package","rule_id"}` | 拿掉一條規則的列條件 |

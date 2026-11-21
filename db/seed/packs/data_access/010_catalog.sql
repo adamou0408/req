@@ -2,6 +2,7 @@
 -- 擁有者的身分來源改為 sim-ldap（種子名單的代號）；system 是主題包所在的受管系統（seed-directory.md「受管系統」）。
 -- resource 是代碼到實體資源的對照（主題包 → 資料表、欄位與列條件 → 欄；D92 (1)），和 sim/dc 的目錄（sim/dc/src/catalog.ts）相同，
 -- 兩邊算出的目錄版本才一致（測試向量 db/tests/packs/data_access/fixtures/catalog-vectors.json）。
+-- environments 是欄位在某一區已遮罩或去識別後的分級（D93 (2)；db/packs/data_access/150_environment.sql）：測試區的聯絡人電話、薪轉帳號已遮罩。
 select pack_data_access.catalog_load($json$
 {
   "packages": [
@@ -14,7 +15,8 @@ select pack_data_access.catalog_load($json$
         {"code": "customer_name", "name": "客戶名稱", "classification": "L3", "resource": "customer_name"},
         {"code": "contract_end_date", "name": "合約到期日", "classification": "L3", "resource": "contract_end_date"},
         {"code": "tax_id", "name": "統一編號", "classification": "L4", "resource": "tax_id"},
-        {"code": "contact_phone", "name": "聯絡人電話", "classification": "L4", "resource": "contact_phone"},
+        {"code": "contact_phone", "name": "聯絡人電話", "classification": "L4", "resource": "contact_phone",
+         "environments": [{"environment": "test", "treatment": "masked", "classification": "L3"}]},
         {"code": "industry", "name": "產業別", "classification": "L1", "resource": "industry"}
       ],
       "filters": [
@@ -72,7 +74,8 @@ select pack_data_access.catalog_load($json$
         {"code": "base_salary", "name": "本薪", "classification": "L4", "resource": "base_salary"},
         {"code": "bonus", "name": "獎金", "classification": "L4", "resource": "bonus"},
         {"code": "net_pay", "name": "實發金額", "classification": "L4", "resource": "net_pay"},
-        {"code": "bank_account", "name": "薪轉帳號", "classification": "L4", "resource": "bank_account"}
+        {"code": "bank_account", "name": "薪轉帳號", "classification": "L4", "resource": "bank_account",
+         "environments": [{"environment": "test", "treatment": "masked", "classification": "L3"}]}
       ],
       "filters": [
         {"code": "pay_type", "name": "薪資類別", "value_type": "enum", "resource": "pay_type",

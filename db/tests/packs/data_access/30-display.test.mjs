@@ -125,7 +125,7 @@ test('K-DISPLAY-SIGNED 縮小後核准：縮小後那一版的顯示也簽進去
                 { package: 'customer_master', fields: ['customer_id'], row_filters: [{ filter: 'region', op: 'in', values: ['north'] }] },
             ],
         }),
-        terms: terms(d.principal.id, 3),
+        terms: terms(d.principal.id, 1),
     };
     const issued = await call(app, 'challenge_issue', users.p03.session, c.case_id, 'approve_reduced', reduced);
     assert.equal(issued.display.content.scope.length, 1);

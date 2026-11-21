@@ -2376,6 +2376,7 @@ rules.md 的預設時限由流程包在升版時登記成「流程類型」或�
 |---|---|---|
 | `format` | 字串 | 固定 `data_access_rule_set/1`（實作的格式代碼；原寫 `dc_rule_set/1`）。格式改變時升版號 |
 | `catalog` | `{"version_no","sha256"}` | 這一版綁定的資料目錄版本（§8.6；舊單是事後基準）。使用方系統照自己的目錄執行，回應裡回報自己用的版本 |
+| `environment` | 字串（可省略） | 套用到哪一區（D93 (3)；代碼表 `pack_data_access.data_environment`：`test` 測試區、`prod` 正式區）。兩區在同一套使用方系統裡，但必須是不同的資料庫物件與權限；規則只給它那一區。**省略＝正式區**（這一版之前建立的舊單不帶這個鍵，已送出的位元組不變）。實作：`db/packs/data_access/150_environment.sql` |
 | `case_no`、`case_version_no` | 字串、整數 | 這份規則出自哪張單的哪個內容版本 |
 | `grantee` | `{"type","principal_id","name"}` | 被授權者：類型（`team`、`project`、`agent`）、本站的內部 id、名稱 |
 | `valid` | `{"from","to"}` | 授權起迄（日期，含頭尾）。DC 在這段期間以外不放行 |
@@ -2534,6 +2535,7 @@ evaluate_dc_query(rule_set, query) → {"actual", "reason"}
                "filters": [{"code", "name", "value_type", "resource", "values": [{"value", "label"}]}]}]}
 ```
 
+- 格式 `data_access_catalog/2`（D93 (2)）：欄位在某一區已去識別或遮罩時多一個 `environments: [{"environment","treatment","classification"}]`（依區的代碼排序；`treatment` 是 `deidentified` 或 `masked`，`classification` 是那一區的分級，必須比欄位的分級低）。沒有標示的欄位不放這個鍵，和 `/1` 相同。
 - 只列啟用中的項目；主題包、欄位、列條件依 `code`、列舉值依 `value` 的位元組順序排序。欄位包含 L1、L2（全部目錄上的欄位），不含只給列條件用的欄。
 - `resource` 是「代碼 → 實體資源」的對照：主題包 → 資料表（例如 `data.sales_order`），欄位與列條件 → 欄。沒有給是 `null`，也算進雜湊。
 - 不含擁有者（角色指派另有紀錄）、排序欄位與說明文字。
@@ -2545,7 +2547,7 @@ evaluate_dc_query(rule_set, query) → {"actual", "reason"}
 
 **使用方的回報**：套用（`PUT /rule-sets/{case_no}`）與驗證（`POST /test-queries`）的結果、對帳回報（`GET /reconciliation`）都帶 `catalog_sha256`，在 §8.8 的證明涵蓋的範圍內。對照有變動時使用方的版本必須跟著變（它用同一個演算法從自己的對照算）。
 
-**平台的判定**（核心的 hook `check_delivery_result`、`check_reconciliation_report`）：比較的是「這張單引用的部分」（引用摘要：引用到的主題包、欄位與期間欄位、列條件與列舉值）在兩個版本上是否相同。
+**平台的判定**（核心的 hook `check_delivery_result`、`check_reconciliation_report`）：比較的是「這張單引用的部分」（引用摘要：引用到的主題包、欄位與期間欄位、列條件與列舉值；欄位的分區標示只留這張單那一區的）在兩個版本上是否相同。
 
 | 情況 | 處理 |
 |---|---|
@@ -2562,11 +2564,22 @@ evaluate_dc_query(rule_set, query) → {"actual", "reason"}
 使用方系統提供 `GET {base}/usage-summaries`（唯讀稽核金鑰），回應是 §8.8 的證明包住的：
 
 ```json
-{"format": "usage_summary_batch/1", "database": "sim_dc", "period_seconds": 3600,
+{"format": "usage_summary_batch/2", "database": "sim_dc", "period_seconds": 3600,
  "items": [{"case_no": "1042", "actor": {"provider": "sim-ldap", "external_id": "p04"},
             "period": {"from": "2026-11-21T08:00:00.000Z", "to": "2026-11-21T09:00:00.000Z"},
-            "queries": 12, "exports": 0, "blocked": 1, "last_used_at": "2026-11-21T08:41:07.000Z"}]}
+            "queries": 12, "exports": 0, "blocked": 1, "last_used_at": "2026-11-21T08:41:07.000Z",
+            "environment": "test",
+            "fields": [{"package": "sales_order", "field": "amount", "queries": 12, "exports": 0, "blocked": 0,
+                        "last_used_at": "2026-11-21T08:41:07.000Z"},
+                       {"package": "sales_order", "field": "gross_margin", "queries": 0, "exports": 0, "blocked": 1,
+                        "last_used_at": "2026-11-21T08:30:00.000Z"}],
+            "client_versions": ["sales-report@1.4.2"]}]}
 ```
+
+- `/2` 比 `/1` 多三個鍵（`/1` 照收，三樣當成空的；實作 `db/kernel/555_usage_detail.sql`，`K-USAGE-DETAIL`）：
+  - `environment`：這張單的規則所在的區，必須等於平台在這個通道上送出的最新一版規則的 `environment`（規則沒有這個鍵時是 `null`）。不同整批不收。
+  - `fields`：逐欄的使用（D94 (7)）：一次查詢或匯出用到的每個欄位各記一次；被擋下的也記（記在請求裡的每個欄位上）。次數與時間的檢查同整筆。
+  - `client_versions`：這個時段裡使用方系統帶過的程式或報表版本識別（1–128 字元的字串；沒有帶是空陣列）。測試報告的版本識別以它為準（D94 (6)）。
 
 - 一筆＝一張單 × 一個實際操作的人 × 一個時段。`actor` 是人在身分來源上的帳號（平台以 `person_identity` 對到人；對不到照樣保存）。`queries`、`exports` 是放行的查詢與匯出次數，`blocked` 是被擋下的次數，`last_used_at` 在時段內（次數全為 0 時可以是 `null`）。
 - 同一個鍵（單、人、時段）可以在之後的批次再出現（時段還沒結束時次數增加）；平台以簽發時間最新的那一批為準，所以重送不重複計算。
@@ -2613,7 +2626,11 @@ evaluate_dc_query(rule_set, query) → {"actual", "reason"}
 - 平台只採信 `payload` 裡的結果：驗章、通道、環境、方法、路徑、一次性亂數都相符才採信（`K-DELIVERY-ATTESTED`）；請求摘要不符＝送出途中被改過，一律當成拒絕。對帳回報與使用摘要另外要求簽發時間在新鮮度內、嚴格遞增、同一份只收一次。回應的其他欄位只是可讀副本。
 - 失敗一律是 `{"status":"failed","code","error"}`：401 `signature_invalid`／`signature_expired`、403、404、409 `conflict`／`archived`／`target_mismatch`、422 `invalid_envelope` 等。
 
-各結果的 `result`：套用 `{"status":"applied","dc_ref","catalog_sha256"}`；撤回 `{"status":"withdrawn"}`；驗證 `{"status":"completed","results":[{"code","actual","reason","detail"}],"catalog_sha256"}`；對帳 `dc_reconciliation_report/1`（項目格式 05 §8.3，另有 `catalog_sha256`）；使用紀錄 §8.7。
+各結果的 `result`：套用 `{"status":"applied","dc_ref","catalog_sha256","environment"}`；撤回 `{"status":"withdrawn"}`；驗證 `{"status":"completed","results":[{"code","actual","reason","detail"}],"catalog_sha256","environment"}`；對帳 `dc_reconciliation_report/1`（項目格式 05 §8.3，另有 `catalog_sha256`；每一項的 `constraints.environment` 是權限實際所在的區）；使用紀錄 §8.7。
+
+- 套用與驗證結果的 `environment` 是這張單**實際套用到的區**（驗證：使用方記下的規則所在的區；還沒套用就是請求的規則的區）。平台要求它等於規則的 `environment`（省略＝`prod`），不同或沒有回報就不生效、撤回已送出的部分、開例外 `DA-ENV-MISMATCH`（D93 (3)）。
+- 驗證案例的 `query` 多一個 `environment`（省略＝`prod`）：使用方要在那一區查。平台另加反例 `request:other_environment`（同一份規則在另一區，應拒絕；`DA-ENV-VERIFY`）。
+- 信封與證明裡的 `environment`（例如 `sim_dc`）是**交付的目標環境**（哪一套使用方系統），和上面這個「資料在哪一區」不是同一件事；名稱相同是既有的設計，見交接 `docs/handoff/closed-loop-2.md` 的「留給下一位」。
 
 ### 8.9 資料目錄 adapter
 

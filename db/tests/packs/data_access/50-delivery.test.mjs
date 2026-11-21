@@ -149,6 +149,7 @@ test('DA-VERIFY-CASES 驗證案例由送出的規則產生：範圍內應允許�
             ['sales_order:period', 'deny', 'deny'],
             ['request:export', 'deny', 'deny'],
             ['request:after_validity', 'deny', 'deny'],
+            ['request:other_environment', 'deny', 'deny'],
         ],
     );
     const stored = await one(admin, 'select cases from sgn.verification_run where id = $1', [run.run_id]);
@@ -169,7 +170,14 @@ test('DA-VERIFY-CASES 外部系統以被授權者為單位取聯集：同一被�
     assert.equal(run.status, 'passed');
     assert.deepEqual(
         run.cases.map((c) => c.code),
-        ['sales_order:in', 'sales_order:row:region', 'sales_order:field', 'request:export', 'request:after_validity'],
+        [
+            'sales_order:in',
+            'sales_order:row:region',
+            'sales_order:field',
+            'request:export',
+            'request:after_validity',
+            'request:other_environment',
+        ],
         '資料期間外（2042-12-31）被 2042 年那張單放行，不列入',
     );
     const rs = JSON.parse((await ops(admin, caseId))[0].body);
@@ -183,6 +191,8 @@ test('DA-VERIFY-CASES 外部系統以被授權者為單位取聯集：同一被�
             data_date: '2042-12-31',
             action: 'query',
             as_of: today(),
+            // 外部系統看的是同一區的聯集（DA-ENV-VERIFY）
+            environment: rs.environment,
         },
     ]);
     assert.equal(allowed.a, true);
@@ -575,9 +585,11 @@ async function expectedItems() {
         resource: { type: 'data_field', id: item.resource },
         action: { name: item.action },
         entitlement_id: null,
+        // 使用方系統回報權限實際所在的區（DA-ENV-OVERLAP；02 §8.8）
         constraints: {
             row_filter: item.constraints.row_filter,
             ...(item.constraints.data_period ? { data_period: item.constraints.data_period } : {}),
+            environment: item.constraints.environment,
         },
         properties: { rule_id: item.rule_id, case_no: item.case_no, valid: item.valid },
     }));

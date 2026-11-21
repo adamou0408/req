@@ -2,8 +2,9 @@
 // 所以「資料庫裡實際有什麼限制」可以直接從系統目錄（pg_policy）讀回來。
 import { createHash } from 'node:crypto';
 import { findFilter, findPackage } from './catalog.ts';
+import { dataSchema, type DataEnvironment } from './dataEnvironment.ts';
 import { ident, lit } from './db.ts';
-import type { Rule, RuleSet } from './ruleset.ts';
+import { ruleSetEnvironment, type Rule, type RuleSet } from './ruleset.ts';
 
 interface PolicyCondition {
     readonly filter: string;
@@ -26,6 +27,8 @@ export interface PolicySpec {
     readonly valid: { readonly from: string; readonly to: string };
     readonly row_filter: readonly PolicyCondition[];
     readonly data_period: { readonly field: string; readonly from: string | null; readonly to: string | null } | null;
+    // 規則所在的區（D93 (3)）：policy 建在那一區的資料表上，對帳從這裡讀回
+    readonly environment: DataEnvironment;
 }
 
 export function policyName(ruleId: string): string {
@@ -55,6 +58,7 @@ export function specFor(rs: RuleSet, rule: Rule): PolicySpec {
             return { filter: c.filter, op: c.op, values: c.values, type: f.valueType, column: f.column };
         }),
         data_period: rule.data_period,
+        environment: ruleSetEnvironment(rs),
     };
 }
 
@@ -73,7 +77,7 @@ function policyExpression(spec: PolicySpec): string {
 
 export function createPolicySql(spec: PolicySpec, role: string): string {
     return (
-        `create policy ${ident(policyName(spec.rule_id))} on data.${ident(spec.package)} ` +
+        `create policy ${ident(policyName(spec.rule_id))} on ${dataSchema(spec.environment)}.${ident(spec.package)} ` +
         `as permissive for select to ${ident(role)} using (${policyExpression(spec)})`
     );
 }
@@ -91,7 +95,7 @@ export function parsePolicyExpression(expr: string): PolicySpec | null {
     } catch {
         return null;
     }
-    if (spec.v !== 1 || !Array.isArray(spec.row_filter)) return null;
+    if (spec.v !== 1 || !Array.isArray(spec.row_filter) || (spec.environment !== 'prod' && spec.environment !== 'test')) return null;
     // 第二個參數必須正好把每個條件欄位傳成同名的鍵，否則條件判斷的不是那一欄
     const expected = referencedColumns(spec)
         .map((c) => `'${c}', ${c}`)

@@ -2,6 +2,7 @@
 // 允許或拒絕完全由 PostgreSQL 決定（欄位權限、列層級安全）；程式只負責找出目標資料列、
 // 以及在被拒絕時從系統目錄讀出原因給人看。整個交易最後一律 rollback，不留下任何東西。
 import { findColumn, findFilter, findPackage, ROW_ID, type PackageDef } from './catalog.ts';
+import { DataEnvironmentError, dataSchema, exportSchema, parseDataEnvironment, type DataEnvironment } from './dataEnvironment.ts';
 import { ident, isPgError, lit, withTx, type Db, type Env } from './db.ts';
 import { exportViewName } from './exportView.ts';
 import { parsePolicyExpression, referencedColumns } from './policy.ts';
@@ -15,6 +16,8 @@ interface TestQuery {
     readonly data_date: string | null;
     readonly action: 'query' | 'export';
     readonly as_of: string;
+    // 查哪一區（D93 (3)；沒有寫＝正式區）。驗證的反例「同一份規則在另一區查不到」靠它
+    readonly environment: DataEnvironment;
 }
 
 type Decision = 'allow' | 'deny' | 'no_data';
@@ -68,7 +71,14 @@ export function parseTestQuery(raw: unknown): TestQuery {
     const action = q['action'];
     if (action !== 'query' && action !== 'export') fail('action 必須是 query 或 export');
     if (!isDate(q['as_of'])) fail('as_of 必須是日期');
-    return { package: pkg.code, fields: fields as string[], row, data_date: dataDate, action, as_of: q['as_of'] };
+    let environment: DataEnvironment;
+    try {
+        environment = parseDataEnvironment(q['environment'], 'environment');
+    } catch (err) {
+        if (err instanceof DataEnvironmentError) fail(err.message);
+        throw err;
+    }
+    return { package: pkg.code, fields: fields as string[], row, data_date: dataDate, action, as_of: q['as_of'], environment };
 }
 
 interface Target {
@@ -102,9 +112,11 @@ async function targetRows(
     pkg: PackageDef,
     t: Target,
     probe: boolean,
+    environment: DataEnvironment,
 ): Promise<{ ids: string[]; source: 'existing' | 'probe' | null }> {
+    const table = `${dataSchema(environment)}.${ident(pkg.code)}`;
     const found = await db.query<{ row_id: string }>(
-        `select ${ROW_ID} from data.${ident(pkg.code)} where ${t.where} order by ${ROW_ID} limit 20`,
+        `select ${ROW_ID} from ${table} where ${t.where} order by ${ROW_ID} limit 20`,
         t.params,
     );
     if (found.rowCount !== 0) return { ids: found.rows.map((r) => r.row_id), source: 'existing' };
@@ -112,8 +124,8 @@ async function targetRows(
     const placeholders = t.columns.map((_, i) => `$${i + 1}::${findColumn(pkg, t.columns[i] ?? '')?.type ?? 'text'}`);
     const sql =
         t.columns.length === 0
-            ? `insert into data.${ident(pkg.code)} default values returning ${ROW_ID}`
-            : `insert into data.${ident(pkg.code)} (${t.columns.map(ident).join(', ')}) values (${placeholders.join(', ')}) returning ${ROW_ID}`;
+            ? `insert into ${table} default values returning ${ROW_ID}`
+            : `insert into ${table} (${t.columns.map(ident).join(', ')}) values (${placeholders.join(', ')}) returning ${ROW_ID}`;
     const inserted = await db.query<{ row_id: string }>(sql, t.params);
     return { ids: inserted.rows.map((r) => r.row_id), source: 'probe' };
 }
@@ -152,7 +164,10 @@ async function readFields(db: Db, roles: string[], pkg: PackageDef, q: TestQuery
     for (const field of q.fields) {
         const byRole = new Map<string, Set<string>>();
         for (const role of roles) {
-            const relation = q.action === 'export' ? `export.${ident(exportViewName(pkg.code, role))}` : `data.${ident(pkg.code)}`;
+            const relation =
+                q.action === 'export'
+                    ? `${exportSchema(q.environment)}.${ident(exportViewName(pkg.code, role))}`
+                    : `${dataSchema(q.environment)}.${ident(pkg.code)}`;
             const seen = await visibleIds(db, role, relation, field, ids);
             if (seen !== null) byRole.set(role, seen);
         }
@@ -166,15 +181,16 @@ function visibleRows(views: readonly FieldView[], ids: readonly string[]): strin
 }
 
 // 被擋下的列：從 pg_policy 讀出涵蓋這個欄位的角色的 policy，逐一問「這一列為什麼不符合」。
-async function rowReason(db: Db, roles: readonly string[], pkg: PackageDef, rowId: string): Promise<string> {
+async function rowReason(db: Db, roles: readonly string[], pkg: PackageDef, rowId: string, environment: DataEnvironment): Promise<string> {
+    const table = `${dataSchema(environment)}.${ident(pkg.code)}`;
     const policies = await db.query<{ expr: string }>(
         `select pg_get_expr(p.polqual, p.polrelid) as expr
          from pg_policy p
-         where p.polrelid = format('data.%I', $2::text)::regclass
+         where p.polrelid = format('%I.%I', $3::text, $2::text)::regclass
            and p.polpermissive and p.polcmd in ('r', '*')
            and exists (select 1 from pg_roles r where r.rolname = any($1::text[]) and r.oid = any (p.polroles))
          order by p.polname`,
-        [roles, pkg.code],
+        [roles, pkg.code, dataSchema(environment)],
     );
     const reasons: string[] = [];
     for (const { expr } of policies.rows) {
@@ -183,7 +199,7 @@ async function rowReason(db: Db, roles: readonly string[], pkg: PackageDef, rowI
         const args = referencedColumns(spec).map((c) => `${lit(c)}, ${ident(c)}`);
         const r = await db.query<{ reason: string | null }>(
             `select simdc.rule_reason($1::jsonb, jsonb_build_object(${args.join(', ')})) as reason
-             from data.${ident(pkg.code)} where ${ROW_ID} = $2`,
+             from ${table} where ${ROW_ID} = $2`,
             [JSON.stringify(spec), rowId],
         );
         reasons.push(r.rows[0]?.reason ?? 'row_level_security');
@@ -193,14 +209,20 @@ async function rowReason(db: Db, roles: readonly string[], pkg: PackageDef, rowI
 
 // 被欄位權限擋下時的原因（從系統目錄讀）：沒有任何角色有這張表的權限 → no_rule；查詢的欄位有的沒有任何規則涵蓋
 // → field_not_granted；欄位都涵蓋但匯出不行 → export_not_allowed。
-async function denyReason(db: Db, roles: readonly string[], pkg: string, fields: readonly string[]): Promise<string> {
+async function denyReason(
+    db: Db,
+    roles: readonly string[],
+    pkg: string,
+    fields: readonly string[],
+    environment: DataEnvironment,
+): Promise<string> {
     const r = await db.query<{ any_col: boolean; all_covered: boolean }>(
-        `select coalesce(bool_or(has_any_column_privilege(r, format('data.%I', $2::text), 'SELECT')), false) as any_col,
+        `select coalesce(bool_or(has_any_column_privilege(r, format('%I.%I', $4::text, $2::text), 'SELECT')), false) as any_col,
                 coalesce((select bool_and(exists (select 1 from unnest($1::text[]) as r2
-                                                  where has_column_privilege(r2, format('data.%I', $2::text), f, 'SELECT')))
+                                                  where has_column_privilege(r2, format('%I.%I', $4::text, $2::text), f, 'SELECT')))
                           from unnest($3::text[]) as f), false) as all_covered
          from unnest($1::text[]) as r`,
-        [roles, pkg, fields],
+        [roles, pkg, fields, dataSchema(environment)],
     );
     if (r.rows[0]?.any_col !== true) return 'no_rule';
     return r.rows[0].all_covered ? 'export_not_allowed' : 'field_not_granted';
@@ -221,20 +243,25 @@ export async function runTestQuery(env: Env, principalId: string, q: TestQuery, 
         async (db) => {
             await db.query(`select set_config('simdc.as_of', $1, true)`, [q.as_of]);
             const target = targetOf(pkg, q);
-            const { ids, source } = await targetRows(db, pkg, target, opts.probe);
+            const { ids, source } = await targetRows(db, pkg, target, opts.probe, q.environment);
             const base = { db_role: principalRole, rows_matching: ids.length, row_source: source };
             if (ids.length === 0) return { ...base, decision: 'no_data', reason: null, rows_visible: 0 };
             const roles = await rolesOf(db, principalRole);
             if (roles.length === 0) return { ...base, decision: 'deny', reason: 'no_rule', rows_visible: 0 };
             const views = await readFields(db, roles, pkg, q, ids);
             if (views.some((v) => v.byRole.size === 0)) {
-                return { ...base, decision: 'deny', reason: await denyReason(db, roles, pkg.code, q.fields), rows_visible: 0 };
+                return {
+                    ...base,
+                    decision: 'deny',
+                    reason: await denyReason(db, roles, pkg.code, q.fields, q.environment),
+                    rows_visible: 0,
+                };
             }
             const visible = visibleRows(views, ids);
             if (visible.length > 0) return { ...base, decision: 'allow', reason: null, rows_visible: visible.length };
             // 第一個沒有任何一列被放行的欄位（都有的話取第一個）：它的規則為什麼擋下
             const blocked = views.find((v) => [...v.byRole.values()].every((seen) => seen.size === 0)) ?? views[0];
-            const reason = await rowReason(db, [...(blocked?.byRole.keys() ?? [])], pkg, ids[0] ?? '');
+            const reason = await rowReason(db, [...(blocked?.byRole.keys() ?? [])], pkg, ids[0] ?? '', q.environment);
             return { ...base, decision: 'deny', reason, rows_visible: 0 };
         },
         { rollback: true },

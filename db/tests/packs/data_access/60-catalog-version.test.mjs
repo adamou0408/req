@@ -144,8 +144,10 @@ test('DA-CATALOG-VERSION 目錄的標準化快照與雜湊等於和 sim/dc 共�
 test('DA-CATALOG-BOUND 送審的那一版綁定送審當下的目錄版本：在內容、版本雜湊與顯示摘要（資料目錄第 N 版）裡，瀏覽器（web/lib/signing.js）與資料庫算出相同的要簽內容（核准、縮小後核准）；比較內容忽略它；交付的規則帶它', async () => {
     const cat = await current();
     // 申請人（或被入侵的後端）自己帶的目錄版本不算數：一律由資料庫在整理時填上當下的版本
+    // （輸入帶 catalog 鍵又沒有指定環境時，資料庫當成系統整理過的舊內容＝正式區；這裡明講測試區，只看 catalog 被換掉）
     const caseId = await submitted(2110, {
         ...salesOrderContent(2110, ['amount', 'order_date', 'order_no']),
+        environment: 'test',
         catalog: { version_no: 999, sha256: 'ab'.repeat(32) },
     });
     const v = await view(caseId);
@@ -184,9 +186,11 @@ test('DA-CATALOG-BOUND 送審的那一版綁定送審當下的目錄版本：在
 });
 
 test('DA-CATALOG-BOUND 舊單（這一版之前、沒有綁定目錄的內容版本）：已存的雜湊不重算、顯示摘要不多目錄這一行、照樣可以簽；交付時帶事後基準的版本', async () => {
-    // 模擬升版前建立的單：整理內容的 hook 暫時換回沒有綁定的那一個
-    const restoreHook = () =>
-        admin.query(`select sgn_sdk.register_hook('data_access', 'normalize_content', 'pack_data_access.normalize_capable')`);
+    // 模擬升版前建立的單：整理內容的 hook 暫時換回沒有綁定的那一個（之後換回目前登記的那一個）
+    const registered = (
+        await one(admin, `select split_part(hooks ->> 'normalize_content', '(', 1) as f from sgn.process_type where code = 'data_access'`)
+    ).f;
+    const restoreHook = () => admin.query(`select sgn_sdk.register_hook('data_access', 'normalize_content', $1)`, [registered]);
     await admin.query(`select sgn_sdk.register_hook('data_access', 'normalize_content', 'pack_data_access.normalize_content')`);
     let caseId;
     try {

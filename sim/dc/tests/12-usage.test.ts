@@ -27,7 +27,7 @@ async function summaries(): Promise<Record<string, unknown>[]> {
     const p = attested(r);
     assert.equal(p.method, 'GET');
     assert.equal(p.path, '/usage-summaries');
-    assert.equal(p.result['format'], 'usage_summary_batch/1');
+    assert.equal(p.result['format'], 'usage_summary_batch/2');
     return (p.result['items'] as Record<string, unknown>[]).filter((i) => i['case_no'] === CASE_NO);
 }
 

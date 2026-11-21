@@ -22,7 +22,8 @@ export async function principals(app, session) {
     return Object.fromEntries(list.map((p) => [p.name, p.principal_id]));
 }
 
-export function terms(principalId, months = 5, from = today()) {
+/** 預設兩個月：沒有指定環境的申請以測試區處理（DA-ENV-FIELD），測試區的期限上限較短（DA-ENV-VALIDITY，初始值 3 個月）。 */
+export function terms(principalId, months = 2, from = today()) {
     return { principal_id: principalId, valid_from: from, valid_to: addMonths(from, months) };
 }
 
@@ -31,9 +32,10 @@ export async function decide(app, user, caseId, decision = 'approve', input = {}
     return decidePasskey(app, ch.challenge_id, decision, user.key.assert(ch.challenge));
 }
 
-/** L3：客戶主檔兩個欄位（北、中區）＋銷售訂單三個欄位（北區、2025 年）。 */
+/** L3：客戶主檔兩個欄位（北、中區）＋銷售訂單三個欄位（北區、2025 年）。測試區（DA-ENV-FIELD；正式區見 prod()）。 */
 export function l3Content(overrides = {}) {
     return {
+        environment: 'test',
         scope: [
             {
                 package: 'customer_master',
@@ -54,9 +56,18 @@ export function l3Content(overrides = {}) {
     };
 }
 
-/** L4：員工薪資（實發金額是 L4）。 */
+/** 正式區要寫的應用面（DA-TEST-REPORT）。 */
+export const application = (version = 'report@1.0.0') => ({ program: '月報', version, audience: '業務主管', field_uses: [] });
+
+/** 正式區的申請（DA-ENV-TEST-BASIS）：沒有可以引用的測試區單時填理由（送審後開例外 DA-TEST-EXCEPTION）。 */
+export function prod(content, reason = '測試：沒有測試區的紀錄') {
+    return { ...content, environment: 'prod', test_exception: { reason }, application: application() };
+}
+
+/** L4：員工薪資（實發金額是 L4）。測試區。 */
 export function l4Content(overrides = {}) {
     return {
+        environment: 'test',
         scope: [{ package: 'payroll', fields: ['employee_id', 'net_pay', 'pay_date'], row_filters: [] }],
         data_period: { from: '2026-01-01', to: '2026-12-31' },
         purpose_category: 'operations',

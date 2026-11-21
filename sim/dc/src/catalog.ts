@@ -12,6 +12,14 @@ interface ColumnDef {
     readonly type: ColumnType;
     // 平台目錄上的分級；不是平台欄位（只用來放列條件的值）的欄是 null。
     readonly classification: 'L1' | 'L2' | 'L3' | 'L4' | null;
+    // 這一欄在某一區已去識別或遮罩後的分級（平台目錄的 environments；D93 (2)）。測試區的資料表依它遮罩（seed.ts）
+    readonly environments?: readonly ColumnEnvironment[];
+}
+
+export interface ColumnEnvironment {
+    readonly environment: string;
+    readonly treatment: 'deidentified' | 'masked';
+    readonly classification: 'L1' | 'L2' | 'L3' | 'L4';
 }
 
 interface FilterDef {
@@ -48,7 +56,13 @@ export const PACKAGES: readonly PackageDef[] = [
             { code: 'customer_name', name: '客戶名稱', type: 'text', classification: 'L3' },
             { code: 'contract_end_date', name: '合約到期日', type: 'date', classification: 'L3' },
             { code: 'tax_id', name: '統一編號', type: 'text', classification: 'L4' },
-            { code: 'contact_phone', name: '聯絡人電話', type: 'text', classification: 'L4' },
+            {
+                code: 'contact_phone',
+                name: '聯絡人電話',
+                type: 'text',
+                classification: 'L4',
+                environments: [{ environment: 'test', treatment: 'masked', classification: 'L3' }],
+            },
             { code: 'industry', name: '產業別', type: 'text', classification: 'L1' },
             { code: 'region', name: '區域', type: 'text', classification: null },
         ],
@@ -111,7 +125,13 @@ export const PACKAGES: readonly PackageDef[] = [
             { code: 'base_salary', name: '本薪', type: 'numeric', classification: 'L4' },
             { code: 'bonus', name: '獎金', type: 'numeric', classification: 'L4' },
             { code: 'net_pay', name: '實發金額', type: 'numeric', classification: 'L4' },
-            { code: 'bank_account', name: '薪轉帳號', type: 'text', classification: 'L4' },
+            {
+                code: 'bank_account',
+                name: '薪轉帳號',
+                type: 'text',
+                classification: 'L4',
+                environments: [{ environment: 'test', treatment: 'masked', classification: 'L3' }],
+            },
             { code: 'pay_type', name: '薪資類別', type: 'text', classification: null },
         ],
         filters: [

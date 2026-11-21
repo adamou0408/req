@@ -285,6 +285,10 @@ export async function renderApply(ctx, caseId = null) {
         check.dataset.busy = 'true';
         state.timer = setTimeout(save, SAVE_DELAY_MS);
     };
+    // 流程包要依「給誰」重讀選項時（例如可以引用的測試區單），被授權者換了就通知它
+    const termsChanged = () => pack.termsChanged?.(editor, readTerms(form, type.options)).catch((err) => flash(explain(err)));
+    form.querySelector('#f-principal')?.addEventListener('change', termsChanged);
+    termsChanged();
     form.oninput = schedule;
     form.onchange = schedule;
     if (existing) show(existing);

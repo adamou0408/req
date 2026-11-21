@@ -138,6 +138,7 @@ export interface QueryInput {
     data_date: string | null;
     action: 'query' | 'export';
     as_of: string;
+    environment?: 'prod' | 'test';
 }
 
 export async function testQuery(principalId: string, query: QueryInput, probe = false): Promise<Record<string, unknown>> {
@@ -199,6 +200,7 @@ export interface RuleSetInput {
         row_filter: { filter: string; op: string; values: (string | number | null)[] }[];
         data_period: { field: string; from: string | null; to: string | null } | null;
     }[];
+    environment?: string;
 }
 
 // 02 §5.10 範例 1（驗收案例 1）的規則；principal_id 用 UUID（build_fulfilment 的實際輸出）

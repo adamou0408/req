@@ -3,6 +3,14 @@
 // 需要 admin 金鑰，並且只在 SIM_DC_ENABLE_BACKDOOR=1 時開放。真實的 DC 不會有這種端點。
 import { findColumn, findPackage, ROW_ID } from './catalog.ts';
 import { currentCatalogSha256 } from './catalogVersion.ts';
+import {
+    DATA_ENVIRONMENTS,
+    DataEnvironmentError,
+    dataSchema,
+    exportSchema,
+    parseDataEnvironment,
+    type DataEnvironment,
+} from './dataEnvironment.ts';
 import { ident, type Db } from './db.ts';
 import { exportViewName, grantExport, viewColumns } from './exportView.ts';
 import { createPolicySql, parsePolicyExpression, policyName } from './policy.ts';
@@ -19,25 +27,62 @@ function str(v: unknown, name: string): string {
     return v;
 }
 
+// 這個角色在這個主題包上有 policy 的區（沒有回 undefined）。
+async function policyEnvironment(db: Db, pkgCode: string, role: string): Promise<DataEnvironment | undefined> {
+    for (const environment of DATA_ENVIRONMENTS) {
+        const hasPolicy = await db.query(
+            `select 1 from pg_policy p where p.polrelid = format('%I.%I', $3::text, $1::text)::regclass
+               and (select oid from pg_roles where rolname = $2) = any (p.polroles)`,
+            [pkgCode, role, dataSchema(environment)],
+        );
+        if (hasPolicy.rowCount !== 0) return environment;
+    }
+    return undefined;
+}
+
+interface Target {
+    readonly roles: string[];
+    // 改哪一區：本文的 environment，沒有給就是那條規則所在的區（找不到規則是正式區）
+    readonly environment: DataEnvironment;
+}
+
 // 多給時：指定 rule_id 就給那條規則的角色；沒指定就給這個被授權者在該主題包上第一條規則的角色
 // （沒有的話給被授權者角色本身）。少給時：被授權者角色與它的每個規則角色都收回。
-async function targetRoles(db: Db, principalRole: string, pkgCode: string, ruleId: string | null, grant: boolean): Promise<string[]> {
+async function targetRoles(
+    db: Db,
+    principalRole: string,
+    pkgCode: string,
+    ruleId: string | null,
+    grant: boolean,
+    asked: DataEnvironment | null,
+): Promise<Target> {
+    const pick = (found: DataEnvironment | undefined): DataEnvironment => asked ?? found ?? 'prod';
     if (ruleId !== null) {
         const role = ruleRoleFor(principalRole, ruleId);
         if (!(await roleExists(db, role))) fail(`沒有規則 ${ruleId} 的角色`);
-        return [role];
+        return { roles: [role], environment: pick(await policyEnvironment(db, pkgCode, role)) };
     }
     const ruleRoles = await ruleRolesOf(db, principalRole);
-    if (!grant) return [principalRole, ...ruleRoles];
-    for (const role of ruleRoles) {
-        const hasPolicy = await db.query(
-            `select 1 from pg_policy p where p.polrelid = format('data.%I', $1::text)::regclass
-               and (select oid from pg_roles where rolname = $2) = any (p.polroles)`,
-            [pkgCode, role],
-        );
-        if (hasPolicy.rowCount !== 0) return [role];
+    if (!grant) {
+        let found: DataEnvironment | undefined;
+        for (const role of ruleRoles) found ??= await policyEnvironment(db, pkgCode, role);
+        return { roles: [principalRole, ...ruleRoles], environment: pick(found) };
     }
-    return [principalRole];
+    for (const role of ruleRoles) {
+        const environment = await policyEnvironment(db, pkgCode, role);
+        if (environment !== undefined) return { roles: [role], environment: pick(environment) };
+    }
+    return { roles: [principalRole], environment: pick(undefined) };
+}
+
+function askedEnvironment(body: Record<string, unknown>): DataEnvironment | null {
+    if (body['environment'] === undefined) return null;
+    try {
+        return parseDataEnvironment(body['environment'], 'environment');
+    } catch (err) {
+        if (err instanceof DataEnvironmentError) fail(err.message);
+        throw err;
+    }
 }
 
 async function grantOrRevokeColumn(db: Db, prefix: string, body: Record<string, unknown>, grant: boolean): Promise<unknown> {
@@ -55,9 +100,9 @@ async function grantOrRevokeColumn(db: Db, prefix: string, body: Record<string, 
     } else if (!(await roleExists(db, principalRole))) {
         fail(`沒有角色 ${principalRole}`);
     }
-    const roles = await targetRoles(db, principalRole, pkg.code, ruleId, grant);
-    for (const role of roles) await changeColumn(db, role, pkg.code, field, action, grant);
-    return { role: roles[0], roles, package: pkg.code, field, action, granted: grant };
+    const { roles, environment } = await targetRoles(db, principalRole, pkg.code, ruleId, grant, askedEnvironment(body));
+    for (const role of roles) await changeColumn(db, role, pkg.code, field, action, grant, environment);
+    return { role: roles[0], roles, package: pkg.code, field, action, granted: grant, environment };
 }
 
 async function changeColumn(
@@ -67,36 +112,40 @@ async function changeColumn(
     field: string,
     action: 'read' | 'export',
     grant: boolean,
+    environment: DataEnvironment,
 ): Promise<void> {
+    const table = `${dataSchema(environment)}.${ident(pkgCode)}`;
     if (action === 'read') {
         await db.query(
             grant
-                ? `grant select (${ident(ROW_ID)}, ${ident(field)}) on data.${ident(pkgCode)} to ${ident(role)}`
-                : `revoke select (${ident(field)}) on data.${ident(pkgCode)} from ${ident(role)}`,
+                ? `grant select (${ident(ROW_ID)}, ${ident(field)}) on ${table} to ${ident(role)}`
+                : `revoke select (${ident(field)}) on ${table} from ${ident(role)}`,
         );
         return;
     }
     // 匯出：把這一欄加進（或移出）角色的匯出檢視表
     const view = exportViewName(pkgCode, role);
-    const current = (await viewColumns(db, view)) ?? [];
+    const current = (await viewColumns(db, view, environment)) ?? [];
     const next = grant ? [...current, field] : current.filter((c) => c !== field);
     if (next.filter((c) => c !== ROW_ID).length === 0) {
-        await db.query(`drop view if exists export.${ident(view)}`);
+        await db.query(`drop view if exists ${exportSchema(environment)}.${ident(view)}`);
     } else {
-        await grantExport(db, pkgCode, role, next);
+        await grantExport(db, pkgCode, role, next, environment);
     }
 }
 
-async function policyOf(db: Db, pkgCode: string, ruleId: string): Promise<{ expr: string; roles: string[] }> {
-    const r = await db.query<{ expr: string; roles: string[] }>(
-        `select pg_get_expr(p.polqual, p.polrelid) as expr,
-                array(select rolname::text from pg_roles where oid = any (p.polroles)) as roles
-         from pg_policy p where p.polrelid = format('data.%I', $1::text)::regclass and p.polname = $2`,
-        [pkgCode, policyName(ruleId)],
-    );
-    const row = r.rows[0];
-    if (row === undefined) fail(`${pkgCode} 上沒有規則 ${ruleId} 的 policy`);
-    return row;
+async function policyOf(db: Db, pkgCode: string, ruleId: string): Promise<{ expr: string; roles: string[]; table: string }> {
+    for (const environment of DATA_ENVIRONMENTS) {
+        const r = await db.query<{ expr: string; roles: string[] }>(
+            `select pg_get_expr(p.polqual, p.polrelid) as expr,
+                    array(select rolname::text from pg_roles where oid = any (p.polroles)) as roles
+             from pg_policy p where p.polrelid = format('%I.%I', $3::text, $1::text)::regclass and p.polname = $2`,
+            [pkgCode, policyName(ruleId), dataSchema(environment)],
+        );
+        const row = r.rows[0];
+        if (row !== undefined) return { ...row, table: `${dataSchema(environment)}.${ident(pkgCode)}` };
+    }
+    return fail(`${pkgCode} 上沒有規則 ${ruleId} 的 policy`);
 }
 
 export async function backdoor(db: Db, prefix: string, op: string, body: Record<string, unknown>): Promise<unknown> {
@@ -109,8 +158,8 @@ export async function backdoor(db: Db, prefix: string, op: string, body: Record<
             const pkg = str(body['package'], 'package');
             const ruleId = str(body['rule_id'], 'rule_id');
             if (findPackage(pkg) === undefined) fail('沒有這個主題包');
-            await policyOf(db, pkg, ruleId);
-            await db.query(`drop policy ${ident(policyName(ruleId))} on data.${ident(pkg)}`);
+            const current = await policyOf(db, pkg, ruleId);
+            await db.query(`drop policy ${ident(policyName(ruleId))} on ${current.table}`);
             return { dropped: policyName(ruleId) };
         }
         case 'clear_row_filter': {
@@ -122,7 +171,7 @@ export async function backdoor(db: Db, prefix: string, op: string, body: Record<
             const spec = parsePolicyExpression(current.expr);
             const role = current.roles[0];
             if (spec === null || role === undefined) fail('這個 policy 不是服務建立的形式');
-            await db.query(`drop policy ${ident(policyName(ruleId))} on data.${ident(pkg)}`);
+            await db.query(`drop policy ${ident(policyName(ruleId))} on ${current.table}`);
             await db.query(createPolicySql({ ...spec, row_filter: [] }, role));
             return { widened: policyName(ruleId) };
         }

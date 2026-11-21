@@ -3,11 +3,12 @@
 // 所以同一份規則送兩次結果相同（冪等），縮小、撤回也只是重算後少了一些權限。
 import { createHash } from 'node:crypto';
 import { ROW_ID } from './catalog.ts';
+import { dataSchema } from './dataEnvironment.ts';
 import { ident, type Db } from './db.ts';
 import { grantExport } from './exportView.ts';
 import { createPolicySql, specFor } from './policy.ts';
 import { clearRole, dropRole, dropSingleRole, ensureRole, roleFor, ruleRoleFor, ruleRolesOf } from './roles.ts';
-import type { Rule, RuleSet } from './ruleset.ts';
+import { ruleSetEnvironment, type Rule, type RuleSet } from './ruleset.ts';
 
 export class ApplyConflict extends Error {}
 
@@ -89,16 +90,20 @@ async function grantRule(db: Db, principalRole: string, body: RuleSet, rule: Rul
     await ensureRole(db, ruleRole, body.grantee, rule.rule_id);
     await clearRole(db, ruleRole);
     const cols = [ROW_ID, ...rule.fields].map(ident).join(', ');
-    await db.query(`grant select (${cols}) on data.${ident(rule.package)} to ${ident(ruleRole)}`);
+    // 只給規則那一區的資料表（D93 (3)：兩區是不同的資料庫物件）
+    const environment = ruleSetEnvironment(body);
+    await db.query(`grant select (${cols}) on ${dataSchema(environment)}.${ident(rule.package)} to ${ident(ruleRole)}`);
     await db.query(createPolicySql(specFor(body, rule), ruleRole));
     // export 是 null 代表平台不設定匯出的限制（02 §5.10 範例 3），所以和 true 一樣給匯出權限
-    if (body.export !== false) await grantExport(db, rule.package, ruleRole, rule.fields);
+    if (body.export !== false) await grantExport(db, rule.package, ruleRole, rule.fields, environment);
 }
 
 interface ApplyResult {
     readonly status: 'applied';
     readonly dc_ref: string;
     readonly unchanged: boolean;
+    // 實際套用到的區（已簽的回應帶它，平台比對：D93 (3)）
+    readonly environment: string;
 }
 
 export async function applyRuleSet(
@@ -130,7 +135,12 @@ export async function applyRuleSet(
             }
             // 同一份規則再送一次：仍然重算，讓資料庫回到規則描述的狀態
             await recompute(db, prefix, rs.grantee.principal_id);
-            return { status: 'applied', dc_ref: dcRef(rs.case_no, rs.case_version_no), unchanged: true };
+            return {
+                status: 'applied',
+                dc_ref: dcRef(rs.case_no, rs.case_version_no),
+                unchanged: true,
+                environment: ruleSetEnvironment(rs),
+            };
         }
     }
     await db.query(
@@ -150,7 +160,7 @@ export async function applyRuleSet(
     if (prev !== null && prev.principal_id !== rs.grantee.principal_id) {
         await recompute(db, prefix, prev.principal_id);
     }
-    return { status: 'applied', dc_ref: dcRef(rs.case_no, rs.case_version_no), unchanged: false };
+    return { status: 'applied', dc_ref: dcRef(rs.case_no, rs.case_version_no), unchanged: false, environment: ruleSetEnvironment(rs) };
 }
 
 interface WithdrawRequest {

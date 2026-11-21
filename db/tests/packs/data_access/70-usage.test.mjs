@@ -39,10 +39,18 @@ function period(hoursAgo) {
     const from = new Date(Math.floor((Date.now() - hoursAgo * HOUR) / HOUR) * HOUR);
     return { from: from.toISOString(), to: new Date(from.getTime() + HOUR).toISOString() };
 }
+// 每一筆帶這張單的規則所在的區（K-USAGE-DETAIL：salesOrderContent 沒有指定環境，是測試區）
 function item(no, actor, p, counts, last = new Date(Date.parse(p.from) + 60000).toISOString()) {
-    return { case_no: no, actor: { provider: 'sim-ldap', external_id: actor }, period: p, ...counts, last_used_at: last };
+    return {
+        case_no: no,
+        actor: { provider: 'sim-ldap', external_id: actor },
+        period: p,
+        ...counts,
+        last_used_at: last,
+        environment: 'test',
+    };
 }
-const batch = (items) => ({ format: 'usage_summary_batch/1', database: 'mock', period_seconds: 3600, items });
+const batch = (items) => ({ format: 'usage_summary_batch/2', database: 'mock', period_seconds: 3600, items });
 const submit = async (response) => (await one(reconciler, 'select api_job.usage_submit($1, $2) as r', [CHANNEL, response])).r;
 const openCount = async (rule) =>
     (await one(admin, `select count(*)::int as n from sgn.exception_record where rule_code = $1 and closed_at is null`, [rule])).n;

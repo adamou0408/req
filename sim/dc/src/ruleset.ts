@@ -2,6 +2,7 @@
 // 這裡只檢查「結構能不能執行」：代碼在 DC 的目錄上存在、值的型別對得上。
 // 不做任何業務判斷（分級、時限、可不可以匯出），收到什麼就執行什麼。
 import { findColumn, findFilter, findPackage, ROW_ID, type FilterValueType } from './catalog.ts';
+import { DataEnvironmentError, LEGACY_ENVIRONMENT, parseDataEnvironment, type DataEnvironment } from './dataEnvironment.ts';
 import { principalIdValid, type Grantee } from './roles.ts';
 
 const RULE_SET_FORMAT = 'data_access_rule_set/1';
@@ -31,6 +32,13 @@ export interface RuleSet {
     readonly rules: readonly Rule[];
     // 平台簽核時綁定的目錄版本（D92 (1)）：只記下，DC 照自己的目錄執行，回應裡回報自己用的版本由平台比對
     readonly catalog: { readonly version_no: number; readonly sha256: string } | null;
+    // 套用到哪一區（D93 (3)）。平台這一版之前的舊單沒有寫，是正式區；本文的雜湊照收到的內容算（不補這個鍵）
+    readonly environment?: DataEnvironment;
+}
+
+/** 規則所在的區（沒有寫＝正式區）。 */
+export function ruleSetEnvironment(rs: Pick<RuleSet, 'environment'>): DataEnvironment {
+    return rs.environment ?? LEGACY_ENVIRONMENT;
 }
 
 export class RuleSetError extends Error {}
@@ -166,6 +174,13 @@ export function parseRuleSet(raw: unknown, systems: readonly string[]): RuleSet 
     if (!Array.isArray(rs['rules']) || rs['rules'].length === 0) fail('rules 必須是非空陣列');
     const rules = rs['rules'].map((r, i) => parseRule(r, i, systems));
     if (new Set(rules.map((r) => r.rule_id)).size !== rules.length) fail('rule_id 有重複');
+    let environment: DataEnvironment | undefined;
+    try {
+        environment = rs['environment'] === undefined ? undefined : parseDataEnvironment(rs['environment'], 'environment');
+    } catch (err) {
+        if (err instanceof DataEnvironmentError) fail(err.message);
+        throw err;
+    }
     return {
         format: RULE_SET_FORMAT,
         case_no: caseNo,
@@ -175,5 +190,6 @@ export function parseRuleSet(raw: unknown, systems: readonly string[]): RuleSet 
         export: exp,
         rules,
         catalog: parseCatalogRef(rs['catalog']),
+        ...(environment === undefined ? {} : { environment }),
     };
 }

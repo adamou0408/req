@@ -68,7 +68,7 @@ test('列條件的值是注入字串：照樣套用成字面值，看不到任�
     const item = (await reconciliation()).find(
         (i) => String(i.properties['db_role']).startsWith(`${ROLE}_r`) && i.resource.id === 'customer_master.customer_id',
     );
-    assert.deepEqual(item?.constraints, { row_filter: [{ filter: 'region', op: 'in', values: PAYLOADS }] });
+    assert.deepEqual(item?.constraints, { row_filter: [{ filter: 'region', op: 'in', values: PAYLOADS }], environment: 'prod' });
     // 服務角色仍然在、不是 superuser
     const svc = await sql<{ rolsuper: boolean }>(`select rolsuper from pg_roles where rolname = 'simdc_service'`);
     assert.deepEqual(svc, [{ rolsuper: false }]);

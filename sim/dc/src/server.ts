@@ -9,7 +9,7 @@ import type { ClientConfig, Config, Scope } from './config.ts';
 import { withTx, type Env } from './db.ts';
 import { reconciliationReport } from './reconcile.ts';
 import { principalIdValid } from './roles.ts';
-import { caseNoValid, parseRuleSet, RuleSetError } from './ruleset.ts';
+import { caseNoValid, parseRuleSet, RuleSetError, ruleSetEnvironment, type RuleSet } from './ruleset.ts';
 import { runSandbox, SandboxError } from './sandbox.ts';
 import {
     attest,
@@ -25,7 +25,7 @@ import {
     type TrustedKeys,
 } from './signature.ts';
 import { parseTestQuery, QueryError, runTestQuery, type TestQueryResult } from './testQuery.ts';
-import { parseActor, recordUse, usageSummaries, UsageError } from './usage.ts';
+import { parseActor, parseClientVersion, recordUse, usageSummaries, UsageError } from './usage.ts';
 
 const MAX_BODY = 1024 * 1024;
 
@@ -115,8 +115,8 @@ async function putRuleSet(ctx: Ctx, config: Config): Promise<unknown> {
         ...(await applyRuleSet(db, ctx.env.config.rolePrefix, rs, { keyId, requestId })),
         catalog: await currentCatalogSha256(db),
     }));
-    // catalog_sha256：套用時用的目錄版本（D92 (1)；在證明涵蓋的結果裡，平台和綁定的版本比對）
-    return { status: result.status, dc_ref: result.dc_ref, catalog_sha256: result.catalog };
+    // catalog_sha256：套用時用的目錄版本（D92 (1)）；environment：實際套用到的區（D93 (3)）。都在證明涵蓋的結果裡，平台比對
+    return { status: result.status, dc_ref: result.dc_ref, catalog_sha256: result.catalog, environment: result.environment };
 }
 
 async function deleteRuleSet(ctx: Ctx): Promise<[number, unknown]> {
@@ -171,21 +171,39 @@ async function verify(ctx: Ctx): Promise<unknown> {
         }
     }
     const catalog = await withTx(ctx.env, (db) => currentCatalogSha256(db), { rollback: true });
-    return { status: 'completed', results, catalog_sha256: catalog };
+    // 這張單實際套用在哪一區（服務記下的規則；還沒套用過就照請求的規則）：平台比對它和規則的區（D93 (3)）
+    const caseNo = (body.rule_set as { case_no?: unknown } | undefined)?.case_no;
+    const stored = await withTx(
+        ctx.env,
+        (db) => db.query<{ body: RuleSet }>('select body from simdc_meta.rule_set where case_no = $1', [String(caseNo)]),
+        { rollback: true },
+    );
+    const environment = ruleSetEnvironment(stored.rows[0]?.body ?? (body.rule_set as Pick<RuleSet, 'environment'>));
+    return { status: 'completed', results, catalog_sha256: catalog, environment };
 }
 
 // 實際操作的人查一次（D92 (4)；使用方系統自己的前端，模擬器以 admin 金鑰扮演）：和測試查詢相同由 PostgreSQL 判定，
 // 不回傳資料內容；每一次都記進使用紀錄（這個被授權者在這個主題包上有規則的每張單）。
 async function use(ctx: Ctx): Promise<unknown> {
     requireScope(ctx, 'data.use');
-    const body = json(ctx.body) as { principal_id?: unknown; actor?: unknown; query?: unknown };
+    const body = json(ctx.body) as { principal_id?: unknown; actor?: unknown; query?: unknown; client_version?: unknown };
     const principal = principalOf(body.principal_id);
     const actor = parseActor(body.actor);
     const q = parseTestQuery(body.query);
+    const clientVersion = parseClientVersion(body.client_version);
     // 模擬資料不一定有對應的列：和平台的驗證一樣在交易裡插入測試列（最後 rollback），判定的是權限本身
     const r = await runTestQuery(ctx.env, principal, q, { probe: true });
     const allowed = r.decision === 'allow';
-    const cases = await withTx(ctx.env, (db) => recordUse(db, principal, q.package, actor, q.action, allowed));
+    const cases = await withTx(ctx.env, (db) =>
+        recordUse(
+            db,
+            principal,
+            { package: q.package, fields: q.fields, environment: q.environment, clientVersion },
+            actor,
+            q.action,
+            allowed,
+        ),
+    );
     return { status: 'recorded', decision: r.decision, reason: r.reason, cases };
 }
 
@@ -194,7 +212,7 @@ async function usage(ctx: Ctx, config: Config): Promise<unknown> {
     return withTx(
         ctx.env,
         async (db) => ({
-            format: 'usage_summary_batch/1',
+            format: 'usage_summary_batch/2',
             database: ctx.env.config.database,
             period_seconds: config.usagePeriodSeconds,
             items: await usageSummaries(db, config.usagePeriodSeconds, config.usageWindowDays),

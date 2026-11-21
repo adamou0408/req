@@ -3,6 +3,7 @@
 // 這種任意日期（02 §5.11），每個案例都要有對應的資料列，才分得出「被擋下」和「本來就沒有資料」。
 import { createHash } from 'node:crypto';
 import { PACKAGES, findPackage, type PackageDef } from './catalog.ts';
+import { dataSchema } from './dataEnvironment.ts';
 import { ident, type Db } from './db.ts';
 
 type Row = Record<string, string | number>;
@@ -159,6 +160,18 @@ function masked(pkg: PackageDef, row: Row, rand: () => number): Row {
     return out;
 }
 
+// 測試區（同一個資料庫的 data_test）：正式區的副本，只有目錄標示「在測試區已遮罩或去識別」的欄位換掉（D93 (2)）。
+function maskedIn(pkg: PackageDef, row: Row, environment: string, rand: () => number): Row {
+    const out: Row = { ...row };
+    for (const col of pkg.columns) {
+        const v = row[col.code];
+        if (v === undefined || !(col.environments ?? []).some((z) => z.environment === environment)) continue;
+        if (col.type === 'text') out[col.code] = token(String(v));
+        if (col.type === 'numeric') out[col.code] = Math.round(Number(v) * (0.5 + rand()));
+    }
+    return out;
+}
+
 function generateRows(packageCode: string, mask: boolean): Row[] {
     const pkg = findPackage(packageCode);
     const gen = GENERATORS[packageCode];
@@ -169,18 +182,29 @@ function generateRows(packageCode: string, mask: boolean): Row[] {
     return rows.map((r) => masked(pkg, r, noise));
 }
 
+async function insertRows(db: Db, schema: string, pkg: PackageDef, rows: Row[]): Promise<void> {
+    const cols = pkg.columns.map((c) => ident(c.code)).join(', ');
+    const types = pkg.columns.map((c) => `${ident(c.code)} ${c.type}`).join(', ');
+    for (let i = 0; i < rows.length; i += 2000) {
+        await db.query(
+            `insert into ${schema}.${ident(pkg.code)} (${cols}) select ${cols} from jsonb_to_recordset($1::jsonb) as t (${types})`,
+            [JSON.stringify(rows.slice(i, i + 2000))],
+        );
+    }
+}
+
 export async function loadSeed(db: Db, mask: boolean): Promise<Record<string, number>> {
     const counts: Record<string, number> = {};
     for (const pkg of PACKAGES) {
         const rows = generateRows(pkg.code, mask);
-        const cols = pkg.columns.map((c) => ident(c.code)).join(', ');
-        const types = pkg.columns.map((c) => `${ident(c.code)} ${c.type}`).join(', ');
-        for (let i = 0; i < rows.length; i += 2000) {
-            await db.query(
-                `insert into data.${ident(pkg.code)} (${cols}) select ${cols} from jsonb_to_recordset($1::jsonb) as t (${types})`,
-                [JSON.stringify(rows.slice(i, i + 2000))],
-            );
-        }
+        await insertRows(db, dataSchema('prod'), pkg, rows);
+        const noise = prng(pkg.code.length * 31);
+        await insertRows(
+            db,
+            dataSchema('test'),
+            pkg,
+            rows.map((r) => maskedIn(pkg, r, 'test', noise)),
+        );
         counts[pkg.code] = rows.length;
     }
     return counts;

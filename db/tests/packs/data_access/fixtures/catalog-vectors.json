@@ -3,9 +3,9 @@
     {
       "name": "seed",
       "remap": {},
-      "sha256": "8880fedf3394eaa42dd4412ea0d5060f3806e1d875d6ada8ed386e548a6434c9",
+      "sha256": "98c5fc60eb7e27b09679c9641a1ee4eb605472d31ef9907bb485ca291fdaaec5",
       "snapshot": {
-        "format": "data_access_catalog/1",
+        "format": "data_access_catalog/2",
         "packages": [
           {
             "code": "customer_master",
@@ -15,6 +15,13 @@
                 "code": "contact_phone",
                 "name": "聯絡人電話",
                 "resource": "contact_phone",
+                "environments": [
+                  {
+                    "treatment": "masked",
+                    "environment": "test",
+                    "classification": "L3"
+                  }
+                ],
                 "classification": "L4"
               },
               {
@@ -86,6 +93,13 @@
                 "code": "bank_account",
                 "name": "薪轉帳號",
                 "resource": "bank_account",
+                "environments": [
+                  {
+                    "treatment": "masked",
+                    "environment": "test",
+                    "classification": "L3"
+                  }
+                ],
                 "classification": "L4"
               },
               {
@@ -306,8 +320,8 @@
       "remap": {
         "product_cost.cost_date": "amount_v2"
       },
-      "sha256": "89e716a6dc8723adc6fd308351a8fd8aa1b5f326112afec6cadacef96ab73d43"
+      "sha256": "4b5078fbb57d845fee465e3f89a98d2936b0d7e9184468414323ee8cf1808c5c"
     }
   ],
-  "description": "資料目錄版本的測試向量（D92 (1)；docs/contract/02-pack-data-access.md §8.6）。平台（db/tests/packs/data_access/60-catalog-version.test.mjs）與 sim/dc（sim/dc/tests/11-catalog-version.test.ts）都要算出相同的雜湊。"
+  "description": "資料目錄版本的測試向量（D92 (1)；docs/contract/02-pack-data-access.md §8.6）。平台（db/tests/packs/data_access/60-catalog-version.test.mjs）與 sim/dc（sim/dc/tests/11-catalog-version.test.ts）都要算出相同的雜湊。格式 data_access_catalog/2：欄位多了分區標示 environments（D93 (2)）。"
 }

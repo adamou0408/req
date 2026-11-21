@@ -62,7 +62,8 @@ after(async () => {
 const l3 = (overrides = {}) => ({
     principal: '北區客戶流失分析',
     from: day(),
-    to: day(3),
+    // 新申請畫面預設測試區（DA-ENV-FIELD），測試區的授權期間上限較短（DA-ENV-VALIDITY，初始 3 個月）
+    to: day(2),
     packages: {
         customer_master: { fields: ['customer_id', 'customer_name'], filters: { region: ['north', 'central'] } },
         sales_order: { fields: ['order_no', 'amount', 'order_date'], filters: { region: ['north'] } },
@@ -117,7 +118,7 @@ test('DA-PATH-L3 L3 走完：林怡君申請 → 陳建宏核准 → 周文傑�
     await manager.page.waitForSelector('[data-testid=decision-facts]');
     // 第一個畫面就要看到：誰申請、給誰、哪些資料、多久、與前案差異、重疊警示（不用捲動）
     const facts = manager.page.locator('[data-testid=decision-facts]');
-    for (const text of ['林怡君', '北區客戶流失分析', '客戶主檔', '銷售訂單', day(3), '沒有前一版', '沒有和有效授權重疊'])
+    for (const text of ['林怡君', '北區客戶流失分析', '客戶主檔', '銷售訂單', day(2), '沒有前一版', '沒有和有效授權重疊'])
         assert.match(await facts.textContent(), new RegExp(text));
     const factsBox = await facts.boundingBox();
     const barBox = await manager.page.locator('[data-testid=action-bar]').boundingBox();
@@ -353,7 +354,7 @@ test('DA-PATH-L4 L4 多一關資安長，且不能申請匯出：畫面提示已
     await fillApplication(applicant, {
         principal: 'sales-report-bot',
         from: day(),
-        to: day(5),
+        to: day(2),
         packages: { payroll: { fields: ['employee_id', 'net_pay', 'pay_date'] } },
         period: { from: '2026-01-01', to: '2026-12-31' },
         purpose: 'operations',
@@ -380,7 +381,7 @@ test('DA-PATH-L4 L4 多一關資安長，且不能申請匯出：畫面提示已
 
 test('K-CHANGE-REDUCE 簽核人縮短授權迄日後核准：不用重簽，申請人看得到「已縮小」的標示（T3 步數）', async () => {
     const applicant = await loggedIn('p04');
-    const { caseNo } = await apply('p04', l3({ principal: '業務分析部', to: day(4), description: '縮小測試' }));
+    const { caseNo } = await apply('p04', l3({ principal: '業務分析部', to: day(2), description: '縮小測試' }));
     // 業務分析部的負責人陳建宏是林怡君的主管：他先簽負責人確認，主管關因此往上給方國華（D79 (2)、K-SOD-DISTINCT）
     await decide('p03', caseNo);
     await decide('p02', caseNo);
@@ -391,11 +392,11 @@ test('K-CHANGE-REDUCE 簽核人縮短授權迄日後核准：不用重簽，申�
     await owner.page.click(`[data-testid=inbox-item][data-case-no="${caseNo}"]`);
     steps.push('點待簽清單裡的單');
     await owner.page.waitForSelector('[data-testid=decision-facts]');
-    assert.match(await owner.page.textContent('[data-testid=validity]'), new RegExp(day(4)));
+    assert.match(await owner.page.textContent('[data-testid=validity]'), new RegExp(day(2)));
     await owner.page.click('[data-action=approve_reduced]');
     steps.push('按「縮小後核准」');
     layout.push(...(await layoutProblems(owner.page, '縮小後核准')));
-    await owner.page.fill('[data-testid=reduce-valid-to]', day(2));
+    await owner.page.fill('[data-testid=reduce-valid-to]', day(1));
     steps.push('改授權迄日');
     await owner.page.click('[data-testid=reduce-submit]');
     steps.push('按「縮小後核准」（送出縮小內容）');
@@ -404,13 +405,13 @@ test('K-CHANGE-REDUCE 簽核人縮短授權迄日後核准：不用重簽，申�
     steps.push('裝置上的使用者驗證');
     await owner.page.waitForSelector('#flash.ok:not([hidden])');
     const c = await caseByNo(applicant, caseNo);
-    assert.equal(c.terms.valid_to, day(2));
+    assert.equal(c.terms.valid_to, day(1));
     assert.deepEqual(c.versions.map((v) => [v.change_kind, v.created_by_name]).at(-1), ['reduce', '張美玲']);
     assert.equal(c.stages.find((s) => s.code === 'manager').status, 'done', '主管不用重簽');
     // 申請人：詳情頁看得到誰縮小了什麼
     await openFromHome(applicant, caseNo);
     assert.match(await applicant.page.textContent('[data-testid=reduced-by]'), /張美玲 縮小了申請內容/);
-    assert.match(await applicant.page.textContent('[data-testid=diff]'), new RegExp(`授權迄日：${day(4)} → ${day(2)}`));
+    assert.match(await applicant.page.textContent('[data-testid=diff]'), new RegExp(`授權迄日：${day(2)} → ${day(1)}`));
     // 另一位資料擁有者看到的是縮小後的版本與差異
     const other = await loggedIn('p09');
     await openFromHome(other, caseNo);
@@ -541,7 +542,7 @@ test('K-SOD-DISTINCT 主管同時是資料擁有者：吳家豪申請銷售訂�
     const { caseNo } = await apply('p12', {
         principal: 'ap-recon-bot',
         from: day(),
-        to: day(3),
+        to: day(2),
         packages: { sales_order: { fields: ['order_no', 'amount'], filters: { region: ['north'] } } },
         period: { from: '2026-01-01', to: '2026-06-30' },
         description: '應付帳款對帳',

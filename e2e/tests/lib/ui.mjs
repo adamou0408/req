@@ -247,7 +247,9 @@ export const principalIds = async (page) =>
 
 /**
  * 在新申請畫面填一張申請。spec：{ principal, from, to, packages: { 代碼: { fields, filters: { 條件: [值] } } },
- * period: {from, to}, purpose, description, exportAllowed }。回傳時即時檢查已經更新完。
+ * period: {from, to}, purpose, description, exportAllowed, environment, basis（引用的測試區單的 case_id）, basisReason（沒有測試紀錄的理由）,
+ * application: {program, version, audience} }。
+ * 沒有給 environment 就用畫面預設的那一區（資料庫標的預設）。回傳時即時檢查已經更新完。
  */
 export async function fillApplication(p, spec) {
     const { page } = p;
@@ -257,6 +259,15 @@ export async function fillApplication(p, spec) {
     await page.fill('#f-valid-from', spec.from);
     await page.fill('#f-valid-to', spec.to);
     await openSegment(page, 'data');
+    if (spec.environment) await page.check(`#f-env-${spec.environment}`);
+    if (spec.basis) {
+        await page.waitForSelector(`#f-basis-${spec.basis}`);
+        await page.check(`#f-basis-${spec.basis}`);
+    }
+    if (spec.basisReason) {
+        await page.check('#f-basis-none');
+        await page.fill('#f-basis-reason', spec.basisReason);
+    }
     for (const [pkg, item] of Object.entries(spec.packages)) {
         await openPackage(page, pkg);
         for (const field of item.fields) await page.check(`#f-${pkg}-f-${field}`);
@@ -271,6 +282,7 @@ export async function fillApplication(p, spec) {
     await page.selectOption('#f-purpose', spec.purpose ?? 'reporting');
     await page.fill('#f-purpose-text', spec.description ?? '例行分析');
     if (spec.exportAllowed) await page.check('#f-export');
+    for (const [key, value] of Object.entries(spec.application ?? {})) await page.fill(`#f-app-${key}`, value);
     await openSegment(page, 'review');
     await checkSettled(page);
 }

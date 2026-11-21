@@ -13,7 +13,19 @@ import {
     rejectsWith,
     setSetting,
 } from '../../kernel/lib/harness.mjs';
-import { addMonths, DA, decide, l3Content, l4Content, principals, terms, today } from './lib.mjs';
+import {
+    addMonths,
+    DA,
+    decide,
+    l3Content,
+    l4Content,
+    l3Content as l3Base,
+    l4Content as l4Base,
+    principals,
+    prod,
+    terms,
+    today,
+} from './lib.mjs';
 
 const app = pool('APP');
 const admin = pool('ADMIN');
@@ -114,7 +126,7 @@ test('DA-FULFIL-RULE 核准完成時產生交給外部系統的規則（結構�
 });
 
 test('DA-FULFIL-CUSTODIAN 執行設定由主題包所屬系統的管理人認領；不是那個系統的管理人不能認領', async () => {
-    const c = await submit('p04', l4Content(), terms(P['ap-recon-bot'], 5));
+    const c = await submit('p04', l4Content(), terms(P['ap-recon-bot'], 2));
     await decide(app, users.p12, c.case_id); // 代填：ap-recon-bot 的負責人吳家豪先確認（D79 (2)）
     await decide(app, users.p03, c.case_id);
     await decide(app, users.p15, c.case_id);
@@ -131,7 +143,7 @@ test('DA-FULFIL-CUSTODIAN 執行設定由主題包所屬系統的管理人認領
 });
 
 test('DA-PATH-L4 L4：資料擁有者之後多一關資安長；L4 的單要求匯出時改為只能查詢（DA-EXPORT-TIER）', async () => {
-    const c = await submit('p04', l4Content({ export_allowed: true }), terms(P['sales-report-bot'], 5));
+    const c = await submit('p04', l4Content({ export_allowed: true }), terms(P['sales-report-bot'], 2));
     assert.equal(c.tier, 'L4');
     assert.equal(c.content.export_allowed, false);
     assert.deepEqual(codesOf(c.notices), ['DA-N-EXPORT-FORCED']);
@@ -165,7 +177,9 @@ test('DA-PATH-L4 新申請畫面讀得到每個級別會經過的關卡（路徑
     );
 });
 
-test('K-VALIDITY-MAX 授權起迄不得超過級別的上限（參數）：L3 12 個月、L4 6 個月（DA-DEFAULT-SETTINGS）', async () => {
+test('K-VALIDITY-MAX 授權起迄不得超過級別的上限（參數）：L3 12 個月、L4 6 個月（DA-DEFAULT-SETTINGS；正式區，測試區另有較短的上限）', async () => {
+    const l3Content = (o) => prod(l3Base(o));
+    const l4Content = (o) => prod(l4Base(o));
     const max = async (tier) =>
         (await one(admin, `select sgn_internal.setting('validity.max_months', array['tier:data_access:' || $1::text]) as v`, [tier])).v;
     assert.equal(await max('L3'), 12);
@@ -221,7 +235,7 @@ test('K-PRINCIPAL 被授權者是團隊、專案或 agent，一定有在職的�
 
 test('K-CHANGE-REDUCE 資料擁有者縮小後核准：產生新版本、不用重簽、通知申請人；並行的另一位以新版本決定（K-VERSION-BOUND）', async () => {
     // 業務分析部的負責人是林怡君的主管陳建宏：他先簽負責人確認，主管關因此往上給方國華（D79 (2)、K-SOD-DISTINCT）
-    const c = await submit('p04', l3Content(), terms(P['業務分析部'], 4));
+    const c = await submit('p04', l3Content(), terms(P['業務分析部'], 2));
     await decide(app, users.p03, c.case_id);
     assert.deepEqual((await view('p04', c.case_id)).waiting_on, ['方國華']);
     await decide(app, users.p02, c.case_id);
@@ -229,7 +243,7 @@ test('K-CHANGE-REDUCE 資料擁有者縮小後核准：產生新版本、不用�
     // 張美玲把銷售訂單的列條件收緊、拿掉一個欄位，授權迄日縮短一個月
     const reduced = l3Content();
     reduced.scope[1].fields = ['order_no', 'amount'];
-    const shorter = { ...terms(P['業務分析部'], 4), valid_to: addMonths(today(), 3) };
+    const shorter = { ...terms(P['業務分析部'], 2), valid_to: addMonths(today(), 1) };
     const ch = await issueChallenge(app, users.p11, c.case_id, 'approve_reduced', { content: reduced, terms: shorter });
     assert.equal(ch.input.tier, 'L3');
     await decidePasskey(app, ch.challenge_id, 'approve_reduced', users.p11.key.assert(ch.challenge));
@@ -261,7 +275,7 @@ test('K-CHANGE-REDUCE 資料擁有者縮小後核准：產生新版本、不用�
 });
 
 test('K-CHANGE-REDUCE 簽核人不能擴大：加欄位、改被授權者、延長授權迄日一律拒絕', async () => {
-    const t = terms(P['業務分析部'], 4);
+    const t = terms(P['業務分析部'], 2);
     const c = await submit('p04', l3Content({ purpose_description: '縮小測試' }), t);
     await decide(app, users.p03, c.case_id); // 業務分析部的負責人確認（D79 (2)）
     await decide(app, users.p02, c.case_id); // 主管關：陳建宏已簽過，往上給方國華
@@ -274,7 +288,7 @@ test('K-CHANGE-REDUCE 簽核人不能擴大：加欄位、改被授權者、延�
         'CHANGE_NOT_REDUCE',
     );
     await rejectsWith(
-        issueChallenge(app, users.p11, c.case_id, 'approve_reduced', { terms: { ...t, valid_to: addMonths(today(), 5) } }),
+        issueChallenge(app, users.p11, c.case_id, 'approve_reduced', { terms: { ...t, valid_to: addMonths(today(), 3, -1) } }),
         'CHANGE_NOT_REDUCE',
     );
     await rejectsWith(
@@ -284,7 +298,7 @@ test('K-CHANGE-REDUCE 簽核人不能擴大：加欄位、改被授權者、延�
 });
 
 test('K-RETURN 退回後申請人只做縮小：從退回的那一關繼續；做了其他修改（擴大）：從第一關重簽', async () => {
-    const t = terms(P['季度業績看板'], 3);
+    const t = terms(P['季度業績看板'], 2);
     const c = await submit('p04', l3Content({ purpose_description: '退回測試' }), t);
     await decide(app, users.p06, c.case_id); // 代填：季度業績看板的負責人蔡佩珊先確認（D79 (2)）
     await decide(app, users.p03, c.case_id);
@@ -313,7 +327,7 @@ test('K-RETURN 退回後申請人只做縮小：從退回的那一關繼續；�
 
 test('K-SOD-DISTINCT 主管同時是資料擁有者：資料擁有者關撞到同一人，往上一層主管找（張美玲 → 蘇慧敏）', async () => {
     const content = { ...l3Content({ purpose_description: '財務部的申請' }), scope: [l3Content().scope[1]] };
-    const c = await submit('p12', content, terms(P['ap-recon-bot'], 3));
+    const c = await submit('p12', content, terms(P['ap-recon-bot'], 2));
     assert.deepEqual(c.waiting_on, ['張美玲']);
     await decide(app, users.p11, c.case_id);
     const v = await view('p12', c.case_id);

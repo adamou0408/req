@@ -1,6 +1,7 @@
 // 被授權者角色：每個被授權者一個 NOLOGIN 角色。服務以 SET ROLE 代它執行測試查詢；
 // 真實的 DC 會再把人員帳號加進這個角色（成員管理不在模擬範圍）。
 import { createHash } from 'node:crypto';
+import { DATA_SCHEMAS, EXPORT_SCHEMAS } from './dataEnvironment.ts';
 import { ident, lit, type Db } from './db.ts';
 import { dropExportViews } from './exportView.ts';
 
@@ -54,27 +55,27 @@ export async function ensureRole(db: Db, role: string, grantee: Grantee, ruleId:
         ...(ruleId === null ? {} : { rule_id: ruleId }),
     });
     await db.query(`comment on role ${ident(role)} is ${lit(comment)}`);
-    for (const schema of ['data', 'export', 'simdc']) {
+    for (const schema of [...DATA_SCHEMAS, ...EXPORT_SCHEMAS, 'simdc']) {
         await db.query(`grant usage on schema ${schema} to ${ident(role)}`);
     }
 }
 
-// 收回角色在本資料庫的全部權限與 policy。
+// 收回角色在本資料庫的全部權限與 policy（兩區都收）。
 export async function clearRole(db: Db, role: string): Promise<void> {
     if (!(await roleExists(db, role))) return;
-    const policies = await db.query<{ polname: string; relname: string }>(
-        `select p.polname, c.relname
+    const policies = await db.query<{ polname: string; relname: string; nspname: string }>(
+        `select p.polname, c.relname, n.nspname
          from pg_policy p
          join pg_class c on c.oid = p.polrelid
          join pg_namespace n on n.oid = c.relnamespace
-         where n.nspname = 'data' and p.polroles = array[(select oid from pg_roles where rolname = $1)]`,
-        [role],
+         where n.nspname = any($2::text[]) and p.polroles = array[(select oid from pg_roles where rolname = $1)]`,
+        [role, DATA_SCHEMAS],
     );
     for (const p of policies.rows) {
-        await db.query(`drop policy ${ident(p.polname)} on data.${ident(p.relname)}`);
+        await db.query(`drop policy ${ident(p.polname)} on ${ident(p.nspname)}.${ident(p.relname)}`);
     }
     // 資料表層級的 revoke 會一併收回各欄的權限
-    await db.query(`revoke all on all tables in schema data from ${ident(role)}`);
+    for (const schema of DATA_SCHEMAS) await db.query(`revoke all on all tables in schema ${schema} from ${ident(role)}`);
     await dropExportViews(db, role);
 }
 
@@ -87,7 +88,7 @@ export async function dropRole(db: Db, role: string): Promise<void> {
 
 export async function dropSingleRole(db: Db, role: string): Promise<void> {
     await clearRole(db, role);
-    for (const schema of ['data', 'export', 'simdc']) {
+    for (const schema of [...DATA_SCHEMAS, ...EXPORT_SCHEMAS, 'simdc']) {
         await db.query(`revoke all on schema ${schema} from ${ident(role)}`);
     }
     await db.query(`drop role ${ident(role)}`);
