@@ -32,6 +32,23 @@ function waitingText(c) {
     return `${stage.name}・${(claim ? t.waitingClaim : t.waitingOn)(c.waiting_on)}`;
 }
 
+/** 目前這關的期限、是否逾期與升級（資料庫算好；K-SLA-VIEW）。 */
+function slaView(c) {
+    if (!c.sla) return null;
+    return el(
+        'div',
+        {
+            class: `result ${c.sla.overdue || c.sla.escalated ? 'warn' : 'ok'}`,
+            'data-testid': 'sla',
+            'data-overdue': String(c.sla.overdue),
+            'data-escalated': String(c.sla.escalated),
+        },
+        el('p', {}, t.sla.box(c.sla)),
+        c.sla.overdue ? el('p', {}, t.sla.overdue) : null,
+        c.sla.escalated ? el('p', {}, t.sla.escalated(c.sla.escalated_to)) : null,
+    );
+}
+
 function overlapFact(pack, overlap) {
     if (!overlap) return null;
     const cls = { none: 'ok-text', partial: 'warn-text', covered: 'bad-text' }[overlap.level] ?? 'warn-text';
@@ -517,11 +534,21 @@ export async function renderCase(ctx, caseId) {
                   t.overdue.box(c.overdue),
               )
             : null,
+        // 被授權者不能用：不能再往下核准（資料庫回傳的訊息與期限；K-OWNER-CONTINUITY）
+        c.hold
+            ? el(
+                  'div',
+                  { class: 'result bad', role: 'alert', 'data-testid': 'hold', 'data-code': c.hold.code },
+                  el('p', {}, c.hold.message),
+                  c.hold.due_text ? el('p', {}, t.holdDue(c.hold.due_text)) : null,
+              )
+            : null,
         duplicatesNotice(c),
         needsProof ? passkeyNotice(ctx.me) : null,
         confirmationPanel(c),
         decisionFacts(d, pack),
         waitingText(c) ? el('p', { class: 'muted', 'data-testid': 'progress' }, `${t.progress}：`, waitingText(c)) : null,
+        slaView(c),
         deliveryView(c),
         usageView(c),
         c.actions.some((a) => BODY_ACTIONS.includes(a))

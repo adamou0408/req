@@ -21,14 +21,15 @@
 | 資料授權：申請、多關簽核、系統對系統交付、自動驗證、申請人確認、生效、到期、撤銷、對帳、使用紀錄摘要、資料目錄版本綁定、能力宣告、測試區與正式區、測試報告、匯出需求調查 | 已實作；端對端用模擬的手機瀏覽器，未用真機 |
 | 模擬環境 `sim/`：OpenLDAP、Dex（OIDC）、Mailpit（SMTP）、DC 模擬器 | 可用 |
 | 紅隊：八輪，第八輪沒有高風險發現（D90） | 每個成立的攻擊都有可重跑的腳本（`redteam/exploits/`）；`34`、`40` 是已接受的殘餘風險 |
-| 催辦與升級、代理與助理、續期、批次、急件、到期前提醒、定期複查、緊急路徑 | 未實作 |
+| 簽核關卡的催辦與升級、群組認領逾期、到期前提醒、負責人離職的改指派與逾期撤銷、被授權者結束時授權失效 | 已實作（功能第四批 `docs/handoff/feature-4-deadlines.md`；尚未經複核與紅隊）；沒有調職偵測、離任當天暫停、升級前預告 |
+| 代理與助理、續期、批次、急件、定期複查、緊急路徑 | 未實作 |
 | 公司別、組織與雇用實體、人事事件處置、設定變更單、環境與發行、機密內容服務、封套加密、第二個錨定位置 | 未實作 |
 | 對外整合介面（`api_client`、`check`、`grants`、webhook、複查）；`05-integration.md` 的多數內容 | 未實作；對帳與使用紀錄走另一條路（平台向使用方系統拉取，D92） |
 | 其餘流程包（合約用印、系統帳號、程式變更上線、供應商銀行帳號、治理範本） | 合約用印只有契約；其餘沒有規則文件 |
 | 管理畫面、部署（`deploy/`）、離線驗證工具 `tools/verify/` | 未開始（鏈的離線驗證在 `db/tools/verify-chain.mjs`） |
 | 工程規範要求但尚未做：產生器與 `docs/reference/`、`generated/`、產生檔無差異檢查；sqlfluff、knip、Trivy、hadolint、actionlint | 未做（`docs/handoff/promote.md` §7） |
 
-細節與沒做到的事：`docs/handoff/` 的索引 [docs/handoff/README.md](docs/handoff/README.md)，最後幾份是 `closed-loop-1.md` 到 `closed-loop-3.md`。
+細節與沒做到的事：`docs/handoff/` 的索引 [docs/handoff/README.md](docs/handoff/README.md)，最後幾份是 `closed-loop-1.md` 到 `closed-loop-3.md` 與 `feature-4-deadlines.md`。
 
 ## 目錄結構
 

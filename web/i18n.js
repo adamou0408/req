@@ -34,6 +34,44 @@ export const t = {
     overlap: '重疊檢查',
     progress: '進度',
     waitingOn: (names) => `等待 ${names.join('、')}`,
+    /** 被授權者的負責人離職或停用（K-OWNER-CONTINUITY）：首頁的改指派區塊 */
+    ownerGap: {
+        section: '負責人離職：要改指派的被授權者',
+        title: (g) => `${t.principalKind[g.principal.kind] ?? g.principal.kind}・${g.principal.name}（原負責人 ${g.departed.name}）`,
+        due: '改指派期限',
+        cases: '名下的單',
+        casesText: (g) => `生效中 ${g.active_cases} 筆、簽核中 ${g.approving_cases} 筆`,
+        handover: '目前指定',
+        waiting: (h) => `${h.new_owner.name}（${h.proposed_by.name} 指定，等他確認接下）`,
+        consequence: '期限內沒有新的負責人確認接下，名下生效中的授權會自動撤銷；簽核中的單在這之前不能再核准。',
+        newOwner: '新的負責人',
+        choose: '請選擇',
+        reasonLabel: '指定的原因（會記在紀錄上，新負責人看得到）',
+        propose: '指定為新的負責人',
+        proposed: '已指定，等新的負責人用通行金鑰確認接下。',
+        accept: '確認接下負責人',
+        acceptTitle: '確認接下被授權者的負責人',
+        acceptConsequence: (h) =>
+            `接下之後你就是 ${h.principal.name} 的負責人：名下的授權由你負責，到期提醒、使用提醒會寄給你，你也可以撤銷。紀錄會寫明是你用通行金鑰確認的。`,
+        principal: '被授權者',
+        departed: '原負責人',
+        proposedBy: '指定的人',
+        reason: '原因',
+        accepted: (name) => `你已接下 ${name} 的負責人。`,
+    },
+    /** 簽核中的單為什麼不能往下核准（資料庫回傳的訊息；K-OWNER-CONTINUITY、K-PRINCIPAL-END） */
+    holdDue: (due) => `負責人改指派的期限：${due}。`,
+    /** 簽核關卡的時限（資料庫算好；K-SLA-VIEW） */
+    sla: {
+        line: (s) =>
+            `${s.claim ? '等認領' : '已等'} ${s.waiting_workdays} 個工作天${s.overdue ? '・已逾期' : ''}${s.escalated ? '・已升級' : ''}`,
+        box: (s) =>
+            `${s.stage_name}：已等 ${s.waiting_workdays} 個工作天。催辦期限 ${s.remind_due}，${s.claim ? '再過' : '升級期限'} ${s.escalate_due}${
+                s.claim ? ' 還沒人認領就開例外' : ''
+            }。`,
+        overdue: '已過催辦期限。',
+        escalated: (names) => `已逾期升級給 ${names.join('、')}，原簽核人不能再簽這一關。`,
+    },
     waitingClaim: (names) => `等待認領（${names.join('、')}）`,
     claimable: '可認領',
     halted: (stage) => `「${stage}」找不到合格的簽核人，流程停住並已開立例外，請通知流程管理者。`,
@@ -368,6 +406,9 @@ export const t = {
         'K-PASSKEY-SUSPEND-FLOOD': '控制例外：全公司只憑登入停用通行金鑰的次數超過上限，之後的停用被拒絕。可能有人冒用登入。',
         'K-PROGRAM-STALLED': '系統例外：背景程式沒有按時回報，或逾期的工作沒有人處理（到期、確認逾期、交付可能卡住）。',
         'K-USAGE-IDLE': '使用提醒：這筆授權生效以來一直沒有使用。不再需要時請撤銷（系統不會自動收回）。',
+        'K-SLA-STALLED': '時限例外：這一關逾期未簽，往上找不到可以簽的人，或升級對象也逾期。工作仍在原來的人手上，請安排處理。',
+        'K-SLA-CLAIM': '時限例外：群組關卡逾期沒有人認領，請安排群組內的人認領。',
+        'K-OWNER-CONTINUITY': '負責人例外：被授權者的負責人離職或停用，要在寬限期內改指派，逾期名下的授權自動撤銷。',
         'K-USAGE-UNVERIFIED': '使用紀錄例外：外部系統交來的使用摘要沒有通過檢查，沒有採信。',
         'K-USAGE-OVERDUE': '使用紀錄例外：外部系統超過時間沒有新的使用摘要。',
     },
@@ -386,6 +427,7 @@ export const t = {
         'K-REGISTRAR-MIN': '通行金鑰登記人',
         'K-PASSKEY-SUSPEND-FLOOD': '通行金鑰',
         'K-PROGRAM-STALLED': '背景程式',
+        'K-OWNER-CONTINUITY': '被授權者的負責人',
     },
     exceptionClosed: (at) => `・已結案（${dateText(at)}）`,
     /** 例外清單的一組（同規則同單合成一筆，K-HOME-ORDER） */
@@ -403,6 +445,10 @@ export const t = {
             grant_expiry: '授權迄日已過，還沒有轉為到期',
             confirmation_expiry: '確認期限已過，還沒有自動撤銷',
             delivery: '送到外部系統超過時限還沒有結果',
+            approval_sla: '簽核關卡的催辦或升級期限已過，排程還沒有處理',
+            expiry_remind: '授權快到期，到期前提醒還沒有寄出',
+            owner_gap: '負責人改指派的寬限期已過，授權還沒有撤銷',
+            principal_end: '被授權者已結束，授權還沒有失效',
         },
     },
     programHealth: {
@@ -468,6 +514,11 @@ export const t = {
         'exception.escalated': '例外逾期，已升級',
         'reconciliation.finding_resolved': '對帳差異已解除',
         'reconciliation.withdraw_scheduled': '對帳發現多餘的權限，排入撤回',
+        'case.task_reminded': '逾期催辦',
+        'case.task_escalated': '逾期升級給上一層主管',
+        'case.task_escalation_failed': '逾期但往上找不到可以簽的人',
+        'case.task_stalled': '關卡逾期，開立例外',
+        'grant.expiry_reminded': '到期前提醒',
         'case.rebound': '依新的定義重新整理內容',
     },
     proofKind: { passkey: '通行金鑰簽章', idp_stepup: '身分提供者再驗證' },

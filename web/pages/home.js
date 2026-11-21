@@ -3,6 +3,7 @@ import { api } from '../api.js';
 import { passkeyNotice } from '../decide.js';
 import { t } from '../i18n.js';
 import { packOf, packs } from '../packs/index.js';
+import { ownerSection } from './owners.js';
 import { el, empty, go, section, stateBadge, tierBadge } from '../ui.js';
 
 /** 清單卡片：單號、申請人、哪些資料、期間、等誰。點了進詳情。 */
@@ -23,6 +24,19 @@ async function caseCard(c, testid) {
         el('span', { class: 'line' }, cat ? pack.packagesLine(cat, c.content) : c.process_type),
         el('span', { class: 'line muted' }, `${c.terms.principal?.name ?? '—'}・${t.validRange(c.terms.valid_from, c.terms.valid_to)}`),
         stage ? el('span', { class: 'line muted' }, `${stage.name}${waiting ? `・${waiting}` : ''}`) : null,
+        // 已等幾個工作天、是否逾期與升級（資料庫算好，也是待簽清單的排序依據；K-SLA-VIEW）
+        c.sla
+            ? el(
+                  'span',
+                  {
+                      class: c.sla.overdue ? 'line warn-text' : 'line muted',
+                      'data-testid': 'sla',
+                      'data-overdue': String(c.sla.overdue),
+                      'data-workdays': String(c.sla.waiting_workdays),
+                  },
+                  t.sla.line(c.sla),
+              )
+            : null,
         // 逾期還沒被處理（資料庫算好；排程或交付程式可能停擺，K-PROGRAM-STALLED）
         c.overdue
             ? el('span', { class: 'line bad-text', 'data-testid': 'overdue', 'data-kind': c.overdue.kind }, t.overdue.line(c.overdue))
@@ -177,6 +191,7 @@ const rolesSection = () =>
 /** 每個功能在首頁的區塊。區塊的順序就是資料庫回傳的 capabilities 的順序（最需要處理的在前；K-HOME-ORDER）。 */
 const SECTIONS = {
     inbox: (ctx) => [fillInbox(ctx)],
+    owner_handover: (ctx) => [ownerSection(ctx)],
     audit: () => [programHealth(), Promise.resolve(auditSearch()), auditExceptions()],
     report: () => Object.values(packs).flatMap((pack) => (pack.reportSection ? [pack.reportSection()] : [])),
     'case.submit': () => [fillMine()],

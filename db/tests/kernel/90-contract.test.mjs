@@ -397,6 +397,45 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
         await confirmableSalesOrderCase(app, admin, applicant, 2007),
         '契約測試：結果不對',
     );
+    // 負責人離職的改指派（K-OWNER-CONTINUITY）：測試專用的被授權者，負責人渡邊翔（p35）停用（測試準備：直接走停用的入口），
+    // 主管田中美咲（p32）指定鈴木大輔（p33），鈴木大輔用通行金鑰接下；最後恢復渡邊翔在職、結束這個被授權者
+    const departed = await login(app, 'p35');
+    const ownerManager = await login(app, 'p32');
+    const successor = await login(app, 'p33');
+    successor.key = await registerPasskey(app, successor);
+    const ownedBot = (
+        await admin.query(
+            `select sgn_internal.principal_upsert('db-test', 'agent:contract-owner', 'agent', '契約測試 bot', $1, '2027-12-31') as id`,
+            [departed.personId],
+        )
+    ).rows[0].id;
+    await admin.query(`select sgn_internal.directory_deactivate($1, '{}'::jsonb)`, [departed.personId]);
+    try {
+        const gap = (await check('principal_owner_gaps', ownerManager.session)).find((g) => g.principal.principal_id === ownedBot);
+        await check('principal_owner_propose', ownerManager.session, gap.gap_id, successor.personId, '契約測試：同組接手');
+        const ownerCh = await check('principal_owner_challenge', successor.session, gap.gap_id);
+        const accept = successor.key.assert(
+            await challengeFor({
+                purpose: 'principal.owner_accept',
+                ref: gap.gap_id,
+                content: ownerCh.display,
+                decision: 'accept',
+                nonce: ownerCh.nonce,
+            }),
+        );
+        await check(
+            'principal_owner_accept_passkey',
+            ownerCh.challenge_id,
+            accept.credentialId,
+            accept.authenticatorData,
+            accept.clientDataJSON,
+            accept.signature,
+        );
+    } finally {
+        await admin.query('update sgn.person set active = true where id = $1', [departed.personId]);
+        // 測試專用的被授權者不留在被授權者清單裡（20-flow 比對完整清單）
+        await admin.query(`update sgn.principal set status = 'ended' where id = $1`, [ownedBot]);
+    }
     // 登出
     await check('session_close', opened.session_token);
 

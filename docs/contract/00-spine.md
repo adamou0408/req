@@ -318,7 +318,7 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ## 5. 核心規則
 
-> 現況：本檔命名的 34 個規則代碼已實作並登記在 `sgn.rule`：`K-ACTOR-PROVEN`、`K-ADMIN-SOD`、`K-AUDIT-APPEND`、`K-AUDIT-CHAIN`、`K-AUDITOR-INDEPENDENT`、`K-AUDITOR-READONLY`、`K-CHANGE-EXPAND`、`K-CHANGE-REDUCE`、`K-CLAIM`、`K-CONFIRM`、`K-DECISION-ELIGIBLE`、`K-DECISION-PROOF`、`K-DETECT-MANAGER-FLIP`、`K-FULFIL`、`K-GRANT-REDUCE`、`K-HR-SYNC`、`K-NO-BACKDATE`、`K-NO-REGRESS`、`K-OVERLAP-BLOCK`、`K-OVERLAP-REASON`、`K-PARALLEL-ALL`、`K-PRINCIPAL`、`K-RECALL`、`K-REJECT`、`K-RESOLVE-HALT`、`K-RESOLVE-STAGE-START`、`K-RETURN`、`K-ROLE-SOURCE`、`K-SESSION`、`K-SOD-APPLICANT`、`K-SOD-DISTINCT`、`K-TOP-RESOLVER`、`K-VALIDITY-MAX`、`K-VERSION-BOUND`；其中部分只涵蓋一部分（`sgn.rule.coverage`）。本節其他代碼尚未實作。實作另有自己的代碼（`K-DELIVERY-*`、`K-RECON-*`、`K-USAGE-*`、`K-PASSKEY-*`、`K-IDP-KEY-*`、`K-CONFIRM-*`、`K-VERIFY-*`、`K-GRANT-REVOKE`、`K-GRANT-EXPIRE`、`K-GRANT-FOLLOWUP`、`K-EXCEPTION-FOLLOWUP`、`K-CONTENT-REBIND`、`K-SUBMIT-REVIEW` 等），清單與涵蓋程度以 `sgn.rule` 為準，每個代碼都有資料庫測試（`db/tools/rule-coverage.mjs`）。
+> 現況：本檔命名的 38 個規則代碼已實作並登記在 `sgn.rule`（功能第四批加了 `K-SLA-REMIND`、`K-SLA-ESCALATE`、`K-EXPIRE-REMIND`、`K-OWNER-CONTINUITY`，見 `docs/handoff/feature-4-deadlines.md`）：`K-ACTOR-PROVEN`、`K-ADMIN-SOD`、`K-AUDIT-APPEND`、`K-AUDIT-CHAIN`、`K-AUDITOR-INDEPENDENT`、`K-AUDITOR-READONLY`、`K-CHANGE-EXPAND`、`K-CHANGE-REDUCE`、`K-CLAIM`、`K-CONFIRM`、`K-DECISION-ELIGIBLE`、`K-DECISION-PROOF`、`K-DETECT-MANAGER-FLIP`、`K-FULFIL`、`K-GRANT-REDUCE`、`K-HR-SYNC`、`K-NO-BACKDATE`、`K-NO-REGRESS`、`K-OVERLAP-BLOCK`、`K-OVERLAP-REASON`、`K-PARALLEL-ALL`、`K-PRINCIPAL`、`K-RECALL`、`K-REJECT`、`K-RESOLVE-HALT`、`K-RESOLVE-STAGE-START`、`K-RETURN`、`K-ROLE-SOURCE`、`K-SESSION`、`K-SOD-APPLICANT`、`K-SOD-DISTINCT`、`K-TOP-RESOLVER`、`K-VALIDITY-MAX`、`K-VERSION-BOUND`；其中部分只涵蓋一部分（`sgn.rule.coverage`）。本節其他代碼尚未實作。實作另有自己的代碼（`K-DELIVERY-*`、`K-RECON-*`、`K-USAGE-*`、`K-PASSKEY-*`、`K-IDP-KEY-*`、`K-CONFIRM-*`、`K-VERIFY-*`、`K-GRANT-REVOKE`、`K-GRANT-EXPIRE`、`K-GRANT-FOLLOWUP`、`K-EXCEPTION-FOLLOWUP`、`K-CONTENT-REBIND`、`K-SUBMIT-REVIEW` 等），清單與涵蓋程度以 `sgn.rule` 為準，每個代碼都有資料庫測試（`db/tools/rule-coverage.mjs`）。
 
 這些規則屬於核心，對所有流程類型一律生效。流程包、設定、任何角色都不能關閉；可調的只有第 8 節列出的參數，而且受硬上下限約束。每條規則都有測試，包含「試著繞過」的測試。「契約」欄是擁有該規則的契約。
 
@@ -383,7 +383,7 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 5.4 簽核動作與內容
 
-> 現況：已實作 `K-VERSION-BOUND`、`K-CHANGE-REDUCE`、`K-CHANGE-EXPAND`、`K-RETURN`（不含逾時自動取消）、`K-REJECT`（不含自動連結前案）、`K-RECALL`、`K-OVERLAP-BLOCK`、`K-OVERLAP-REASON`、`K-PRINCIPAL`（部分）。`K-CASE-NUMBER` 尚未實作：單號是資料庫流水號 `case_no`（取號時點與跳號問題見 `docs/handoff/closed-loop-3.md` §7）。其餘（申請人縮小、取消、提問、徵詢、轉簽、加簽、撤回決定、轉換、催辦與升級、急件、批次、續期、沿用、線下決定）尚未實作，催辦升級尚未開始。
+> 現況：已實作 `K-SLA-REMIND`、`K-SLA-ESCALATE`（部分：沒有升級前預告、沒有依據點的行事曆；另有 `K-SLA-STALLED`、`K-SLA-CLAIM`、`K-SLA-VIEW`，`db/kernel/570_approval_sla.sql`）、`K-VERSION-BOUND`、`K-CHANGE-REDUCE`、`K-CHANGE-EXPAND`、`K-RETURN`（不含逾時自動取消）、`K-REJECT`（不含自動連結前案）、`K-RECALL`、`K-OVERLAP-BLOCK`、`K-OVERLAP-REASON`、`K-PRINCIPAL`（部分）。`K-CASE-NUMBER` 尚未實作：單號是資料庫流水號 `case_no`（取號時點與跳號問題見 `docs/handoff/closed-loop-3.md` §7）。其餘（申請人縮小、取消、提問、徵詢、轉簽、加簽、撤回決定、轉換、催辦與升級、急件、批次、續期、沿用、線下決定）尚未實作，催辦升級尚未開始。
 
 | 代碼 | 規則 | 契約 |
 |---|---|---|
@@ -416,7 +416,7 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 5.5 執行、驗證與存續
 
-> 現況：已實作 `K-FULFIL`、`K-CONFIRM`、`K-NO-BACKDATE`、`K-VALIDITY-MAX`、`K-GRANT-REDUCE`。執行與驗證以 `K-DELIVERY-*`（簽章、順序、重試、卡住、結果檢查）與 `K-VERIFY-AUTO`、`K-VERIFY-SKIPPED` 實作，取代 `K-FULFIL-ENVELOPE`、`K-VERIFY` 的寫法（簽章格式見 `02-pack-data-access.md` §8.8）；撤銷、到期、後續追蹤以 `K-GRANT-REVOKE`、`K-GRANT-EXPIRE`、`K-GRANT-FOLLOWUP` 實作，取代 `K-REVOKE`、`K-EXPIRE`。尚未實作：`K-EFFECTIVE-DELAY`、`K-EXPIRE-REMIND`、`K-EVENT-EXPIRE`、`K-WINDOW`、`K-SUSPEND`、`K-RECLAIM`、`K-OWNER-CONTINUITY`、`K-MEMBER-*`、`K-REAPPROVE`、`K-INACTIVE`（久未使用以 `K-USAGE-IDLE` 取代）、`K-LEGACY-TRANSITION`、`K-RATIFY`、緊急與特權路徑、`K-ROSTER`。
+> 現況：已實作 `K-FULFIL`、`K-CONFIRM`、`K-NO-BACKDATE`、`K-VALIDITY-MAX`、`K-GRANT-REDUCE`。執行與驗證以 `K-DELIVERY-*`（簽章、順序、重試、卡住、結果檢查）與 `K-VERIFY-AUTO`、`K-VERIFY-SKIPPED` 實作，取代 `K-FULFIL-ENVELOPE`、`K-VERIFY` 的寫法（簽章格式見 `02-pack-data-access.md` §8.8）；撤銷、到期、後續追蹤以 `K-GRANT-REVOKE`、`K-GRANT-EXPIRE`、`K-GRANT-FOLLOWUP` 實作，取代 `K-REVOKE`、`K-EXPIRE`。`K-EXPIRE-REMIND`（部分：「已續期」以重疊檢查近似，`575_expiry_remind.sql`）與 `K-OWNER-CONTINUITY`（部分：沒有調職偵測、沒有離任當天暫停；另有 `K-OWNER-SOD`、`K-PRINCIPAL-END`，`580_owner_continuity.sql`）已實作。尚未實作：`K-EFFECTIVE-DELAY`、`K-EVENT-EXPIRE`、`K-WINDOW`、`K-SUSPEND`、`K-RECLAIM`、`K-MEMBER-*`、`K-REAPPROVE`、`K-INACTIVE`（久未使用以 `K-USAGE-IDLE` 取代）、`K-LEGACY-TRANSITION`、`K-RATIFY`、緊急與特權路徑、`K-ROSTER`。
 
 | 代碼 | 規則 | 契約 |
 |---|---|---|

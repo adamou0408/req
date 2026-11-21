@@ -47,6 +47,37 @@ const principal: Shape = { object: principalFields };
 /** 新申請畫面的被授權者選項：mine＝看的人就是負責人（送審時不必多一關「被授權者負責人確認」，裁決 D79 (2)） */
 const principalChoice: Shape = { object: { ...principalFields, mine: 'bool' } };
 
+/** 新負責人要簽的顯示摘要（K-OWNER-CONTINUITY）：頁面只從它畫確認畫面，挑戰值也從它算。 */
+const ownerHandover: Shape = {
+    object: {
+        gap_id: 'uuid',
+        principal: { object: { id: 'uuid', name: 'text', kind: 'text' } },
+        departed: { object: { id: 'uuid', name: 'text' } },
+        new_owner: { object: { id: 'uuid', name: 'text' } },
+        proposed_by: { object: { id: 'uuid', name: 'text' } },
+        reason: 'text',
+        due: 'text',
+    },
+};
+
+/**
+ * 一筆負責人缺口：被授權者、原負責人、改指派的期限、名下生效中與簽核中的單數；actions（reassign、accept）由資料庫的授權入口算；
+ * candidates 只給能指定的人（problem 是不能選的原因代碼）；handover 是目前的提議（沒有時為 null）。
+ */
+const ownerGap: Shape = {
+    object: {
+        gap_id: 'uuid',
+        principal,
+        departed: { object: { id: 'uuid', name: 'text' } },
+        due_text: 'text',
+        active_cases: 'int',
+        approving_cases: 'int',
+        actions: { array: 'text' },
+        candidates: { array: { object: { person: { object: { id: 'uuid', name: 'text' } }, problem: { nullable: 'text' } } } },
+        handover: { nullable: ownerHandover },
+    },
+};
+
 const pathStage: Shape = { object: { seq: 'int', code: 'text', name: 'text', phase: 'text', mode: 'text' } };
 
 /** 畫面上的一個人：內部 id 與名字（同名的人已加上區分）。 */
@@ -116,8 +147,37 @@ const caseFields = {
  */
 const confirmDue: Shape = { nullable: { object: { due_text: 'text', workdays_left: 'int', reminding: 'bool' } } };
 
+/**
+ * 簽核關卡的時限（K-SLA-VIEW；資料庫算，頁面不自行推斷）：目前這關等最久的那件工作已等幾個工作天、催辦與升級期限
+ * （當地時間的文字）、是否已過催辦期限（overdue）、是不是等認領（claim）、是否已升級與升級給誰、用到的參數值。沒有在等簽核時為 null。
+ */
+const caseSla: Shape = {
+    nullable: {
+        object: {
+            stage_name: 'text',
+            since: 'timestamp',
+            waiting_workdays: 'int',
+            remind_due: 'text',
+            escalate_due: 'text',
+            overdue: 'bool',
+            claim: 'bool',
+            escalated: 'bool',
+            escalated_to: { array: 'text' },
+            settings: 'json',
+        },
+    },
+};
+
+/**
+ * 簽核中的單為什麼不能往下核准（K-OWNER-CONTINUITY、K-PRINCIPAL-END）：被授權者沒有在職的負責人或已結束。message 來自錯誤目錄；
+ * due_text 是負責人改指派的期限（有缺口時）。其他時候為 null。
+ */
+const caseHold: Shape = { nullable: { object: { code: 'text', message: 'text', due_text: { nullable: 'text' } } } };
+
 /** 申請單摘要：所有回傳申請單清單的 function 共用。actions 是這個人現在可以做的動作，畫面依它顯示按鈕。 */
-export const caseSummary: Shape = { object: { ...caseFields, actions: { array: 'text' }, confirm_due: confirmDue } };
+export const caseSummary: Shape = {
+    object: { ...caseFields, actions: { array: 'text' }, confirm_due: confirmDue, sla: caseSla, hold: caseHold },
+};
 
 const task: Shape = {
     object: {
@@ -155,6 +215,8 @@ export const caseDetail: Shape = {
         ...caseFields,
         actions: { array: 'text' },
         confirm_due: confirmDue,
+        sla: caseSla,
+        hold: caseHold,
         stages: {
             array: {
                 object: {
@@ -382,7 +444,7 @@ const suspensionDisplay: Shape = {
 
 const auditCase: Shape = {
     object: {
-        case: { object: { ...caseFields, confirm_due: confirmDue } },
+        case: { object: { ...caseFields, confirm_due: confirmDue, sla: caseSla, hold: caseHold } },
         usage: caseUsage,
         events: {
             array: {
@@ -488,6 +550,22 @@ export const routes = [
         },
     },
     { fn: 'principal_list', params: ['session'], returns: { array: principalChoice } },
+    /** 負責人離職或停用的改指派（K-OWNER-CONTINUITY）：看的人能指定（主管、治理角色）或等他確認接下的缺口 */
+    { fn: 'principal_owner_gaps', params: ['session'], returns: { array: ownerGap } },
+    /** 指定新的負責人（只是提議；K-OWNER-SOD 不能是這個被授權者的單的簽核人） */
+    { fn: 'principal_owner_propose', params: ['session', 'gap_id', 'new_owner', 'reason'], returns: { array: ownerGap } },
+    /** 新負責人確認接下前取得一次性亂數與要簽的顯示摘要 */
+    {
+        fn: 'principal_owner_challenge',
+        params: ['session', 'gap_id'],
+        returns: { object: { challenge_id: 'uuid', nonce: 'b64url', expires_at: 'timestamp', display: ownerHandover } },
+    },
+    /** 新負責人用通行金鑰確認接下（行為人來自驗過的簽章） */
+    {
+        fn: 'principal_owner_accept_passkey',
+        params: ['challenge_id', 'credential_id', 'authenticator_data', 'client_data_json', 'signature'],
+        returns: { array: ownerGap },
+    },
     { fn: 'case_create', params: ['session', 'process_type', 'content', 'terms'], returns: caseDetail },
     { fn: 'case_submit_new', params: ['session', 'process_type', 'content', 'terms', 'overlap_reason'], returns: caseDetail },
     { fn: 'case_revise', params: ['session', 'case_id', 'content', 'terms'], returns: caseDetail },
@@ -924,6 +1002,12 @@ export const schedulerCalls = {
     exceptionFollowupDue: { fn: 'exception_followup_due', params: [] },
     /** 閒置的授權提醒收回、使用摘要逾期（K-USAGE-IDLE、K-USAGE-OVERDUE） */
     usageChecks: { fn: 'usage_checks', params: [] },
+    /** 簽核關卡的催辦、升級、群組認領逾期（K-SLA-REMIND、K-SLA-ESCALATE、K-SLA-STALLED、K-SLA-CLAIM；每件工作每步驟只做一次） */
+    approvalSlaDue: { fn: 'approval_sla_due', params: [] },
+    /** 授權到期前提醒申請人與被授權者負責人，每筆一次（K-EXPIRE-REMIND） */
+    grantExpiryRemindDue: { fn: 'grant_expiry_remind_due', params: [] },
+    /** 負責人缺口：開、恢復結案、逾期撤銷名下授權；被授權者結束的授權失效（K-OWNER-CONTINUITY、K-PRINCIPAL-END） */
+    principalChecks: { fn: 'principal_checks', params: [] },
 } as const satisfies Record<string, Grant>;
 
 /** 身分提供者的金鑰更新程序（db/tools/idp-keys.mjs，帳號 sgn_idp_keys；裁決 D81 (5)）能執行的 api_idp function。 */
