@@ -20,6 +20,19 @@ export type Call = {
 const exceptionRef: Shape = { object: { id: 'int', rule_code: 'text', opened_at: 'timestamp', event_seq: 'int' } };
 
 const message: Shape = { object: { code: 'text', message: 'text' } };
+
+/** 例外清單的一組：同一規則、同一張單（全公司層級的例外沒有單號）；process_type 讓畫面取流程包的說明 */
+const exceptionGroup: Shape = {
+    object: {
+        rule_code: 'text',
+        process_type: { nullable: 'text' },
+        case_no: { nullable: 'int' },
+        count: 'int',
+        first_opened_at: 'timestamp',
+        last_opened_at: 'timestamp',
+        last_closed_at: { nullable: 'timestamp' },
+    },
+};
 const contentError: Shape = { object: { path: 'text', code: 'text', message: 'text' } };
 
 const principalFields = {
@@ -173,6 +186,11 @@ export const caseDetail: Shape = {
             },
         },
         overlap: { nullable: { object: { level: 'text', items: 'json', reason: { nullable: 'text' }, version: 'int' } } },
+        /**
+         * 給看的人的重疊提示（K-OVERLAP-SHOWN）：items 經流程包的顯示 hook 換成主題包與欄位的名稱；
+         * 對方的單號與期間只在看的人本來就能看那張單時才有值，否則為 null。沒有重疊檢查為 null。
+         */
+        overlap_shown: { nullable: { object: { level: 'text', reason: { nullable: 'text' }, items: 'json' } } },
         fulfilment: { nullable: { object: { version: 'int', payload: 'json', payload_sha256: 'hex' } } },
         grant: {
             nullable: {
@@ -266,6 +284,11 @@ export const caseDetail: Shape = {
             },
         },
         usage: caseUsage,
+        /**
+         * 看的人可以做、要填原因的動作 → 原因會讓誰看到（K-REASON-AUDIENCE）：applicant、principal_owner、
+         * applicant_principal_owner 或 record（只記在這張單的紀錄）。畫面只依代碼取文案。
+         */
+        reason_audience: 'json',
     },
 };
 
@@ -471,6 +494,8 @@ export const routes = [
     { fn: 'case_submit', params: ['session', 'case_id', 'overlap_reason'], returns: caseDetail },
     { fn: 'case_get', params: ['session', 'case_id'], returns: caseDetail },
     { fn: 'case_list_mine', params: ['session'], returns: { array: caseSummary } },
+    /** 捨棄從沒送審過的草稿（K-CASE-DISCARD）：轉為已取消、留稽核事件，之後不在「我的申請」 */
+    { fn: 'case_discard', params: ['session', 'case_id'], returns: caseDetail },
     { fn: 'inbox_list', params: ['session'], returns: { array: caseSummary } },
     { fn: 'task_claim', params: ['session', 'case_id'], returns: caseSummary },
     { fn: 'challenge_issue', params: ['session', 'case_id', 'decision', 'input'], returns: challenge },
@@ -572,6 +597,12 @@ export const routes = [
             },
         },
     },
+    /** 稽核首頁的例外清單（K-HOME-ORDER）：同一規則同一張單合成一筆，未結案與已結案分開，順序由資料庫決定 */
+    {
+        fn: 'audit_exception_groups',
+        params: ['session'],
+        returns: { object: { open: { array: exceptionGroup }, closed: { array: exceptionGroup } } },
+    },
     /**
      * 稽核頁的存活檢查（K-PROGRAM-STALLED）：觸發一次檢查（會開例外與結案，所以不叫 audit_*），
      * 回傳每個背景程式最後一次心跳與每種逾期還沒被處理的工作。
@@ -654,6 +685,9 @@ const catalogPending: Shape = {
     },
 };
 
+const exportGuidance: Shape = { nullable: { object: { kind: 'text', text: 'text' } } };
+const surveyCount: Shape = { object: { code: 'text', name: 'text', cases: 'int', exported: 'int' } };
+
 /** 流程包專屬的路由（api.<流程包>_*）；結構由各流程包的資料庫測試檢查（db/tests/packs/<流程包>/）。 */
 export const packRoutes = {
     data_access: [
@@ -709,6 +743,34 @@ export const packRoutes = {
                             },
                         },
                     },
+                    /**
+                     * 匯出需求調查的選項（DA-EXPORT-SURVEY）：目的、頻率、方法。guidance 是選了之後要顯示的引導（DA-EXPORT-SURVEY-GUIDE）：
+                     * kind 是 redirect（應由另一個系統自己申請）或 alternative（系統內的替代做法）；沒有時為 null
+                     */
+                    export_survey: {
+                        object: {
+                            purposes: {
+                                array: { object: { code: 'text', name: 'text', requires_description: 'bool', guidance: exportGuidance } },
+                            },
+                            frequencies: { array: { object: { code: 'text', name: 'text' } } },
+                            methods: {
+                                array: { object: { code: 'text', name: 'text', requires_description: 'bool', guidance: exportGuidance } },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+        /** 匯出需求調查的彙總（DA-EXPORT-SURVEY-SUMMARY）：稽核或 MIS；每個選項有幾張單、其中幾張最後可以匯出 */
+        {
+            fn: 'data_access_export_survey_summary',
+            params: ['session'],
+            returns: {
+                object: {
+                    total: 'int',
+                    by_purpose: { array: surveyCount },
+                    by_frequency: { array: surveyCount },
+                    by_method: { array: surveyCount },
                 },
             },
         },

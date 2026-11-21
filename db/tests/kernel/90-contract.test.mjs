@@ -278,6 +278,8 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     const submitted = await check('case_submit_new', applicant.session, PROBE, { dataset: 'e', purpose: 'q' }, {}, null);
     await check('case_get', applicant.session, submitted.case_id);
     await check('case_list_mine', applicant.session);
+    // 捨棄從沒送審過的草稿（K-CASE-DISCARD）
+    await check('case_discard', applicant.session, (await call(app, 'case_create', applicant.session, PROBE, { dataset: 'x' }, {})).case_id);
     // 簽核人：核准一張、退回一張
     await check('inbox_list', manager.session);
     const decide = async (person, caseId, decision, input) => {
@@ -297,6 +299,7 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     await check('audit_chain', auditor.session, 0, 50);
     await check('audit_code_fingerprint', auditor.session);
     await check('audit_exceptions', auditor.session);
+    await check('audit_exception_groups', auditor.session);
     await check('program_health', auditor.session);
     // 角色指派變更：稽核主管提出、稽核治理人以通行金鑰核准；最後撤除，不影響其他測試
     await check('role_change_options', auditHead.session);
