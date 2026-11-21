@@ -160,8 +160,10 @@ test('K-DECISION-PROOF 沒有證明就沒有決定：改狀態的入口是固定
     // 是新的狀態入口；它們都不是需要證明的動作（下面 needs_proof 的清單不變）
     // K-CONFIRM：申請人確認、回報不對（不需要證明、經授權入口）與確認逾期的系統撤銷也是狀態入口
     // K-CONTENT-REBIND：外部定義改版後的重新綁定（系統動作，只由流程包在改版的交易裡呼叫）也是狀態入口
+    // K-CASE-DISCARD：申請人捨棄從沒送審過的草稿（不需要證明、經授權入口）也是狀態入口
     assert.deepEqual(await callers('sgn_internal.case_transition'), [
         'api.case_confirm_verification',
+        'api.case_discard',
         'api.case_dispute_verification',
         'api.case_reduce',
         'api.case_revise',
@@ -226,6 +228,8 @@ test('K-AUDITOR-READONLY 稽核人員查得到整張單的軌跡與證明雜湊�
             ['audit_case', 's'],
             ['audit_chain', 's'],
             ['audit_code_fingerprint', 's'],
+            // K-HOME-ORDER：稽核首頁的例外清單（去重、分組），一樣唯讀
+            ['audit_exception_groups', 's'],
             ['audit_exceptions', 's'],
         ],
     );

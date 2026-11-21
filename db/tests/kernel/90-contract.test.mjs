@@ -279,7 +279,11 @@ test('契約：每個路由與後端呼叫的回傳結構都符合路由表（�
     await check('case_get', applicant.session, submitted.case_id);
     await check('case_list_mine', applicant.session);
     // 捨棄從沒送審過的草稿（K-CASE-DISCARD）
-    await check('case_discard', applicant.session, (await call(app, 'case_create', applicant.session, PROBE, { dataset: 'x' }, {})).case_id);
+    await check(
+        'case_discard',
+        applicant.session,
+        (await call(app, 'case_create', applicant.session, PROBE, { dataset: 'x' }, {})).case_id,
+    );
     // 簽核人：核准一張、退回一張
     await check('inbox_list', manager.session);
     const decide = async (person, caseId, decision, input) => {

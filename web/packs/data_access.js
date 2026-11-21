@@ -100,6 +100,16 @@ export async function termsChanged(editor, terms) {
     editor.setBases(terms.principal_id ? await api.call('data_access_test_bases', { principal_id: terms.principal_id }) : []);
 }
 
+/**
+ * 新申請畫面：匯出需求調查的方法是附屬的調查紀錄（不進申請內容；DA-EXPORT-SURVEY），記錄前要先有草稿；
+ * 修改既有的單時預選最新記錄的方法。
+ */
+export async function bindEditor(editor, { caseId, save, existing }) {
+    if (!editor.survey) return;
+    editor.survey.bind({ caseId, save });
+    if (existing) editor.survey.preset(await api.call('data_access_export_method_latest', { case_id: existing.case_id }));
+}
+
 /** 退回時的常見原因（按一下就用它當原因）。 */
 export const returnReasons = tx.returnReasons;
 

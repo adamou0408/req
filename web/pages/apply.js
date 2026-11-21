@@ -313,6 +313,15 @@ export async function renderApply(ctx, caseId = null) {
         check.dataset.busy = 'true';
         state.timer = setTimeout(save, SAVE_DELAY_MS);
     };
+    // 流程包的編輯器要知道這張單（例如記錄不進申請內容的調查紀錄之前要先存草稿）
+    await pack.bindEditor?.(editor, {
+        caseId: () => state.caseId,
+        save: () => {
+            clearTimeout(state.timer);
+            return save();
+        },
+        existing,
+    });
     // 流程包要依「給誰」重讀選項時（例如可以引用的測試區單），被授權者換了就通知它
     const termsChanged = () => pack.termsChanged?.(editor, readTerms(form, type.options)).catch((err) => flash(explain(err)));
     form.querySelector('#f-principal')?.addEventListener('change', termsChanged);

@@ -4,6 +4,7 @@
 //   B 匯出需求調查（DA-EXPORT-SURVEY*）：目的與頻率進內容與簽的內容，方法是附屬的調查紀錄（不進內容、不簽）。
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
+import { packRoutes, shapeProblems } from '../../../../packages/contract/src/routes.ts';
 import { decisionContent, versionSha256 } from '../../../../web/lib/signing.js';
 import { call, closePools, login, one, pool, registerPasskey, rejectsWith, setSetting } from '../../kernel/lib/harness.mjs';
 import { deliveryPool, drain, mockDc, salesOrderContent, systemDelivery } from './delivery-lib.mjs';
@@ -35,9 +36,16 @@ const bot = (days = 60) => ({ principal_id: P['sales-report-bot'], valid_from: t
 const sales = (year, extra = {}) => ({ ...salesOrderContent(year), environment: 'test', ...extra });
 const survey = (extra = {}) => ({ purpose: 'offline_analysis', frequency: 'monthly', ...extra });
 const exporting = (year, s = survey()) => sales(year, { export_allowed: true, export_survey: s });
+// 同一個被授權者在其他測試檔留下的有效授權可能和這裡的單部分重疊：送審一律附理由（K-OVERLAP-REASON 不是這裡要測的）
+const OVERLAP_REASON = '測試：和其他測試留下的授權重疊';
 const view = (caseId, who = 'p04') => call(app, 'case_get', users[who].session, caseId);
 const draft = (content, t = bot(), who = 'p04') => call(app, 'case_create', users[who].session, DA, content, t);
 const codes = (list) => list.map((x) => x.code);
+/** 流程包路由的回傳結構（不多不少）。 */
+const shaped = (fn, value) => {
+    assert.deepEqual(shapeProblems(value, packRoutes.data_access.find((r) => r.fn === fn).returns), [], fn);
+    return value;
+};
 const recordMethod = (caseId, method, note = null, who = 'p04') =>
     call(app, 'data_access_export_method_record', users[who].session, caseId, method, note);
 const events = async (caseId, type) =>
@@ -49,7 +57,7 @@ const events = async (caseId, type) =>
     ).rows.map((r) => r.data);
 async function submitErrors(caseId) {
     try {
-        await call(app, 'case_submit', users.p04.session, caseId, null);
+        await call(app, 'case_submit', users.p04.session, caseId, OVERLAP_REASON);
     } catch (err) {
         assert.ok(String(err.message).startsWith('CONTENT_INVALID:'), err.message);
         return JSON.parse(err.detail).map((e) => [e.path, e.code]);
@@ -63,7 +71,7 @@ async function signThrough(caseId) {
     await decide(app, users.p17, caseId);
 }
 async function active(content, t = bot()) {
-    const caseId = (await call(app, 'case_submit_new', users.p04.session, DA, content, t, null)).case_id;
+    const caseId = (await call(app, 'case_submit_new', users.p04.session, DA, content, t, OVERLAP_REASON)).case_id;
     await signThrough(caseId);
     await drain(delivery, dc);
     await call(app, 'case_confirm_verification', users.p04.session, caseId);
@@ -141,14 +149,18 @@ test('K-REASON-AUDIENCE 原因會讓誰看到依操作者決定：申請人自�
     assert.deepEqual(manager.reason_audience, { reject: 'applicant', return: 'applicant' });
     // 通知對象與畫面的說明是同一個來源：撤銷時通知申請人（同時是負責人）一次
     await call(app, 'case_revoke', users.p03.session, caseId, '測試：簽核人撤銷');
-    const sent = await admin.query(`select person_id from sgn.notification_outbox where case_id = $1 and event_code = 'case.revoked'`, [caseId]);
+    const sent = await admin.query(`select person_id from sgn.notification_outbox where case_id = $1 and event_code = 'case.revoked'`, [
+        caseId,
+    ]);
     assert.ok(sent.rows.length >= 1);
 });
 
 test('K-OVERLAP-SHOWN 重疊提示列出重疊的主題包與欄位名稱；對方的單號與期間只有能看那張單的人才有', async () => {
     const caseId = await active(sales(2407));
     const caseNo = (await view(caseId)).case_no;
-    const mine = await draft(sales(2407, { scope: [{ package: 'sales_order', fields: ['amount', 'order_no', 'gross_margin'], row_filters: [] }] }));
+    const mine = await draft(
+        sales(2407, { scope: [{ package: 'sales_order', fields: ['amount', 'order_no', 'gross_margin'], row_filters: [] }] }),
+    );
     assert.equal(mine.overlap.level, 'partial');
     const [item] = mine.overlap_shown.items.filter((i) => i.case_no === String(caseNo));
     assert.ok(item, JSON.stringify(mine.overlap_shown));
@@ -185,19 +197,35 @@ test('DA-EXPORT-SURVEY 要匯出時必填目的、頻率（進內容、版本雜
     assert.deepEqual(d.content.export_survey, { purpose: 'offline_analysis', frequency: 'monthly', description: '季報' });
     assert.equal(d.content.export_allowed, true);
     assert.equal(d.version_sha256, await versionSha256(d.content, d.terms));
-    assert.deepEqual(codes(d.notices).filter((c) => c.startsWith('DA-N-EXPORT')), ['DA-N-EXPORT-ALTERNATIVE']);
+    assert.deepEqual(
+        codes(d.notices).filter((c) => c.startsWith('DA-N-EXPORT')),
+        ['DA-N-EXPORT-ALTERNATIVE'],
+    );
     // 送審：方法沒有調查紀錄就不能送
     assert.deepEqual(await submitErrors(d.case_id), [['export_survey.method', 'DA-E-EXPORT-SURVEY-REQUIRED']]);
     await rejectsWith(recordMethod(d.case_id, 'manual_download', null, 'p05'), 'NOT_APPLICANT');
     await rejectsWith(recordMethod(d.case_id, 'carrier_pigeon'), 'DA-E-EXPORT-METHOD-UNKNOWN');
     await rejectsWith(recordMethod(d.case_id, 'other'), 'DA-E-EXPORT-METHOD-NOTE');
-    const r = await recordMethod(d.case_id, 'manual_download');
+    assert.equal(
+        shaped('data_access_export_method_latest', await call(app, 'data_access_export_method_latest', users.p04.session, d.case_id)),
+        null,
+    );
+    const r = shaped('data_access_export_method_record', await recordMethod(d.case_id, 'manual_download'));
+    const latest = shaped(
+        'data_access_export_method_latest',
+        await call(app, 'data_access_export_method_latest', users.p04.session, d.case_id),
+    );
+    assert.equal(latest.method, 'manual_download');
+    await rejectsWith(call(app, 'data_access_export_method_latest', users.p05.session, d.case_id), 'CASE_UNKNOWN');
     assert.deepEqual(r, { method: { code: 'manual_download', name: '人工下載檔案' }, guidance: null, close_export: false });
     const [ev] = await events(d.case_id, 'data_access.export_method_recorded');
     assert.equal(ev.method, 'manual_download');
-    await rejectsWith(admin.query(`update pack_data_access.export_method_record set method_code = 'other' where case_id = $1`, [d.case_id]), 'DA-E-SURVEY-APPEND-ONLY');
+    await rejectsWith(
+        admin.query(`update pack_data_access.export_method_record set method_code = 'other' where case_id = $1`, [d.case_id]),
+        'DA-E-SURVEY-APPEND-ONLY',
+    );
     const before = (await view(d.case_id)).version_sha256;
-    const submitted = await call(app, 'case_submit', users.p04.session, d.case_id, null);
+    const submitted = await call(app, 'case_submit', users.p04.session, d.case_id, OVERLAP_REASON);
     assert.equal(submitted.version_sha256, before, '記錄方法不產生新的內容版本');
     const shown = await view(d.case_id, 'p03');
     assert.equal(shown.display.content.export_survey.text, '匯出需求調查：目的「離線分析（Excel、統計軟體）」、頻率「每月」（說明：季報）');
@@ -220,7 +248,17 @@ test('DA-EXPORT-SURVEY 舊單（升版前、沒有環境與調查的內容）要
     await admin.query(`select sgn_sdk.register_hook('data_access', 'normalize_content', 'pack_data_access.normalize_capable')`);
     let caseId;
     try {
-        caseId = (await call(app, 'case_submit_new', users.p04.session, DA, { ...salesOrderContent(2411), export_allowed: true }, bot(), null)).case_id;
+        caseId = (
+            await call(
+                app,
+                'case_submit_new',
+                users.p04.session,
+                DA,
+                { ...salesOrderContent(2411), export_allowed: true },
+                bot(),
+                OVERLAP_REASON,
+            )
+        ).case_id;
     } finally {
         await admin.query(`select sgn_sdk.register_hook('data_access', 'normalize_content', $1)`, [current]);
     }
@@ -257,10 +295,17 @@ test('DA-EXPORT-SURVEY-GUIDE 目的是匯入另一個系統：關閉匯出並提
     assert.equal(r.guidance.kind, 'redirect');
     assert.deepEqual(await submitErrors(slides.case_id), [['export_survey.method', 'DA-E-EXPORT-METHOD-REDIRECT']]);
     // 畫面依 close_export 把匯出取消之後就能送；方法照樣記著
-    const closed = await call(app, 'case_revise', users.p04.session, slides.case_id, { ...exporting(2414, survey({ purpose: 'report_slides' })), export_allowed: false }, bot());
+    const closed = await call(
+        app,
+        'case_revise',
+        users.p04.session,
+        slides.case_id,
+        { ...exporting(2414, survey({ purpose: 'report_slides' })), export_allowed: false },
+        bot(),
+    );
     assert.equal(closed.content.export_allowed, false);
-    assert.equal((await call(app, 'case_submit', users.p04.session, slides.case_id, null)).state, 'in_approval');
-    const catalog = await call(app, 'data_access_catalog', users.p04.session);
+    assert.equal((await call(app, 'case_submit', users.p04.session, slides.case_id, OVERLAP_REASON)).state, 'in_approval');
+    const catalog = shaped('data_access_catalog', await call(app, 'data_access_catalog', users.p04.session));
     assert.equal(catalog.export_survey.purposes.find((p) => p.code === 'system_feed').guidance.kind, 'redirect');
     assert.equal(catalog.export_survey.purposes.find((p) => p.code === 'report_slides').guidance.kind, 'alternative');
     assert.equal(catalog.export_survey.methods.find((m) => m.code === 'system_integration').guidance.kind, 'redirect');
@@ -280,11 +325,12 @@ test('DA-EXPORT-SURVEY-RULES 交給使用方系統的規則不因調查而異：
     assert.equal(a.export, true);
     const strip = (p) => ({ ...p, case_no: null, rules: p.rules.map((x) => ({ ...x, rule_id: null })) });
     assert.deepEqual(strip(a), strip(b));
-    for (const word of ['survey', 'purpose', 'frequency', 'method', 'legal_hold', 'scheduled_file']) assert.ok(!JSON.stringify(a).includes(word), word);
+    for (const word of ['survey', 'purpose', 'frequency', 'method', 'legal_hold', 'scheduled_file'])
+        assert.ok(!JSON.stringify(a).includes(word), word);
 });
 
 test('DA-EXPORT-SURVEY-SUMMARY 稽核與 MIS 看得到依目的、頻率、方法的彙總（送審過的單；方法取調查紀錄）；其他人不行', async () => {
-    const summary = await call(app, 'data_access_export_survey_summary', users.p22.session);
+    const summary = shaped('data_access_export_survey_summary', await call(app, 'data_access_export_survey_summary', users.p22.session));
     assert.ok(summary.total >= 2);
     const purpose = Object.fromEntries(summary.by_purpose.map((x) => [x.code, x]));
     assert.ok(purpose.offline_analysis.cases >= 1);
