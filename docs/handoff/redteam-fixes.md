@@ -1,5 +1,7 @@
 # 交接：紅隊確認的弱點修復（redteam-fixes）
 
+> **本檔寫於 2026-11-20，以下已過時：§0 的測試數字（141 個資料庫測試）；§ 殘餘風險與未做的項目（後續由 `redteam-fixes-2.md` 起各輪處理）。仍有效：第一輪攻擊（`redteam/findings.md`）的修復紀錄與威脅表仍有效。各輪的對照見 `README.md`（本目錄）。**
+
 日期：2026-11-20。依據：`redteam/findings.md`、主代理的裁決。範圍：`db/`、`packages/contract/`、`web/`、`e2e/`、根目錄的 ESLint／Prettier 設定、本文件、`redteam/retest-1.md`（只新增）。`api/` 不需要改（路由依路由表註冊）。
 本文分清楚：**跑過且通過**、**寫了但沒跑**、**沒做到**。
 

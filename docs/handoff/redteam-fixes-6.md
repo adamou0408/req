@@ -1,5 +1,7 @@
 # 交接：裁決 D86 的兩個小修（redteam-fixes-6）
 
+> **本檔寫於 2026-11-20，以下已過時：§0 的測試數字（之後 `redteam-fixes-7.md` 與 `closed-loop-*` 又增加測試）。仍有效：D86 (3)(4) 的小修仍是現況：合併角色 `sgn_job` 不存在、持有控制類或治理類角色的人只憑登入停用通行金鑰時當場開例外（`K-PASSKEY-SUSPEND-HOLDER`）。**
+
 日期：2026-11-20。依據：裁決 D85 (2)、D86 (3)(4)、`docs/handoff/redteam-fixes-5.md`。
 範圍：`db/`、`tools/`、`packages/contract/`、`web/i18n.js`、本文件。沒有改 `redteam/`、`rules.md` 與其他文件；沒有 commit、沒有 push。
 

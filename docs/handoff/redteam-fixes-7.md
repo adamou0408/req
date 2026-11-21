@@ -1,5 +1,7 @@
 # 交接：紅隊第七輪的修復（redteam-fixes-7）
 
+> **本檔寫於 2026-11-20，以下已過時：§7 實測的數字（資料庫 285、端對端 32）；§8 留給下一位中的項目（第八輪後 D90 裁決：沒有高風險發現）。仍有效：這是最後一輪紅隊修復（`redteam/findings-7.md`），威脅表與破窗儀式（§4）仍是現況。之後的實作是閉環三批（`closed-loop-1.md` 起）。**
+
 日期：2026-11-20。依據：`redteam/findings-7.md`、裁決 D88（背景 D84–D87）、`docs/handoff/redteam-fixes-5.md`、`redteam-fixes-6.md`。
 範圍：`db/`、`api/`、`web/`、`e2e/`、`packages/contract/`、`tools/`（沒有改）、本文件。
 沒有改 `redteam/`、`docs/packs/*/rules.md` 與其他文件；沒有 commit、沒有 push。

@@ -6,6 +6,30 @@
 
 閱讀順序：第 1 節是採用哪些標準；第 2 節是本模組與核心其他部分的接點；第 3 節是通用模型；第 4 到 10 節逐項說明行為；第 11 到 15 節是實作清單（DDL、function、端點、代碼、參數、排程）；第 16 到 18 節是安全、檔案切分、測試與模擬環境。附錄 A 是骨幹修改建議，附錄 C 是已知限制，附錄 D 是需要其他契約配合的事項。
 
+> **本檔各節現況（2026-11-21 與實作逐節比對；本檔是設計，不是現況）**
+>
+> 狀態用語：「已實作」＝與實作相符；「已由 D92 改寫」＝裁決 D92 改了做法，實作見 `docs/handoff/closed-loop-1.md`；「已由實作取代」＝實作用了不同的做法，見括號內的檔案；「尚未實作」。函式與資料表的現況以資料庫（`pg_catalog`）與 `packages/contract/src/routes.ts` 為準，不以第 11–14 節為準。
+>
+> | 節 | 現況 |
+> |---|---|
+> | 1 採用的公開標準 | 部分採用：RFC 8785（JCS）與 Ed25519 已用於雜湊鏈與交付證明；AuthZEN、CloudEvents、Standard Webhooks、OCSF、OAuth 2.0 client credentials 尚未實作 |
+> | 2 與核心其他部分的接點 | 尚未實作（沒有投影 `sgn.entitlement`、`project_case`） |
+> | 3 通用模型 | 尚未實作（沒有 `sgn.entitlement`；對帳的應有狀態由資料授權的 `expected_entitlements` hook 產生，見 02） |
+> | 4 系統身分 `api_client` | 尚未實作（背景程式各用獨立資料庫角色與金鑰，見 00 §13.3 的現況） |
+> | 5 權限判定 `check` | 尚未實作 |
+> | 5.7 回報實際使用 | 已由 D92 改寫：使用紀錄改為批次摘要，由平台向使用方系統拉取、驗證證明、整批雜湊進鏈；實作 `db/kernel/545_usage_summary.sql`、`555_usage_detail.sql`，契約 02 §8.7，使用方義務 06；本節逐筆回報的設計不會實作 |
+> | 6 授權查詢 `grants` | 尚未實作 |
+> | 7 事件與 webhook | 尚未實作 |
+> | 8 對帳 | 已由實作取代：平台的對帳程式拉取使用方系統「帶證明的回報」並一次比對（`db/kernel/440_reconciliation.sql`、`485_reconciliation_rounds.sql`、`api/src/reconciler.ts`），規則代碼是 `K-RECON-*`（`MISSING`、`EXTRA`、`DIFFERENT`、`OVERDUE`、`UNVERIFIED`、`LIMIT`、`REPORT-CHECK`、`RESOLVED`），不是本節的批次上傳與五類發現；證明格式與分區見 02 §8.8；本節的 `api_client` 推送與 8.9 檔案上傳尚未實作，發現的獨立確認流程也未實作 |
+> | 9 定期複查 | 尚未實作 |
+> | 10 證據輸出 | 部分實作：雜湊鏈、鏈頭與錨定（`api.audit_chain`、`api_job.chain_head`、`db/tools/anchor*.mjs`、離線驗證 `db/tools/verify-chain.mjs`）；`audit_feed`、`security_feed`、OCSF 輸出、`/integration/v1/evidence` 尚未實作 |
+> | 11 資料表、12 內部函式、13 對外 function、14 REST 端點 | 已由實作取代（以資料庫與 `routes.ts` 為準；同名的 `reconciliation_run`、`reconciliation_finding` 實作內容不同） |
+> | 15 規則、錯誤、參數、排程 | 已由實作取代（`K-INT-*` 未登記；實際代碼、錯誤與參數見 `sgn.rule`、`sgn.error_catalog`、`sgn.setting_definition`；排程是 `api_job.*` 與各背景程式） |
+> | 16 安全設計 | 部分採用於實作（最小揭露、防重放的新鮮度與只收一次、輸入驗證），其餘隨 `api_client` 尚未實作 |
+> | 17 migration 檔案與測試 | 已由實作取代（實際檔名見 `db/kernel/`、`db/packs/data_access/`，測試見 `db/tests/`） |
+> | 18 示範使用方 `sim/consumer` | 尚未實作（模擬的使用方系統是 `sim/dc`） |
+> | 附錄 A–D | 設計時的建議與相依，未逐項比對 |
+
 ## 1. 採用的公開標準
 
 ### 1.1 查證結果（2026-11-19 查閱規格原文）

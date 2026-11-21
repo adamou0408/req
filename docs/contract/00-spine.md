@@ -7,9 +7,41 @@
 - 這裡只定名稱、關鍵欄位、語意與界線。完整 DDL、function 簽章、演算法在第 21 節列出的各契約。
 - 每個實體、規則代碼、參數都只屬於一份契約（標在表格的「契約」欄或小節標題的括號內），其他契約只能引用。
 
+> **本檔各節現況（2026-11-21 與實作逐節比對；本檔是設計，不是現況）**
+>
+> 本檔是 v2 的完整設計，實作只做了其中一部分（資料授權流程包與所需的核心）。各節標題下的「現況」行標明差異。實體、函式簽章、規則代碼、參數的現況以資料庫為準（`pg_catalog`、`sgn.rule`、`sgn.setting_definition`、`db/kernel/*.sql`），API 以 `packages/contract/src/routes.ts` 為準；本檔其他地方沒標的，不代表已實作。
+>
+> | 節 | 現況 |
+> |---|---|
+> | 1 命名 | 部分已由實作取代（`request_case`、`error_catalog`、schema 與連線角色、沒有結果信封） |
+> | 2 核心實體 | 部分實作；組織、公司、雇用、代理、附件、受管系統、`api_client` 等尚未實作；部分實體已由實作改名 |
+> | 3 流程類型選項 | 只實作資料授權用到的部分，選項不是資料表，以流程包登記為準 |
+> | 4 狀態 | 部分實作（申請單主線已實作；`awaiting_resolution`、`transferred`、`handed_back`、`withdrawn`、`superseded` 等尚未） |
+> | 5 核心規則 | 34 個本檔命名的規則代碼已實作，其餘尚未；實作另有自己的代碼（見 5 各小節與 `sgn.rule`） |
+> | 6 流程包介面 | 部分實作；沒有 `form_schema` 與宣告式流程定義，只有 hook，hook 名單與本檔不同 |
+> | 7 解析器與關卡模式 | 部分實作（5 種 resolver、`one`／`all` 模式） |
+> | 8 參數 | 已由實作取代（參數名稱與預設值以 `sgn.setting_definition` 為準） |
+> | 9 目錄結構 | 部分已由實作取代（沒有 `web/src`、`vault/`、`deploy/`、`docs/reference/`） |
+> | 10 前端通用畫面 | 部分實作（首頁、申請、單的頁面、稽核證據、通行金鑰、角色異動） |
+> | 11 對外整合介面 | 尚未實作（沒有 `api_client`、`check`、`grants`、webhook）；對帳與用量已由 D92 改為平台拉取，見 05 的現況表 |
+> | 12 模擬環境 | 部分實作（LDAP、OIDC、SMTP、DC；沒有 SCIM、SAML、其餘受管系統、錨定位置、機密服務） |
+> | 13 身分與決定證明 | 部分實作（session、通行金鑰與 `idp_stepup` 決定證明、資料庫內驗章；沒有 `private_key_jwt`） |
+> | 14 證據層 | 部分實作（雜湊鏈、錨定）；封套加密、分段封印、區塊承諾、`tools/verify/` 尚未 |
+> | 15 例外與稽核作業 | 部分實作（例外紀錄與追蹤）；母體、抽樣、資料包、查閱紀錄尚未 |
+> | 16 環境、發行與運作模式 | 尚未實作（沒有 `environment`、運作模式、發行與升版、降級矩陣；只有 `db/testing` 的測試專用假時鐘） |
+> | 17 公司別維度 | 尚未實作 |
+> | 18 平台管理角色與設定治理 | 部分實作（角色異動申請走簽核、passkey 登記人）；設定變更單、內建流程類型尚未（平台角色衝突矩陣已實作） |
+> | 19 受管系統與整合方式 | 部分實作（以 `system:<代碼>` 範圍的參數與交付通道取代 `resource_system`） |
+> | 20 機密內容與金鑰 | 尚未實作 |
+> | 21 契約文件切分 | 已由實際檔案取代（只有 00、02、03、05、06；01a–01h、04a–04c、07–11 不存在） |
+> | 22 第一版範圍 | 尚未達成，實際進度見根目錄 `README.md` |
+> | 附錄 A–C | 沒有逐項比對；控制對照表與規則代碼以 `sgn.rule` 與 `docs/audit/control-matrix.md` 為準 |
+
 ## 1. 命名
 
 ### 1.1 資料庫
+
+> 現況：部分已由實作取代，見 `db/kernel/90_grants.sql`、`db/tools/lib/programs.mjs`。(1) 核心資料表是 `sgn.request_case`（不是 `case_file`），授權是 `sgn.grant_record`；錯誤目錄是 `sgn.error_catalog`（尚未改名 `message_catalog`）。(2) 對外 schema 實際是 `api`、`api_job`、`api_sync`、`api_delivery`、`api_idp`、`api_verified`（只供資料庫內部轉呼叫），沒有 `api_int`。(3) 連線角色依程式拆開（`sgn_app`、`sgn_delivery`、`sgn_reconciler`、`sgn_idp_keys` 等），合併角色 `sgn_job` 已於 D86 (4) 移除；沒有 `sgn_owner`、`sgn_pack_<代號>`。(4) 結果信封與 `sgn_internal.guard` 尚未實作：規則拒絕以 `sgn_sdk.raise_error` 丟錯，後端依 `sgn.error_catalog` 轉成回應。(5) `p_session` 第一參數、`sgn_internal.now()`、`db/kernel`、`db/packs`、`db/testing`、`db/tests` 的安排與實作相符。
 
 | 項目 | 名稱 |
 |---|---|
@@ -31,6 +63,8 @@
 | 測試目錄 | `db/tests/kernel/`、`db/tests/packs/<代號>/` |
 
 ### 1.2 流程包與流程類型
+
+> 現況：只實作 `data_access`（有 hook）。`seal` 只有契約（`03-pack-seal.md`），尚未實作；`account_access`、`change_release`、`vendor_bank`、`governance` 沒有 `rules.md` 與契約。單號目前是資料庫流水號 `case_no`，不是 `<前綴>-<公司>-<年度>-<六位流水號>`（見 5.4 `K-CASE-NUMBER`）。範圍代碼 `<種類>:<代碼>` 已用於 `system:`、`tier:`、`process:` 等範圍（`sgn.scope_registry`）。
 
 | 流程包 | 代號 | 規則前綴 | 說明 |
 |---|---|---|---|
@@ -91,6 +125,8 @@
 | 環境 | `environment` | 一個部署的身分、種類與運作模式（第 16 節） |
 
 ## 2. 核心實體
+
+> 現況：部分實作，清單以資料庫為準。已有（名稱可能不同）：`person`、`person_identity`、`reporting_line`、`role`、`role_assignment`、`principal`、`process_type`、`process_tier`、`approval_policy`、`policy_stage`、`request_case`（即 `case`）、`case_version`、`case_stage`、`case_task`、`case_overlap`、`case_confirmation`、`fulfilment`、`verification_run`、`grant_record`、`audit_event`、`anchor_receipt`、`exception_record`、`setting_definition`、`setting_value`、`rule`、`notification_template`、`notification_outbox`、`calendar_holiday`、`action`。已由實作改名：`message_catalog` → `error_catalog`、`person_credential` → `passkey_credential`、`identity_provider_key` → `idp_key`、`decision_challenge` → `auth_challenge`。另有實作新增、本節沒有的：`delivery_op`、`channel_key`、`usage_batch`、`usage_summary`、`reconciliation_run`、`reconciliation_finding`、`role_change_request`、`role_conflict`（平台角色衝突矩陣）、`passkey_*`、流程包的 `catalog_*`、`test_report_snapshot`、`export_*` 等。尚未實作：公司與據點、雇用、組織單位與成員、任命、代理與助理、`principal_member`、`principal_identity`、外部人員與委外、`case_party`、`case_recusal`、問答與徵詢、套組、線下決定、附件、`resource_system`、`grant_entitlement`、`incident_hold`、敏感事件與知悉名單、事件封套與逐單金鑰、`audit_checkpoint`（錨定回執在 `anchor_receipt`）、查閱與判定紀錄、`api_client` 與 webhook、複查活動、環境、排程紀錄、核決權限表、權限項目的職責衝突矩陣（`sod_conflict_rule`）、治理會議、語言包、告知書。
 
 只列實體與關鍵欄位。小節標題的括號是擁有該組實體的契約（第 21 節）。帶「雙時間」的實體同時保存生效期間與記錄期間。
 
@@ -178,6 +214,8 @@
 
 ## 3. 流程類型的選項
 
+> 現況：部分實作。選項沒有獨立的資料表，由 `sgn.process_type` 的選項欄與流程包登記（`sgn_sdk.register_process_options`）表達；只有資料授權用到的選項（有效期間、確認、需要執行與驗證、可撤銷）有效，其餘選項（批次、保密、急件、緊急路徑、迴避名單、窗口、外部簽章等）尚未實作。選項名稱與預設值以 `db/kernel/120_flow_definition.sql` 為準。
+
 每個流程類型宣告自己用到哪些核心能力，核心依選項決定狀態怎麼走。其餘三個流程包與治理範本包的值在各自的契約決定。
 
 | 選項 | 意義 | 預設 | 資料授權 | 合約用印 |
@@ -211,9 +249,13 @@
 
 ## 4. 狀態
 
+> 現況：部分實作，轉移表在 `sgn.state_transition`（`db/kernel/140_case_model.sql`），狀態只能依轉移表前進。
+
 狀態轉移由轉移表驅動，只能前進（`K-NO-REGRESS`）。完整的轉移表在各擁有契約。
 
 ### 4.1 申請單（`case.status`，01e）
+
+> 現況：主線已實作（草稿、簽核中、退回、駁回、待執行、驗證中、生效、到期、撤銷、取消）。確認期間的狀態、`K-CONFIRM-*` 與驗證結果爭議（`case_dispute_verification`）是實作自訂的，見資料授權契約 `02-pack-data-access.md` 與 `docs/handoff/applicant-confirm.md`。「退回逾時自動取消」尚未實作。
 
 | 狀態 | 意義 | 終局 |
 |---|---|---|
@@ -242,6 +284,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 4.2 關卡與工作（01e）
 
+> 現況：部分實作。關卡狀態只有 `open`、`halted`、`done`、`returned`、`cancelled`；工作狀態只有 `unclaimed`、`pending`、`approved`、`returned`、`rejected`、`completed`、`cancelled`。`awaiting_resolution`、`skipped`、`withdrawn`、`transferred`、`handed_back`、`superseded` 尚未實作（重新綁定內容時的作廢另以 `cancelled` 表達，見 `K-CONTENT-REBIND`）。
+
 | 對象 | 狀態 |
 |---|---|
 | `case_stage.status` | `waiting`、`open`、`halted`（解析不到人）、`awaiting_resolution`（等會議決議）、`done`、`skipped`（不適用，記原因）、`cancelled` |
@@ -249,12 +293,16 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 4.3 授權（`grant.status`，01f）
 
+> 現況：部分實作。授權是 `sgn.grant_record`，有生效、到期、撤銷與縮小；暫停、`external_state`（`pending_reclaim`）、延後生效、生效窗口尚未實作。有效性在讀取時以時間計算已實作。建立時點依資料授權：等確認通過才建立（D83）。
+
 - `active` ⇄ `suspended` → `revoked`；`active` → `expired`。
 - 有效性在讀取時以時間計算（`K-VALIDITY-READTIME`）：起日未到、迄日已過、生效窗口外、延後生效未滿，都視為無效，不依賴排程把狀態改掉。
 - `external_state`：`synced`、`pending_reclaim`、`reclaimed`。撤銷與暫停在平台立即生效，外部設定的收回另外追蹤（`K-RECLAIM`）。
 - 建立時點：存續型授權在執行完成且驗證通過時建立（沒有選用驗證的流程在執行完成時；沒有選用執行的流程在核准完成時）；流程選用確認時（`requires_confirmation`），授權在確認通過時才建立（依流程包的規則，例如資料授權「兩者都通過才結案生效」；D83）；等確認期間外部系統上已套用的權限記為「已套用、等確認」。一次性許可在核准完成時建立，到執行完成或 `grant.one_time_max_hours` 為止。
 
 ### 4.4 其他狀態機
+
+> 現況：只有 `exception_record` 的狀態實作；passkey 另有登記、掛失與遠端停用的紀錄（`passkey_enrollment`、`passkey_revocation`、`passkey_suspension`），狀態值與本表不同；`environment`、`employment`、`delegation`、`resource_system` 涵蓋狀態、`sensitive_event` 尚未實作。
 
 | 對象 | 狀態 | 契約 |
 |---|---|---|
@@ -270,9 +318,13 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ## 5. 核心規則
 
+> 現況：本檔命名的 34 個規則代碼已實作並登記在 `sgn.rule`：`K-ACTOR-PROVEN`、`K-ADMIN-SOD`、`K-AUDIT-APPEND`、`K-AUDIT-CHAIN`、`K-AUDITOR-INDEPENDENT`、`K-AUDITOR-READONLY`、`K-CHANGE-EXPAND`、`K-CHANGE-REDUCE`、`K-CLAIM`、`K-CONFIRM`、`K-DECISION-ELIGIBLE`、`K-DECISION-PROOF`、`K-DETECT-MANAGER-FLIP`、`K-FULFIL`、`K-GRANT-REDUCE`、`K-HR-SYNC`、`K-NO-BACKDATE`、`K-NO-REGRESS`、`K-OVERLAP-BLOCK`、`K-OVERLAP-REASON`、`K-PARALLEL-ALL`、`K-PRINCIPAL`、`K-RECALL`、`K-REJECT`、`K-RESOLVE-HALT`、`K-RESOLVE-STAGE-START`、`K-RETURN`、`K-ROLE-SOURCE`、`K-SESSION`、`K-SOD-APPLICANT`、`K-SOD-DISTINCT`、`K-TOP-RESOLVER`、`K-VALIDITY-MAX`、`K-VERSION-BOUND`；其中部分只涵蓋一部分（`sgn.rule.coverage`）。本節其他代碼尚未實作。實作另有自己的代碼（`K-DELIVERY-*`、`K-RECON-*`、`K-USAGE-*`、`K-PASSKEY-*`、`K-IDP-KEY-*`、`K-CONFIRM-*`、`K-VERIFY-*`、`K-GRANT-REVOKE`、`K-GRANT-EXPIRE`、`K-GRANT-FOLLOWUP`、`K-EXCEPTION-FOLLOWUP`、`K-CONTENT-REBIND`、`K-SUBMIT-REVIEW` 等），清單與涵蓋程度以 `sgn.rule` 為準，每個代碼都有資料庫測試（`db/tools/rule-coverage.mjs`）。
+
 這些規則屬於核心，對所有流程類型一律生效。流程包、設定、任何角色都不能關閉；可調的只有第 8 節列出的參數，而且受硬上下限約束。每條規則都有測試，包含「試著繞過」的測試。「契約」欄是擁有該規則的契約。
 
 ### 5.1 身分與證明
+
+> 現況：`K-ACTOR-PROVEN`、`K-DECISION-PROOF`、`K-SESSION` 已實作；`K-DECISION-ELIGIBLE` 見 5 的清單。`K-CRED-COOLING` 沒有以這個代碼實作，冷卻期與掛失、遠端停用、復原由 `K-PASSKEY-*`、`K-REGISTRAR-MIN`（`passkey.*` 參數）實作，身分提供者金鑰由 `K-IDP-KEY-*` 實作。`K-NAMED-ACCOUNT`、`K-EXTERNAL-SPONSOR`、`K-PRIVACY-NOTICE` 尚未實作。
 
 | 代碼 | 規則 | 契約 |
 |---|---|---|
@@ -286,6 +338,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 | `K-PRIVACY-NOTICE` | 首次登入與告知書改版後須確認才能繼續，外部人員相同 | 01a |
 
 ### 5.2 職責分離
+
+> 現況：已實作 `K-SOD-APPLICANT`、`K-SOD-DISTINCT`、`K-AUDITOR-INDEPENDENT`、`K-AUDITOR-READONLY`、`K-ADMIN-SOD`（平台角色衝突矩陣 `sgn.role_conflict`，`db/kernel/270_role_change_governance.sql`）。其餘（填單人、受益人、迴避、當事人、權限項目的衝突矩陣 `K-SOD-CONFLICT`、執行人、驗證獨立、複查人、`K-AGENT-CEILING`）尚未實作；`K-STAGE-CONTROL-SIDE` 尚未實作。
 
 職責分離一律以自然人判斷，不以帳號或雇用判斷。
 
@@ -310,6 +364,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 5.3 解析與指派
 
+> 現況：已實作 `K-RESOLVE-STAGE-START`、`K-RESOLVE-HALT`、`K-TOP-RESOLVER`、`K-ROLE-SOURCE`、`K-PARALLEL-ALL`、`K-CLAIM`。`K-ROLE-CONTINUITY`、`K-OWNER-FALLBACK`、`K-AUTHORITY-MATRIX`、`K-RESOLUTION`、`K-DELEGATE`、`K-ASSISTANT` 尚未實作。
+
 | 代碼 | 規則 | 契約 |
 |---|---|---|
 | `K-RESOLVE-STAGE-START` | 簽核人在每關開始時解析，不在送審時一次算完；人事事件到達時主動重新解析，舊工作轉 `superseded`，新工作帶著問答、徵詢意見與備註。已完成的關卡不因事後異動失效 | 01e |
@@ -326,6 +382,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 | `K-ASSISTANT` | 助理只能看清單、代提問、寫準備備註、標記建議，不能決定；由委託人以 `passkey` 建立；保密流程預設排除 | 01c |
 
 ### 5.4 簽核動作與內容
+
+> 現況：已實作 `K-VERSION-BOUND`、`K-CHANGE-REDUCE`、`K-CHANGE-EXPAND`、`K-RETURN`（不含逾時自動取消）、`K-REJECT`（不含自動連結前案）、`K-RECALL`、`K-OVERLAP-BLOCK`、`K-OVERLAP-REASON`、`K-PRINCIPAL`（部分）。`K-CASE-NUMBER` 尚未實作：單號是資料庫流水號 `case_no`（取號時點與跳號問題見 `docs/handoff/closed-loop-3.md` §7）。其餘（申請人縮小、取消、提問、徵詢、轉簽、加簽、撤回決定、轉換、催辦與升級、急件、批次、續期、沿用、線下決定）尚未實作，催辦升級尚未開始。
 
 | 代碼 | 規則 | 契約 |
 |---|---|---|
@@ -357,6 +415,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 | `K-PRINCIPAL` | 被授權者一定有在職的負責人；專案與非人類主體（agent、服務帳號）必有結束日，其授權必有有效期；建立時比對相似名稱；保密的被授權者對外只顯示代號；`legacy_individual` 只能由匯入產生 | 01c |
 
 ### 5.5 執行、驗證與存續
+
+> 現況：已實作 `K-FULFIL`、`K-CONFIRM`、`K-NO-BACKDATE`、`K-VALIDITY-MAX`、`K-GRANT-REDUCE`。執行與驗證以 `K-DELIVERY-*`（簽章、順序、重試、卡住、結果檢查）與 `K-VERIFY-AUTO`、`K-VERIFY-SKIPPED` 實作，取代 `K-FULFIL-ENVELOPE`、`K-VERIFY` 的寫法（簽章格式見 `02-pack-data-access.md` §8.8）；撤銷、到期、後續追蹤以 `K-GRANT-REVOKE`、`K-GRANT-EXPIRE`、`K-GRANT-FOLLOWUP` 實作，取代 `K-REVOKE`、`K-EXPIRE`。尚未實作：`K-EFFECTIVE-DELAY`、`K-EXPIRE-REMIND`、`K-EVENT-EXPIRE`、`K-WINDOW`、`K-SUSPEND`、`K-RECLAIM`、`K-OWNER-CONTINUITY`、`K-MEMBER-*`、`K-REAPPROVE`、`K-INACTIVE`（久未使用以 `K-USAGE-IDLE` 取代）、`K-LEGACY-TRANSITION`、`K-RATIFY`、緊急與特權路徑、`K-ROSTER`。
 
 | 代碼 | 規則 | 契約 |
 |---|---|---|
@@ -390,6 +450,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 5.6 人事事件
 
+> 現況：只有 `K-HR-SYNC`（`db/kernel/230_directory_sync.sql`、`280_directory_guard.sql`：暫存、差異、門檻）與 `K-DETECT-MANAGER-FLIP` 部分實作。人事事件的個別處置（到職、調職、離職、兼任、借調等）尚未實作，沒有 `hr_event` 與異動處理清單。
+
 權威來源的事實（雇用、單位、職位、主管、代理主管）不走簽核，平台內不提供覆寫；錯在來源就改來源。每種事件對進行中的單、負責的授權、所屬被授權者、角色、代理與保證各有固定的處置，處置事件引用人事事件。全部屬 01c。
 
 | 代碼 | 規則 |
@@ -410,6 +472,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 | `K-HR-SYNC` | 同步分暫存、差異、門檻、套用四段；欄位增減或超過門檻即暫停，由人資的資料管理人加一位技術維運以外的人確認；只收固定的最小欄位；心跳逾時列例外，對狀態不確定的人擋下新決定，既有授權不動 |
 
 ### 5.7 證據
+
+> 現況：`K-AUDIT-APPEND`、`K-AUDIT-CHAIN` 已實作（`db/kernel/10_audit_chain.sql`、`70_audit.sql`，離線驗證 `db/tools/verify-chain.mjs`）。錨定以單一錨點存放處與錨定程式實作（`db/kernel/320_governance_anchor.sql`、`495_anchor_lag.sql`、`db/tools/anchor*.mjs`），是 `K-AUDIT-ANCHOR` 的部分實作（只有一個錨定位置）。其餘尚未實作：`K-AUDIT-SNAPSHOT`（只有顯示摘要與簽核依據的部分快照）、`K-ACCESS-LOG`、`K-AUDIT-SEGMENT`、`K-STATE-CONSISTENT`、`K-RESTORE-GAP`、`K-ENV-IDENTITY`、`K-CLOCK`、`K-RETENTION`、`K-LEGAL-HOLD`、`K-SUBJECT-RESTRICT`、`K-POPULATION`、`K-EXPORT`、`K-CONFIDENTIAL`、`K-KEY-CUSTODY`；`K-AUDIT-DENIED` 沒有以這個代碼登記。
 
 全部屬 01g，除另標者。
 
@@ -436,6 +500,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 5.8 設定、發行與運作
 
+> 現況：尚未實作（`sys_config_change`、期初基準、上線範圍、發行、更正、破窗、降級、授權機制都沒有）。目前參數值只經 migration 與種子寫入；角色指派的變更走另一套「角色異動申請」（`db/kernel/220_role_change.sql`、`270_role_change_governance.sql`），不是 `sys_config_change`。通知有寄送與卡住偵測（`db/kernel/350_notification_delivery.sql`、`390_notification_stuck.sql`），是 `K-NOTIFY-DELIVERY` 的部分實作（沒有分級與工作時段）。
+
 全部屬 01h。
 
 | 代碼 | 規則 |
@@ -456,6 +522,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 | `K-NOTIFY-DELIVERY` | 通知分即時、彙整、僅站內三級，在收件人當地工作時段送出；催辦與升級的證據以寄送結果為準，連續失敗改通知主管並列例外；催辦與升級預告不能關，只能改通道；回信自動回覆「回信不會核准」並記錄（01a） |
 
 ### 5.9 例外、複查與偵測
+
+> 現況：例外有紀錄、責任追蹤與逾期後續（`sgn.exception_record`、`K-EXCEPTION-FOLLOWUP`，`db/kernel/515_exception_close.sql`、`535_manual_expiry_followup.sql`），尚未涵蓋 `K-EXCEPTION` 的全部要求；定期複查（`K-REVIEW-*`）尚未實作；偵測只有 `K-DETECT-MANAGER-FLIP`。
 
 | 代碼 | 規則 | 契約 |
 |---|---|---|
@@ -480,6 +548,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 5.10 整合
 
+> 現況：尚未實作（`K-CHECK`、`K-EVENT-DELIVERY`、`K-RECON-FINDING`、`K-RECON-COVERAGE`、`K-CLIENT-GOVERN` 都沒有）。對帳以平台拉取證明過的回報實作，規則代碼是 `K-RECON-*` 的另一組（`DIFFERENT`、`EXTRA`、`MISSING`、`OVERDUE` 等），見 `docs/contract/05-integration.md` 的現況表。
+
 全部屬 05。細部規則用 `K-INT-` 前綴。
 
 | 代碼 | 規則 |
@@ -492,9 +562,13 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ## 6. 流程包介面
 
+> 現況：部分實作。實際只有 hook；沒有 `form_schema` 與宣告式流程定義，領域判斷都寫成流程包的 SQL function。
+
 原則是宣告優先、程式為輔：分級、縮小方向、重複判斷、摘要、權限項目都先用宣告表達；只有宣告表達不了的領域邏輯才寫 hook。合約用印與治理範本包完全宣告，不登記任何 hook。
 
 ### 6.1 登記
+
+> 現況：部分實作。`sgn_sdk` 實際有 `register_role`、`register_setting_definition`、`register_setting_value`、`register_rule`、`register_message`、`register_notification_template`、`register_process_type`、`register_process_options`、`register_approval_policy`、`register_hook`、`register_scope`、`sync_scoped_role_assignments`；沒有 `register_correction`、範本、`sync_resources`、`report_tier_raised`。登記直接生效，沒有「待生效的設定變更單」。hook 沒有函式雜湊與 `hook_api_version`。流程包尚不是只能透過 `sgn_sdk`，而是以 `pack_data_access` 擁有者的權限執行（沒有 `sgn_pack_<代號>` 角色）。
 
 - 流程包在自己的 migration 裡呼叫 `sgn_sdk` 的登記入口，全部可重複執行：`register_role`、`register_setting_definition`、`register_setting_value`、`register_rule`、`register_message`、`register_notification_template`、`register_process_type`、`register_approval_policy`、`register_correction`、`save_case_template`、`retire_case_template`、`sync_resources`、`sync_scoped_role_assignments`、`report_tier_raised`。簽章在 01d。
 - 登記產生的流程定義、路徑、參數值是新版本，以待生效的設定變更單進入，客戶核准後才生效（啟動模式下併入期初基準）。流程包的安裝與升版本身是設定變更。
@@ -503,6 +577,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 - 流程包不能直接讀寫 `sgn` 的資料表。讀取用 `sgn_sdk` 的 view（申請單、目前版本內容、被授權者、授權、執行結果）；讀參數用 `sgn_sdk.setting`；丟錯用 `sgn_sdk.raise_error`。
 
 ### 6.2 表單定義（`form_schema`）
+
+> 現況：尚未實作。申請內容的欄位由流程包的 `normalize_content` 與前端 `web/packs/data_access_form.js` 處理，沒有表單定義的資料。
 
 欄位型別：`text`、`textarea`、`select`、`multiselect`、`integer`、`money`、`date`、`date_range`、`boolean`、`person`、`principal`、`company`、`counterparty`（結構化的交易對象）、`attachment`、`custom`（流程包註冊的前端元件名稱）。
 
@@ -522,6 +598,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 值的形狀：`money` 是整數（最小幣別單位）加幣別；`date_range` 是 `{"from","to"}`；`attachment` 是陣列，元素含 `attachment_id`、`file_name`、`sha256`；`person`、`principal`、`company` 存內部 id；`counterparty` 含名稱、統一編號或登記號、國別。被授權者與授權起迄不在內容裡，由核心保存與判定。
 
 ### 6.3 宣告式流程定義
+
+> 現況：尚未實作。分級、縮小方向、重複判斷、摘要、權限項目目前都由資料授權的 hook 實作；`policy_stage.applies_when` 只支援級別條件（`approval_policy` 的結構見 `db/kernel/120_flow_definition.sql`）。
 
 `process_type` 的宣告與 `policy_stage` 的欄位。條件式是固定的運算子集合（欄位比較、`in`、存在、參數引用、`all`、`any`、`not`），不是程式；語法在 01d。
 
@@ -543,6 +621,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 | `policy_stage.question` | 本關要簽核人判斷的問題 |
 
 ### 6.4 hook
+
+> 現況：部分已由實作取代，hook 名單與簽章以 `sgn.hook_definition` 為準。與本表相同：`normalize_content`、`classify_tier`、`compare_content`、`find_overlaps`、`stage_scopes`、`build_fulfilment`、`build_verification_cases`。實作另有：`display_content`、`display_overlap`（取代 `summarize_content`、`diff_content`）、`build_delivery`、`expected_entitlements`、`normalize_constraints`、`check_delivery_result`、`check_reconciliation_report`、`review_submission`、`after_grant_activated`。尚未實作：`validate_content`、`describe_impact`、`automated_checks`、`list_parties`、`detect_interest`、`list_requestables`、`batch_context_check`、`describe_entitlements`、`describe_expected_state`、`evaluate_constraints`、`on_grant_event`。
 
 流程包在自己的 schema 實作需要的 hook 並登記；沒登記的用宣告或預設行為。hook 不得修改核心資料表（`on_grant_event` 可以寫自己 schema 的表），除標明外必須是 `stable`。
 
@@ -571,6 +651,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ### 6.5 呼叫保證
 
+> 現況：部分實作。寫入內容版本前先 `normalize_content` 已實作；顯示快照與內容版本雜湊進入簽核證明已實作；hook 的函式雜湊與每次判斷的輸入輸出摘要尚未記錄。機密欄位尚未實作。
+
 - 寫入任何內容版本前先 `normalize_content`，再 `validate_content`。
 - 每個新版本重新分級；草稿先存檔才檢查重疊，所以 `p_case_id` 不為 null。
 - `automated_checks` 之外，核心自己加上與領域無關的檢查：被授權者有在職負責人、每關不同人、期間在上限內、受益人與利害關係。
@@ -578,6 +660,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 - 機密欄位不會傳給 hook；需要時由機密內容服務依宣告算出衍生值（第 20 節）。
 
 ## 7. 簽核人解析器與關卡模式
+
+> 現況：部分實作（`db/kernel/150_resolver.sql`）。核心登記的 resolver 種類：`applicant_manager`、`role_holder`、`role_group_claim`、`scoped_role`、`system_custodian`；其餘種類尚未實作（`principal_owner` 關卡在資料授權流程包內處理，見 `db/packs/data_access/100_principal_owner_stage.sql`）。模式只有 `one`、`all`。出缺與迴避順序只實作到上一層主管與 `top_resolver`；人資派代、出缺替代人、代理尚未實作。
 
 每一關宣告一種 resolver，由 `sgn_internal.resolve_stage_assignees` 統一解析，並在這裡套用職責分離、迴避、代理與出缺。執行、驗證、覆核階段的關卡用同一套機制。
 
@@ -617,6 +701,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 - 簽核人不在而有人資登記的職務代理人時，直接指派給代理人並寫明來源；送出前就顯示「這一關會由某某代理」。
 
 ## 8. 參數
+
+> 現況：已由實作取代。參數儲存與讀取（`sgn.setting_definition`、`sgn.setting_value`、`sgn_internal.setting`）已實作，但沒有 `hard_floor`、`hard_ceiling`、`control_class` 等欄位；本表的 key 幾乎都沒有實作，只有 `validity.max_months` 與本表同名。實際的參數、預設值與範圍以 `sgn.setting_definition` 為準（由各 migration 與 `db/seed` 登記），例如 `delivery.*`、`reconciliation.*`、`usage.*`、`confirmation.*`、`passkey.*`、`directory.*`、`data_access.*`。本表其餘為尚未實作的設計值。
 
 命名為 `<範圍>.<項目>`。核心前綴：`approval.`、`validity.`、`grant.`、`confirmation.`、`renewal.`、`delegation.`、`overlap.`、`fulfilment.`、`privileged.`、`emergency.`、`review.`、`retention.`、`audit.`、`decision_log.`、`authn.`、`session.`、`migration.`、`external.`、`rollout.`、`detector.`、`integration.`、`reconciliation.`、`evidence.`；流程包參數用流程包代號當前綴。
 
@@ -669,6 +755,8 @@ draft → in_approval → pending_fulfilment → verifying → active → expire
 
 ## 9. 目錄結構與邊界規則
 
+> 現況：部分已由實作取代。實際目錄：`db/kernel`、`db/packs/data_access`、`db/testing`、`db/seed`、`db/tests`、`db/tools`、`packages/contract`、`api/src`（沒有 `packs/`）、`web/`（扁平：`app.js`、`pages/`、`packs/`，沒有 `src/`）、`e2e/`、`sim/`、`tools/`、`redteam/`。沒有 `vault/`、`deploy/`、`tools/verify/`（離線驗證工具是 `db/tools/verify-chain.mjs`）、`docs/reference/` 與 `generated/`（產生器尚未做）。邊界規則的自動檢查只有 `db/tests/packs/data_access/90-architecture.test.mjs` 與 `db/tests/kernel/90-contract.test.mjs`、`12-grants.test.mjs` 涵蓋的部分。
+
 ```
 db/kernel/            核心 migration
 db/packs/<代號>/      流程包 migration（表、hook、流程定義、參數、規則代碼、範本）；含 db/packs/governance/
@@ -696,6 +784,8 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ## 10. 前端的通用畫面
 
+> 現況：部分實作。已有頁面（`web/pages/`）：首頁（待簽與我的申請）、新申請、單的頁面（進度、差異、確認、使用情形）、稽核證據與例外、通行金鑰、角色異動。手機寬度與驗收見 `docs/ux-acceptance.md`。尚未實作：需求導向搜尋、範本與套組、批次、執行佇列、授權總覽、複查活動、異動處理清單、設定、上線就緒、營運狀態。畫面的按鈕依後端回傳的可執行動作清單，已實作。
+
 畫面要顯示哪個按鈕，依後端回傳的可執行動作清單。系統判定的事實與申請人填寫的文字分區顯示。決定一律在平台內完成，郵件與聊天訊息只帶連結。
 
 | 畫面 | 內容 | 流程包可以提供 | 規格 |
@@ -719,6 +809,8 @@ docs/                 文件；docs/reference/ 為自動產生
 | 營運狀態 | 排程、寄送、adapter、錨定、憑證到期、環境模式；不顯示任何申請內容 | — | 04c |
 
 ## 11. 對外整合介面
+
+> 現況：尚未實作。沒有 `api_client`、`check`、`grants`、`events`、webhook、`reconciliation_run` 的外部推送、複查、`audit_feed`、`security_feed`、代建草稿、待辦清單。平台對外的實作是反方向：交付、對帳與使用紀錄都由平台的背景程式拉取或送出（見 `docs/contract/02-pack-data-access.md` §8.8 與 `docs/contract/05-integration.md` 的現況表）。
 
 平台核准出來的授權要能被其他系統直接使用。這裡固定範圍與命名，詳細契約在 05。
 
@@ -748,6 +840,8 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ## 12. 模擬環境
 
+> 現況：部分實作（`sim/`）：真的 OpenLDAP、Dex（OIDC）、Mailpit（SMTP）、DC 模擬器（`sim/dc`，兩個實例）；錨點存放處由 `tools/run-all.sh` 起另一個來源的服務。尚未實作：SCIM 與 CSV 來源、SAML、其他受管系統（人資檔案、人工、付款、部署管線）、使用授權的示範小系統、時戳服務、金鑰與機密服務。端點指紋登記（`K-ENV-IDENTITY`）尚未實作。
+
 整合測試與端對端測試一律對著以真實協定運作的模擬環境 `sim/`；模擬替身只用在單元測試。每個服務都能用一支腳本啟動與停止，並有健康檢查。`sim/` 另打包成客戶可用的沙箱。
 
 | 對象 | 模擬方式 |
@@ -766,9 +860,13 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ## 13. 身分與決定證明
 
+> 現況：部分實作。資料庫驗身分提供者簽的 ID token 並建立 session（`api.session_begin`、`api.session_open`）、通行金鑰與 `idp_stepup` 兩種決定證明（`api.challenge_issue`、`api.case_decide_passkey`、`api.case_decide_idp`）、RS256／ES256／Ed25519 驗章都在資料庫內。尚未實作：`private_key_jwt`、可登記第二個身分提供者、動作目錄的證明等級由設定調高。
+
 資料庫不信任後端傳入的身分。後端只負責轉送；「是誰」與「他決定了什麼」都由資料庫驗證身分提供者或使用者裝置簽發的證明。契約 01b。
 
 ### 13.1 session
+
+> 現況：已實作（`db/kernel/30_identity.sql`、`240_decision_proof_only_passkey.sql`、`460_idp_keys.sql`、`490_idp_keys_guard.sql`）；身分提供者金鑰的輪替以 `sgn_idp_keys` 角色與 `db/tools/idp-keys.mjs` 實作，延遲生效的做法與 `authn.idp_key_activation_hours` 不同（見 `K-IDP-KEY-*`）。
 
 - `api.session_begin` 發出一次性的 nonce；使用者在身分提供者登入；後端把原始的 ID token 交給 `api.session_open`；資料庫以登記的 `identity_provider_key` 驗章並檢查 `iss`、`aud`、`exp`、`nonce`，對到 `person_identity` 與有效的 `employment`，建立 `auth_session`。
 - 登入只接受資料庫可驗章的 OIDC token；SAML 身分提供者經身分中介轉成 OIDC。可登記第二個身分提供者。平台不自己驗 TOTP、簡訊或推播，這些因子只會以 `amr` 出現。
@@ -776,6 +874,8 @@ docs/                 文件；docs/reference/ 為自動產生
 - 身分提供者的簽章金鑰是受控設定：初次登記走設定變更；輪替的新金鑰匯入後先為 `pending`，延遲 `authn.idp_key_activation_hours` 生效並告警資安，可被否決。
 
 ### 13.2 證明等級與動作目錄
+
+> 現況：部分實作。動作目錄是 `sgn.action`，等級實際為 `session`、`idp_stepup`、`passkey` 的子集；動作代碼不是 `<對象>.<動詞>` 格式（例如 `approve`、`submit`、`audit.read`）。以實作為準，見 `db/kernel/40_case.sql`、`140_case_model.sql`。
 
 `action` 登記每個動作的類別與最低證明等級。等級寫在核心，設定只能調高。動作代碼寫成 `<對象>.<動詞>`（例如 `case.submit`、`task.approve`、`grant.revoke`），由擁有該對象的契約登記，完整清單彙整在 01b。
 
@@ -792,23 +892,33 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ### 13.3 機器呼叫方
 
+> 現況：尚未實作 `api_client` 與 `private_key_jwt`。機器呼叫方實際是各背景程式的獨立資料庫角色（排程、交付、對帳、錨定、寄信、身分提供者金鑰更新），允許清單在 `packages/contract/src/routes.ts` 的 `*Calls`，授權由 `db/tools/grants-sql.mjs` 產生。
+
 `sgn_job`、`sgn_sync`、`sgn_integration` 碰不到決定類 function。`api_client` 的寫入類請求（對帳回報、執行結果、代建草稿、用量回報）以 `private_key_jwt` 簽章，由資料庫驗章。
 
 ### 13.4 殘餘風險（只能偵測，對外不得宣稱擋得住）
+
+> 現況：仍然成立；同主機 root 的殘餘風險見 `docs/handoff/redteam-fixes-4.md` §1。
 
 資料庫 superuser 與 `sgn_owner` 可以改 function 或公鑰；被攻破的前端可以讓使用者看到甲、簽下乙；身分提供者的管理員可冒名登入並登記新憑證。對應的偵測：物件指紋、`pgaudit` 外送、憑證登記與檢查點的外部錨定、離線重驗、決定後由資料庫產生的通知摘要、同裝置與過短審閱的偵測、冷卻期與通知本人。
 
 ## 14. 證據層
 
+> 現況：部分實作，見 14.1–14.5。
+
 這個結構在寫 DDL 前定案；上線後再改等於重算全部既有雜湊。契約 01g。
 
 ### 14.1 骨架與封套
+
+> 現況：部分實作。骨架以 RFC 8785 正規化的 bytes 進鏈已實作；封套加密、逐單資料金鑰、可銷毀尚未實作。`audit_event` 的欄位與本檔不同（見 `db/kernel/10_audit_chain.sql`）。
 
 - 骨架是 `audit_event` 的欄位（第 2 節），以 RFC 8785 正規化後的 bytes 保存並進鏈，帶 `hash_version`。驗證不依賴 `jsonb` 的輸出格式。
 - 封套有兩種：內容類（申請內容、附件、顯示快照、意見文字）與軌跡類（判定依據快照、姓名、IP、裝置），以逐單的資料金鑰加密。骨架對每個封套放兩個值：密文雜湊（不解密就能驗儲存完整）與明文的加鹽承諾（鹽在封套內，有權解密的人可驗內容與承諾相符）。
 - IP 只取可信代理附加的那一段並保留原標頭；裝置分自報與已驗證（憑證 id）。
 
 ### 14.2 鏈、封印與錨定
+
+> 現況：部分實作。單一主鏈、定期錨定與落後偵測（`K-AUDIT-ANCHOR` 的部分、`audit.anchor_*` 參數）已實作；分段封印、各公司的 Merkle 根、區塊承諾、`pgaudit`、`tools/verify/` 尚未實作。目前只有一個錨定位置。
 
 - 單一主鏈；鏈依月分段，段落結束產生 `audit_segment_seal`（段根、筆數、首末序號）。驗證可從任一封印開始，依月平行。
 - `audit_checkpoint`（序號、鏈頭、筆數、各公司的 Merkle 根、環境 id）每 `audit.anchor_interval_minutes`、每次匯出、升版前後產生，互相串接，寫回鏈上並推到 `anchor_sink`，回執存 `anchor_receipt`。RFC 3161 時戳服務是一種可選的 sink，不強制。
@@ -819,9 +929,13 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ### 14.3 還原與環境
 
+> 現況：尚未實作。
+
 啟動時與外部錨點比對（`K-RESTORE-GAP`、`K-ENV-IDENTITY`）。還原例外由控制負責人覆核結案。備份加密，取用列入特權存取；每週自動還原驗證與年度演練（含金鑰還原）產生證據。
 
 ### 14.4 保存與銷毀
+
+> 現況：尚未實作。
 
 - 保存期依（流程類型、紀錄類別）設定，參數 `retention.years`，起算基準 `retention_basis`：終局日、失效日或年度決算日。`retention_class` 為 `standard`（依參數）或 `permanent`（議事錄）。
 - 銷毀是 `sys_disposal`：銷毀該單的 `case_key` 並寫事件，骨架保留；行為人的可識別資料在他最後一張相關單期滿後抹除。整段移除只能在段內所有內容都已銷毀之後做，是一張設定變更並留下封印。
@@ -830,9 +944,13 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ### 14.5 效能目標
 
+> 現況：尚未用十年量級資料壓測；資料庫內驗章的效能量測見 `db/bench/` 與 `docs/handoff/probe-db-findings.md`。
+
 十年資料量下：核准 p95 小於 1 秒、單月鏈驗證小於 10 分鐘，以十年量級資料壓測。權限判定的效能目標在 05 決定。
 
 ## 15. 例外與稽核作業
+
+> 現況：部分實作（例外紀錄、追蹤與稽核證據頁的例外清單）；母體、抽樣、資料包、查閱紀錄的稽核作業尚未實作。
 
 契約 01h。
 
@@ -872,6 +990,8 @@ docs/                 文件；docs/reference/ 為自動產生
 - 外部稽核是具名、有期限的外部人員（保證人為稽核主管），角色帶範圍；機密內容預設不可解密，由稽核主管逐案開放。
 
 ## 16. 環境、發行與運作模式
+
+> 現況：尚未實作。沒有 `environment`、運作模式、期初基準、發行與升版、降級矩陣；排程以各背景程式與 `api_job.*` 實作，心跳與卡住偵測見 `program_health`（`db/kernel/525_program_liveness.sql`）。
 
 契約 01h。
 
@@ -920,6 +1040,8 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ## 17. 公司別維度
 
+> 現況：尚未實作（沒有公司、據點與公司別欄位）。
+
 公司是核心的維度，不是租戶：同一個部署、同一條主鏈，資料依公司別區分可見範圍，不做雲端多租戶的資料隔離。
 
 | 項目 | 依公司別的方式 |
@@ -943,6 +1065,8 @@ docs/                 文件；docs/reference/ 為自動產生
 - 跨公司的職權來自 `appointment`；每個工作標示以哪家公司的什麼身分簽。
 
 ## 18. 平台管理角色與設定治理
+
+> 現況：部分實作。角色登記與指派（`db/kernel/210_role_registry.sql`）、角色異動申請與治理加簽（`220_role_change.sql`、`270_role_change_governance.sql`）、passkey 登記人（`K-REGISTRAR-MIN`）已實作；平台角色衝突矩陣（`K-ADMIN-SOD`）已實作；設定變更單（`sys_config_change`）與其他內建流程類型尚未實作。
 
 契約 01h（角色實體在 01c）。
 
@@ -1009,6 +1133,8 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ## 19. 受管系統與整合方式
 
+> 現況：部分已由實作取代。沒有 `resource_system` 實體；受管系統以 `system:<代碼>` 範圍的參數與交付通道表達（`delivery.mode`、`delivery.channel`、`data_access.capability.*`，`db/seed/kernel/030_managed_system_scopes.sql`、`040_delivery.sql`），交付與對帳見 02 §8。
+
 不預設資訊單位負責執行。每個受管系統有自己的擁有單位與管理人，執行、驗證、對帳都交給他們。契約 01f（對外介面在 05）。
 
 `resource_system` 的關鍵欄位：
@@ -1046,6 +1172,8 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ## 20. 機密內容與金鑰
 
+> 現況：尚未實作（沒有 `vault/`、機密欄位、金鑰保管）。
+
 平台只存「誰可以看什麼」的描述，不存受保護的資料本身；驗證只回報通過與否，不回傳資料。契約 06。
 
 | 層次 | 做法 |
@@ -1063,9 +1191,13 @@ docs/                 文件；docs/reference/ 為自動產生
 
 ## 21. 契約文件切分
 
+> 現況：已由實際檔案取代。`docs/contract/` 只有 `00-spine.md`、`02-pack-data-access.md`、`03-pack-seal.md`、`05-integration.md`、`06-consumer-obligations.md`，另有 `seed-directory.md`、`pending-amendments.md`、`spine-feedback.md`。`01a`–`01h`、`04a`–`04c`、`06-vault`、`07-ports`、`08`–`11` 不存在；核心各模組的現況以 `db/kernel/*.sql` 與各 handoff 為準。第 21 節所述的核心契約從未寫成。
+
 接下來的契約依下表切分，可以平行撰寫。每份契約只定義自己擁有的東西；別人的東西只引用名稱。
 
 ### 21.1 文件清單
+
+> 現況：見上；實際編號與本表不同（`06` 實際是 `06-consumer-obligations.md`，不是 `06-vault.md`）。
 
 | 檔案 | 範圍 | 擁有的規則 | 相依 |
 |---|---|---|---|
@@ -1093,6 +1225,8 @@ docs/                 文件；docs/reference/ 為自動產生
 `08`–`11` 四個流程包還沒有 `docs/packs/<流程包>/rules.md`。規則文件是業務規則的唯一來源，要先寫並經專案負責人確認，才能寫契約。
 
 ### 21.2 跨模組的接點
+
+> 現況：核心與流程包之間實際的接點是 `sgn_sdk`（函式清單見 6.1）與 `sgn.hook_definition`。
 
 跨契約的呼叫只能經過這些入口。這裡只固定名稱與擁有者，簽章由擁有的契約決定；需要新的接點時先在這張表加一列。
 
@@ -1130,6 +1264,8 @@ docs/                 文件；docs/reference/ 為自動產生
 - 建議順序：`01a`–`01d`、`01g` 只依骨幹，可先完成；其餘可同時起草，引用尚未完成的契約時只用本節的接點與第 2 節的實體名稱。全部完成後做一次交叉審查。
 
 ## 22. 第一版範圍與不做的事
+
+> 現況：尚未達成。目前進度與沒做的項目見根目錄 `README.md`；本節不當成進度表。
 
 ### 22.1 第一版包含
 

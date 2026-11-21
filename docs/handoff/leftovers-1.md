@@ -1,5 +1,7 @@
 # 交接：第三輪修復留下的項目與好用性（leftovers-1）
 
+> **本檔寫於 2026-11-20，以下已過時：§0 的測試數字（192 個資料庫測試）；§8「沒做到的、留給下一位」中標「未解」的威脅表列，後續已由 `redteam-fixes-4.md`、`redteam-fixes-5.md`、`redteam-fixes-7.md` 逐項處理或裁決（D81–D90）。仍有效：代填申請的確認、掛失與金鑰撤銷、QR 掃描、通知卡住例外的設計（§1–§5）仍是現況。最新結果見 `closed-loop-2.md`。**
+
 日期：2026-11-20。依據：`docs/handoff/redteam-fixes-3.md`（§1 威脅表、§9 沒做到的）、裁決 D65、D76、D79（`docs/decision-log.md`）、
 `docs/ux-acceptance.md`。範圍：`db/`、`api/`（沒有改）、`web/`、`e2e/`、`packages/contract/`、`tools/`（沒有改）、本文件。
 沒有改 `redteam/`、`sim/dc/`；沒有碰 sim_dc* 資料庫、simdc_* 角色、埠 7001。沒有 commit。

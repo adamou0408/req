@@ -1,5 +1,7 @@
 # 交接：紅隊第三輪的修復（redteam-fixes-3）
 
+> **本檔寫於 2026-11-20，以下已過時：§0 的測試數字（181 個資料庫測試）；§9「沒做到的」（由 `leftovers-1.md`、`redteam-fixes-4.md` 起處理）；文中提到的 wip commit 是當時的狀態。仍有效：第三輪攻擊（`redteam/findings-3.md`）的修復紀錄仍有效。**
+
 日期：2026-11-20。依據：`redteam/findings-3.md`、裁決 D65–D79（`docs/decision-log.md`）、`docs/handoff/redteam-fixes-2.md`。
 範圍：`db/`、`api/`、`web/`、`e2e/`、`packages/contract/`、`tools/`、本文件。沒有改 `redteam/`、`sim/`（只用 `sim/up.sh mail` 啟動 Mailpit），沒有碰 sim_dc* 資料庫、simdc_* 角色、埠 7001。
 我沒有 commit。工作途中 repo 出現一個不是我做的 commit `2317b7bc wip: 第三輪修復進行中（未驗證）`（04:33，含我當時寫到一半的 300–330、080 與 seed），之後的修改都在工作目錄。

@@ -1,5 +1,7 @@
 # 交接：紅隊第四輪的修復（redteam-fixes-4）
 
+> **本檔寫於 2026-11-20，以下已過時：§0 的測試數字；「同主機 root 未解」仍是現況（見 `redteam-fixes-5.md`、`redteam-fixes-7.md` 的殘餘風險），但其餘「未解」項目後續已處理。仍有效：第四輪攻擊（`redteam/findings-4.md`）的修復紀錄與設定依程式分開載入的做法（高-1）仍有效；它也是 sim/dc 回應簽章與撤回封存的來源，格式的唯一來源是 `docs/contract/02-pack-data-access.md` §8.8。**
+
 日期：2026-11-20。依據：`redteam/findings-4.md`、裁決 D81（背景 D80）、`docs/handoff/delivery.md`、`docs/handoff/sim-dc.md`、`sim/dc/README.md`。
 範圍：`db/`、`api/`、`web/`、`e2e/`、`packages/contract/`、`tools/`、`sim/dc/`、本文件。沒有改 `redteam/`、`docs/packs/**/rules.md` 與其他文件；沒有 commit。
 

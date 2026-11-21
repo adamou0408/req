@@ -1,5 +1,7 @@
 # 交接：申請人確認驗證結果、逾期自動撤銷、生效後縮小的畫面入口（applicant-confirm）
 
+> **本檔寫於 2026-11-20，以下已過時：§0 與 §7 的測試數字；§「留給下一位」中的畫面項目（後續批次已調整首頁與單的頁面）。仍有效：申請人確認驗證結果、逾期自動撤銷、`K-CONFIRM-*` 的機制仍是現況（取代 `delivery.md` 的「沒做」）。**
+
 日期：2026-11-20。依據：`docs/packs/data-access/rules.md`（「驗證中」「申請人逾期沒有確認驗證結果，自動撤銷」「驗證結果確認時限 5 個工作天」「撤銷」「修改、退回與撤銷」）、
 裁決 D80 (4)、D81、D82、骨幹 `docs/contract/00-spine.md` §2（`case_confirmation`）、§3（`requires_confirmation`、`confirmation_parties`）、§4.1、§5.5（`K-CONFIRM`）、§8（`confirmation.due_workdays`）、附錄 B、
 `docs/handoff/delivery.md`、`docs/handoff/redteam-fixes-4.md`、`docs/ux-acceptance.md`（T7）。

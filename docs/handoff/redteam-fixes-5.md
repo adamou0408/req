@@ -1,5 +1,7 @@
 # 交接：紅隊第五輪的修復（redteam-fixes-5）
 
+> **本檔寫於 2026-11-20，以下已過時：§0 的測試數字；「沒做到」的項目由 `redteam-fixes-6.md`、`redteam-fixes-7.md` 處理。仍有效：第五輪攻擊（`redteam/findings-5.md`）的修復紀錄仍有效。**
+
 日期：2026-11-20。依據：`redteam/findings-5.md`、裁決 D84（背景 D81–D83）、`docs/handoff/redteam-fixes-4.md`、`docs/handoff/applicant-confirm.md`、`docs/packs/data-access/rules.md`。
 範圍：`db/`、`api/`、`web/`、`e2e/`、`packages/contract/`、`tools/`、`sim/`（含 `sim/dc/README.md`、`sim/ldap`、`sim/idp`）、本文件。
 沒有改 `redteam/`、`rules.md` 與其他文件；沒有 commit、沒有 push。

@@ -1,5 +1,7 @@
 # 交接：紅隊第二輪的修復（redteam-fixes-2）
 
+> **本檔寫於 2026-11-20，以下已過時：§0 的測試數字（162 個資料庫測試）；自認未解的項目（後續由 `redteam-fixes-3.md` 起處理）。仍有效：第二輪攻擊（`redteam/findings-2.md`）的修復紀錄仍有效。**
+
 日期：2026-11-20。依據：`redteam/findings-2.md`、裁決 D65–D71（`docs/decision-log.md`）、`docs/handoff/redteam-fixes.md`。
 範圍：`db/`、`api/`、`web/`、`e2e/`、`packages/contract/`、`tools/`、本文件。沒有改 `redteam/`、`sim/`。沒有 commit。
 

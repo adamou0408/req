@@ -40,71 +40,13 @@
 
 ## D91 的契約增修
 
-依據：`docs/decision-log.md` D91。使用方系統要照做的事列在 [06-consumer-obligations.md](06-consumer-obligations.md)；這一節只寫**契約還沒有**的三件事，定案後分別併入標示的契約，併入後從這裡刪除。規則代碼、參數、錯誤代碼都是建議名稱，登記時以 `sgn.rule`、`sgn.setting_definition`、`sgn.message_catalog` 為準。
+依據：`docs/decision-log.md` D91。使用方系統要照做的事列在 [06-consumer-obligations.md](06-consumer-obligations.md)；D91-a、D91-c 已併入 02（下面各留一行引用）；D91-b 尚未併入、也尚未實作。規則代碼、參數、錯誤代碼都是建議名稱，登記時以 `sgn.rule`、`sgn.setting_definition`、`sgn.message_catalog` 為準。
 
 共通前提：已套用的 migration 不改，全部以新檔案加上 `create or replace` 完成；核心不得出現流程包代號，所以凡是「目錄」「欄、列」的判斷都放在流程包，核心只加通用的 hook。
 
 ### D91-a 資料目錄版本綁定
 
-併入：`02-pack-data-access.md` §4.2、§5.1、§5.6、§5.10、§8.5；`00-spine.md` §6.4（兩個新 hook）。
-
-**版本怎麼產生**
-
-| 項目 | 規定 |
-|---|---|
-| 資料表 | `pack_data_access.catalog_version`（`version_no` 遞增、`catalog_sha256` 唯一、`snapshot` 完整快照、`source`、`created_at`、`created_by` 或同步批次）。只增不改，擋 `UPDATE`、`DELETE`、`TRUNCATE` |
-| 何時產生 | `catalog_load` 每次套用快照後算雜湊；與目前版本不同才新增一列並寫稽核事件 `data_access.catalog_versioned`（新舊雜湊、差異筆數）。相同則不新增 |
-| 雜湊範圍 | 每個主題包的 `code`、`name`、`system`、`period_field`；欄位的 `code`、`name`、`classification`；列條件的 `code`、`name`、`value_type`；列舉值的 `value`、`label`。**不含**擁有者（角色指派另有紀錄）、說明文字、排序 |
-| 正規化 | 主題包、欄位、列條件依 `code` 排序，列舉值依 `value` 排序，停用的項目不列入；以核心的 JCS（`db/kernel/05_jcs.sql`）序列化後取 SHA-256，輸出小寫十六進位。使用方系統用同一個算法（測試向量放 `db/tests/packs/data_access/fixtures/`，兩邊共用） |
-| 引用摘要 | `pack_data_access.catalog_ref_sha256(p_content, p_version_no)`：只取這份申請內容引用到的主題包、欄位、列條件與列舉值，在指定版本的快照上以同樣方式算雜湊。用來判斷「目錄改了，但這張單引用的部分有沒有變」 |
-
-**綁在哪、怎麼進入簽的內容**
-
-- `normalize_content` 在整理後的內容加上 `catalog: {"version_no", "sha256"}`，值是整理當下的目前版本。每一個內容版本（建立、儲存、送審、退回後修改、簽核人縮小、生效後縮小）都重新整理，所以**送審的那一版綁的就是送審當下的目錄**。
-- `version_sha256` 是 `{content, terms}` 的雜湊（`db/kernel/160_case_flow.sql` 的 `version_prepare`），`catalog` 在 `content` 裡，所以自動被涵蓋，核心不用改。
-- `display_content` 增加一行「資料目錄第 N 版（雜湊前 12 碼）」，因此顯示摘要（`display_sha256`）也涵蓋；簽核人簽的內容＝`version_sha256`＋`display_sha256`，兩者都帶目錄版本。
-- `compare_content` 忽略 `catalog` 這個鍵本身（版本號不同不算擴大）；引用的項目有沒有變，由下面「目錄改版時」處理。
-- **舊單**：這次增修之前建立的內容版本沒有 `catalog` 鍵，已存的 `version_sha256` 不重算、不補簽。升版的 migration 為每張未結束的單記一筆基準（`pack_data_access.catalog_baseline`：單、內容版本、當時的目錄版本、`basis = 'baseline'`）並寫稽核事件；基準只用來偵測之後的目錄異動，畫面與證據頁標示「目錄版本為事後記錄，不在簽核內容內」。舊單下一次產生新內容版本（續期、縮小）時自然綁定。
-
-**交付與回報**
-
-| 環節 | 內容 |
-|---|---|
-| 交付 | `build_fulfilment` 的輸出加 `catalog: {"version_no", "sha256"}`（舊單取基準；值在已簽章的信封裡） |
-| 使用方回報 | 套用、驗證、對帳三種回應的 `result` 都加 `catalog_sha256`（使用方當時用的目錄版本），在證明（attestation）涵蓋的範圍內。使用方的代碼對實體欄位的對照有變動時，必須讓它的目錄版本跟著變（做法：對照表的雜湊併入它自己的版本來源，並重新匯出目錄給平台） |
-| 平台判定 | 新 hook `check_delivery_result(p_case_id, p_kind, p_result) returns jsonb`（核心在採信證明之後、分類結果之前呼叫；回 `null` 表示接受，否則回規則代碼與說明，核心照「外部系統拒絕」處理：不生效、撤回、開例外）。資料授權的實作：回報的版本平台不認得，或在該版本上算出的引用摘要與綁定版本的不同 → 不接受 |
-| 對帳 | 新 hook `check_reconciliation_report(p_channel, p_report) returns jsonb`：回報的版本平台不認得，且超過 `data_access.catalog_unknown_grace_minutes` → 每個通道開一筆例外，並觸發一次目錄同步 |
-
-**例外**
-
-| 規則代碼 | 何時開 | 處理 |
-|---|---|---|
-| `DA-CATALOG-MISMATCH` | 套用或驗證的回報：引用摘要不同 | 這張單不生效、撤回已送出的部分（沿用 `fulfilment_fail`），通知執行關的管理人與資料擁有者 |
-| `DA-CATALOG-UNKNOWN` | 回報的版本平台不認得（平台同步落後，或使用方改了對照） | 寬限時間內重送；逾時開例外並通知系統管理人。每個通道同時只有一筆 |
-| `DA-CATALOG-DRIFT` | 目錄改版影響到進行中或生效中的單（見下） | 依下表 |
-
-**目錄改版時**（新版本產生的同一個交易內，逐張比較舊綁定版本與新版本的引用摘要；相同就不動）
-
-| 單的狀態 | 引用的項目怎麼變 | 處理 |
-|---|---|---|
-| 草稿、已退回 | 任何 | 不動；下次儲存或送審時重新整理並綁新版本 |
-| 簽核中 | 項目被停用 | 重新整理成新版本（既有行為：移除並提示），屬縮小，從目前關卡繼續，通知申請人 |
-| 簽核中 | 分級調高、名稱或標籤改變、型別或值域改變 | 重新整理成新版本，視為無法判定（`DA-CHANGE-COMPARE`：無法判定一律算擴大），從第一關重簽；差異畫面標示「資料目錄異動」 |
-| 待套用、驗證中 | 任何 | 作廢未完成的交付，回到簽核中並依上兩列處理 |
-| 生效中 | 分級調高 | 依核心 `K-REAPPROVE`（`grant.reapproval_grace_days` 內依新級別重新核准，逾期撤銷） |
-| 生效中 | 項目被停用 | 開 `DA-CATALOG-DRIFT`，系統送出縮小後的新版本（`K-GRANT-REDUCE` 的路徑），通知負責人與資料擁有者 |
-| 生效中 | 只有名稱或標籤改變 | 開 `DA-CATALOG-DRIFT`，資料擁有者在 `data_access.catalog_rename_confirm_workdays` 內確認「意義沒有改變」（確認進稽核鏈）；確認後系統以新目錄版本產生新的內容版本並重送；逾期升級，不自動撤銷 |
-
-這張表取代 02 §4.2 的 `impacts` 判定方式（改以引用摘要判斷受影響的單）；通知範本沿用 02 §7.6 的 `data_access.catalog_sync_impact`。
-
-| 類別 | 新增 |
-|---|---|
-| 規則代碼 | `DA-CATALOG-VERSION`（目錄每次異動產生新版本，只增不改）、`DA-CATALOG-BOUND`（每個內容版本綁定整理當下的目錄版本，進入簽核內容）、`DA-CATALOG-MISMATCH`、`DA-CATALOG-UNKNOWN`、`DA-CATALOG-DRIFT` |
-| 參數 | `data_access.catalog_unknown_grace_minutes`（整數，預設 60，可依通道）、`data_access.catalog_rename_confirm_workdays`（整數，預設 5，可依級別） |
-| 錯誤代碼 | `DA-E-CATALOG-HASH`（匯入的快照自帶的雜湊與平台算的不同，422）、`DA-E-CATALOG-VERSION-MISSING`（交付時找不到綁定的版本，500） |
-| 測試 | 每個規則代碼一個資料庫測試；另加：相同快照不產生新版本；雜湊與排序、停用項目無關（測試向量）；`version_sha256` 隨目錄版本改變；舊單的雜湊在升版前後相同；`compare_content` 忽略 `catalog`；引用摘要在無關的主題包變動時不變；`sim/dc` 新增 `11-catalog-version`（回報版本、對照變動使版本改變）；`93` 新增不一致與不認得兩個案例 |
-| 與 `rules.md` | (1) `rules.md` 沒有規定目錄異動後的處理（A24 的缺漏之一只涵蓋分級調高）；上表「只有名稱或標籤改變」「項目被停用」兩列是新的業務規則，需要負責人確認後補進 `rules.md`。(2) `rules.md`「主題包、欄位、分級、擁有者以 DC 為準」：版本因此應該由 DC 的匯出帶出、平台驗算，而不是平台單方面產生；現況目錄只由種子載入，沒有同步（`db/packs/data_access/010_catalog.sql` 檔頭），所以 D91-a 以 02 §4.2 的同步先做完為前提。(3) 生效中的單因停用項目而由系統縮小，與「人做決定，系統只執行」不衝突的前提是紀錄寫明依據的規則代碼與目錄版本 |
-| 相依 | 核心的 `K-REAPPROVE` 還沒有實作；生效後縮小只有資料庫入口。兩者是這張表最後三列的前提 |
+已併入 [02-pack-data-access.md](02-pack-data-access.md) §8.6（以 D92 (1) 改寫）與 §8.1、§8.8；實作見 [closed-loop-1.md](../handoff/closed-loop-1.md) §1.1、§3。尚未實作的部分（待套用與驗證中的單在目錄改版時作廢交付、停用項目算縮小、`DA-CATALOG-UNKNOWN` 不觸發目錄同步）見該檔 §3、§5。
 
 ### D91-b 團隊類被授權者對應目錄群組
 
@@ -164,40 +106,7 @@
 
 ### D91-c 使用方系統的能力宣告
 
-併入：`02-pack-data-access.md` §7.1、§5.2、§5.6、§5.11；`00-spine.md` §19（`resource_system`）。
-
-**資料放哪**
-
-能力是參數，不新增資料表：流程包登記 `data_access.capability.*`，適用範圍是受管系統（`system:<代碼>`，與 `delivery.mode` 相同的範圍種類），值帶生效時間、只增不改（`sgn.setting_value`）。骨幹 §19 的 `resource_system` 實作後，這些參數仍以它的代碼為範圍，不搬家。
-
-| 參數 | 型別 | 預設 | 宣告為「做不到」時 |
-|---|---|---|---|
-| `data_access.capability.column` | 布林 | false | 這個系統上的主題包只能整包給；申請選了部分欄位時提示 |
-| `data_access.capability.row` | 布林 | false | 列條件不會被執行；申請帶列條件時提示 |
-| `data_access.capability.data_period` | 布林 | false | 資料期間不會被執行；提示 |
-| `data_access.capability.validity` | 布林 | false | 到期不會自己擋下；提示，並在到期時比照人工執行開例外（`K-DELIVERY-MANUAL` 的做法） |
-| `data_access.capability.export` | 布林 | false | 分不出查詢與匯出；這個系統上的主題包關閉「可否匯出」欄位（`rules.md`「需求單」、open-questions M5） |
-| `data_access.capability.usage_log` | 布林 | false | 沒有使用紀錄；提示，定期複查時標示「沒有使用資料」 |
-
-- **預設一律 false**：沒有宣告的系統視為做不到（從嚴），送審畫面會全部提示，逼著先宣告。示範種子把 `dc` 的六項都設為 true（負責人：現有的系統都做得到）。
-- **誰能改**：由該受管系統的管理人提出；false 改 true 會讓提示消失，屬放寬，要由提出人以外的人覆核（骨幹 §18.3 的設定變更）。每次變更進稽核鏈。現況沒有任何對外的參數變更入口（參數值只由 migration 與種子寫入），所以在骨幹 §18.3 實作之前，能力只能由種子或 migration 設定，這一點要寫進交接。
-- **使用方自己的宣告**：使用方系統提供能力查詢（建議 `GET {base}/capabilities`，回應帶證明），對帳程式每一輪一併取回，交給新 hook `check_reconciliation_report`（與 D91-a 同一個）。平台登記為 true 而使用方回報 false → 開例外 `DA-CAPABILITY-MISMATCH`。反過來不開例外（平台比較保守）。
-- **宣告是否屬實**：由既有的自動驗證證明（`DA-VERIFY-CASES` 的反例就是在測欄、列、期間、匯出、到期）。宣告做不到的面向不產生對應的反例，並在驗證結果標示「這個系統不執行此限制，未驗證」。
-
-**送審畫面的落差提示**
-
-- `normalize_content` 對每個主題包所在的系統取能力，申請用到做不到的面向時加一則提示（`DA-N-CAPABILITY-GAP`：系統名稱、哪個面向、後果）。提示隨內容版本保存。
-- `display_content` 把落差列進顯示摘要，所以每一位簽核人看到並簽到的內容都包含「這個限制不會被執行」。
-- 要不要擋下送審是參數 `data_access.capability_gap_action`（`warn` 或 `block`，可依級別；預設 `warn`）。
-- 前端只顯示後端回傳的提示，不自己依能力推斷。
-
-| 類別 | 新增 |
-|---|---|
-| 規則代碼 | `DA-CAPABILITY-DECLARE`（每個受管系統宣告做得到的限制，沒有宣告視為做不到）、`DA-CAPABILITY-GAP`（申請用到做不到的面向時提示並進入簽核內容；依參數擋下）、`DA-CAPABILITY-MISMATCH` |
-| 參數 | 上表六個，加 `data_access.capability_gap_action` |
-| 錯誤與訊息 | `DA-E-CAPABILITY-GAP`（`block` 時送審被擋，422）、`DA-N-CAPABILITY-GAP`（提示）、`DA-T-VC-UNENFORCED`（驗證結果的標示文字） |
-| 測試 | 每個規則代碼一個資料庫測試；另加：沒有宣告的系統每個面向都提示；`export` 為 false 時匯出欄位被關閉並提示；一張單跨兩個能力不同的系統時只提示做不到的那一個；提示出現在顯示摘要並改變 `display_sha256`；做不到的面向不產生反例；架構測試：SQL 裡不得出現寫死的系統代碼。`sim/dc` 新增能力查詢與一個「不能擋列」的實例設定，供端對端測試落差提示 |
-| 與 `rules.md` | (1) 原則 ①「一律從嚴」：做不到的限制只提示而仍可核准，比「擋下」寬；D91 的指示是提示落差，所以預設 `warn`，**L4 要不要預設 `block` 需要負責人裁決**。(2) `rules.md`「不做的事」的前提是所有管道都經過 DC（M4）；能力宣告沒有涵蓋「有沒有繞過的管道」，那仍然只能靠 M4 的答案。(3) `export` 做不到時關閉欄位，與 `rules.md`、M5 一致 |
+已併入 [02-pack-data-access.md](02-pack-data-access.md) §8.6–§8.8（以 D92 (5) 改寫：五項能力、L4 預設 `block`）；實作見 [closed-loop-1.md](../handoff/closed-loop-1.md) §1.2、§3。尚未實作的部分（使用方的能力查詢、`DA-CAPABILITY-MISMATCH`、能力宣告的變更入口）見該檔 §5。
 
 ### D91 盤點時發現、不在上面三項內的缺口
 

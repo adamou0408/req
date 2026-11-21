@@ -1,5 +1,7 @@
 # 交接：核准之後的系統對系統交付（平台側，接上 sim/dc）
 
+> **本檔寫於 2026-11-20，以下已過時：「申請人確認驗證結果與逾期自動撤銷」沒做（§4、§6）——已由 `applicant-confirm.md` 實作（D80–D83）；sim/dc 的缺口（回應沒有簽章、撤回後仍接受新版本、對帳回報沒有簽章；威脅表 #11、#12、#14）——已由 `redteam-fixes-4.md` 修復；「生效後縮小沒有畫面入口」——已由 `applicant-confirm.md` 處理；§4 的 02 §8.1、§8.5 與 `dc_rule_set/1` 不一致——02 §8.6–§8.8 已改寫，格式唯一來源是 02 §8.8；§0 與 §7 的測試數字。仍有效：平台的交付、對帳方向的設計與威脅表仍可參考；對帳仍是平台拉取（D92），不是 05 §8 的批次上傳。現況見 `closed-loop-1.md`（使用紀錄、目錄版本）、`closed-loop-2.md`（測試區與正式區的交付）與 `docs/contract/02-pack-data-access.md` §8。**
+
 日期：2026-11-20。依據：裁決 D63、方向頁策略 2、4、`docs/packs/data-access/rules.md`、`docs/handoff/sim-dc.md`、`sim/dc/README.md`、
 契約 02 §5.10–§5.12、§8，05 §8。範圍：`db/`、`api/`、`web/`、`e2e/`、`packages/contract/`、`tools/`、本文件。
 沒有改 `sim/dc/` 的程式與 `redteam/`；沒有 commit。執行期改了 `sim/.run/dc/keys/trusted-keys.json`（見 §4）。

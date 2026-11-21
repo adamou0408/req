@@ -1,5 +1,7 @@
 # 交接：探針升格、修掉探針發現的問題、最小品質關卡
 
+> **本檔寫於 2026-11-19，以下已過時：§0 與 §4 的「10 段通過、約 54 秒」（`tools/check.sh` 之後多了 `sim/dc` 一段，現為 10 個檢查段加 `tools/run-all.sh`）；§6「需要主代理決定的事」第 1、2、4、5 項已處理（骨幹與工程規範對 `p_session`、`db` workspace 的矛盾、根目錄 `README.md`）；§7 留給下一位中「參數改成 `setting_definition`／`setting_value`」「例外的結案流程」「申請人修改退回單的畫面」已做；§1 描述的 `probe/` 目錄已不存在。仍有效：`tools/check.sh` 仍未納入的工具（sqlfluff、knip、Trivy、hadolint、actionlint、產生檔無差異檢查）與產生器（`docs/reference/`、TypeScript 型別）仍然沒做，是目前仍有效的待辦。現況見根目錄 `README.md` 與 `tools/check.sh`。**
+
 日期：2026-11-19。範圍：`db/`、`api/`、`web/`、`e2e/`、`packages/contract/`、`tools/`（`commit-guard.sh`、`install-dev-tools.sh` 沒動）、根目錄的 package 設定、`.gitignore`（只新增一行）、`docs/handoff/`。
 本文分清楚：**跑過且通過**、**寫了但沒跑**、**沒做到**。
 

@@ -1,5 +1,7 @@
 # 交接：sim-dc（sim/dc，模擬的外部資料系統）
 
+> **本檔寫於 2026-11-20，以下已過時：「與契約不同的地方」中的規則格式代碼與信任清單（格式唯一來源已改為 `docs/contract/02-pack-data-access.md` §8.8，信封與回應證明由 `redteam-fixes-4.md` 加上）；「限制」中的「沒有簽章」「沒有時間戳或 nonce」與「留給下一位」中的平台 adapter 路徑（`api/src/packs/data_access/dcPort.ts` 不存在，現為 `api/src/dcHttp.ts`、`deliveryPort.ts`）；只描述一個資料庫 `sim_dc` 與 `sim_dc_test`、不含測試區與正式區兩組 schema、使用紀錄與目錄版本（見 `closed-loop-1.md`、`closed-loop-2.md`）。仍有效：sim/dc 的用法與端點以 `sim/dc/README.md` 為準；本檔的驗證結果與規則隔離的做法仍有效。**
+
 用法、端點與格式的細節在 `sim/dc/README.md`；這裡寫做了什麼、驗證了什麼、給平台那一側的對接說明、與契約不同的地方、限制。
 
 ## 做了什麼
