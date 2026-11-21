@@ -4,7 +4,8 @@
 -- 1. 生效中的授權在迄日前 validity.remind_before_days 天（依級別、流程類型；預設 14）由排程提醒申請人與被授權者負責人，
 --    每筆授權只提醒一次（sgn.grant_expiry_reminder 以授權為主鍵，只增不改），排程重跑不重複。
 -- 2. 不提醒：已撤銷、已到期（授權不是 active）；已續期——續期（K-RENEW）還沒實作，這裡以「同一個被授權者有一張送審後還在
---    簽核、執行或已生效的單，它的重疊檢查列了這筆授權，而且迄日比這筆晚」當作已續期（交接寫明這個近似）。
+--    簽核、執行或已生效的單，由原申請人或被授權者負責人送出，它的重疊檢查列了這筆授權，而且迄日比這筆晚」當作已續期
+--    （交接寫明這個近似）。那張單被駁回、撤回或退回之後就不算，下一輪補寄提醒。
 -- 3. 進入提醒期間還沒寄的算逾期工作（expiry_remind；排程停擺時由 K-PROGRAM-STALLED 讓人知道）。
 
 select sgn_internal.register_setting_definition(
@@ -41,7 +42,8 @@ as $$
     where c.id = p_grant.case_id
 $$;
 
--- 已續期（見檔頭第 2 點）：同一個被授權者、送審後的單在重疊檢查列了這筆授權，迄日比這筆晚，而且還沒結束。
+-- 已續期（見檔頭第 2 點）：同一個被授權者、原申請人或負責人本人送審的單在重疊檢查列了這筆授權，迄日比這筆晚，
+-- 而且還沒結束（駁回、撤回、退回之後就不算，下一輪補寄提醒）。
 create function sgn_internal.grant_renewed_by(p_grant sgn.grant_record)
 returns uuid
 language sql
@@ -56,6 +58,11 @@ as $$
       and c.state in ('in_approval', 'pending_fulfilment', 'verifying', 'active')
       and v.terms ->> 'principal_id' = p_grant.principal_id::text
       and sgn_internal.try_date(v.terms ->> 'valid_to') > p_grant.valid_to
+      -- 只認原申請人或被授權者負責人本人送出的單（別人送一張單不能讓這筆授權的人收不到提醒）
+      and (
+          c.applicant_person_id = (select o.applicant_person_id from sgn.request_case as o where o.id = p_grant.case_id)
+          or c.applicant_person_id = (select x.owner_person_id from sgn.principal as x where x.id = p_grant.principal_id)
+      )
       and exists (select 1 from jsonb_array_elements(o.items) as i where i ->> 'case_id' = p_grant.case_id::text)
     order by c.case_no
     limit 1
@@ -81,6 +88,25 @@ as $$
       and sgn_internal.grant_renewed_by(g) is null
 $$;
 
+-- 排程逐件處理失敗時的例外（同一個對象沒結案的不再開）。
+create function sgn_internal.job_failed(p_rule text, p_case_id uuid, p_subject jsonb, p_error text)
+returns void
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    if exists (
+        select 1 from sgn.exception_record as x
+        where x.rule_code = p_rule and x.closed_at is null and x.detail ->> 'kind' = 'job_error' and x.detail -> 'subject' = p_subject
+    ) then
+        return;
+    end if;
+    perform sgn_internal.exception_open(p_rule, p_case_id, jsonb_build_object(
+        'kind', 'job_error', 'subject', p_subject, 'error', left(p_error, 500), 'rules', jsonb_build_array(p_rule)
+    ));
+end;
+$$;
+
 create function sgn_internal.grant_expiry_remind_due()
 returns int
 language plpgsql
@@ -95,25 +121,30 @@ declare
     v_count int := 0;
 begin
     for v_row in select * from sgn_internal.grant_expiry_remind_pending() as p order by p.due_at, p.grant_id loop
-        v_case := sgn_internal.case_lock(v_row.case_id);
-        select * into v_grant from sgn.grant_record where id = v_row.grant_id;
-        -- 鎖住之後重新確認：仍生效、還沒提醒
-        continue when v_grant.status <> 'active'
-            or exists (select 1 from sgn.grant_expiry_reminder as r where r.grant_id = v_grant.id);
-        select coalesce(array_agg(distinct p), '{}') into v_people
-        from unnest(array[v_case.applicant_person_id, sgn_internal.case_principal_owner(v_case)]) as p
-        where p is not null;
-        v_seq := sgn_internal.audit_append('grant.expiry_reminded', v_case.id, null, jsonb_build_object(
-            'grant_id', v_grant.id, 'valid_to', v_grant.valid_to, 'days_left', v_grant.valid_to - sgn_internal.today(),
-            'recipients', to_jsonb(v_people), 'settings', jsonb_build_object('validity.remind_before_days', v_row.remind_days),
-            'rules', jsonb_build_array('K-EXPIRE-REMIND')
-        ));
-        insert into sgn.grant_expiry_reminder (grant_id, case_id, valid_to, sent_at, recipients, event_seq)
-        values (v_grant.id, v_case.id, v_grant.valid_to, sgn_internal.now(), to_jsonb(v_people), v_seq);
-        perform sgn_internal.notify('grant.expiry_reminder', v_people, v_case.id, jsonb_build_object(
-            'case_no', v_case.case_no::text, 'valid_to', v_grant.valid_to::text, 'days', (v_grant.valid_to - sgn_internal.today())::text
-        ));
-        v_count := v_count + 1;
+        begin
+            v_case := sgn_internal.case_lock(v_row.case_id);
+            select * into v_grant from sgn.grant_record where id = v_row.grant_id;
+            -- 鎖住之後重新確認：仍生效、還沒提醒
+            continue when v_grant.status <> 'active'
+                or exists (select 1 from sgn.grant_expiry_reminder as r where r.grant_id = v_grant.id);
+            select coalesce(array_agg(distinct p), '{}') into v_people
+            from unnest(array[v_case.applicant_person_id, sgn_internal.case_principal_owner(v_case)]) as p
+            where p is not null;
+            v_seq := sgn_internal.audit_append('grant.expiry_reminded', v_case.id, null, jsonb_build_object(
+                'grant_id', v_grant.id, 'valid_to', v_grant.valid_to, 'days_left', v_grant.valid_to - sgn_internal.today(),
+                'recipients', to_jsonb(v_people), 'settings', jsonb_build_object('validity.remind_before_days', v_row.remind_days),
+                'rules', jsonb_build_array('K-EXPIRE-REMIND')
+            ));
+            insert into sgn.grant_expiry_reminder (grant_id, case_id, valid_to, sent_at, recipients, event_seq)
+            values (v_grant.id, v_case.id, v_grant.valid_to, sgn_internal.now(), to_jsonb(v_people), v_seq);
+            perform sgn_internal.notify('grant.expiry_reminder', v_people, v_case.id, jsonb_build_object(
+                'case_no', v_case.case_no::text, 'valid_to', v_grant.valid_to::text, 'days', (v_grant.valid_to - sgn_internal.today())::text
+            ));
+            v_count := v_count + 1;
+        exception when others then
+            -- 一筆失敗只回捲那一筆（savepoint），開例外；其他照常提醒
+            perform sgn_internal.job_failed('K-EXPIRE-REMIND', v_row.case_id, jsonb_build_object('grant_id', v_row.grant_id), sqlerrm);
+        end;
     end loop;
     return v_count;
 end;

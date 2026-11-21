@@ -10,8 +10,8 @@ import { signChallenge } from '../webauthn.js';
 
 const o = t.ownerGap;
 
-async function acceptWithPasskey(gap) {
-    const ch = await api.call('principal_owner_challenge', { gap_id: gap.gap_id });
+/** 用通行金鑰簽：挑戰值由這個頁面從面板上顯示的同一份摘要（ch.display）算。 */
+async function acceptWithPasskey(gap, ch) {
     const toSign = await signingChallenge({
         purpose: 'principal.owner_accept',
         ref: gap.gap_id,
@@ -29,9 +29,16 @@ async function acceptWithPasskey(gap) {
     });
 }
 
-/** 確認接下的面板：內容就是要簽的顯示摘要。 */
-function acceptSheet(gap) {
-    const h = gap.handover;
+/** 確認接下的面板：先向資料庫取挑戰值與要簽的顯示摘要，面板只從這一份畫（簽的就是看到的）。 */
+async function acceptSheet(gap) {
+    let ch;
+    try {
+        ch = await api.call('principal_owner_challenge', { gap_id: gap.gap_id });
+    } catch (err) {
+        go('#', { text: explain(err), ok: false });
+        return;
+    }
+    const h = ch.display;
     const error = el('p', { class: 'result bad', role: 'alert', hidden: true, 'data-testid': 'decision-error' });
     const panel = sheet(
         o.acceptTitle,
@@ -39,6 +46,7 @@ function acceptSheet(gap) {
         facts([
             [o.principal, `${h.principal.name}（${t.principalKind[h.principal.kind] ?? h.principal.kind}）`],
             [o.departed, h.departed.name],
+            [o.newOwner, h.new_owner.name],
             [o.proposedBy, h.proposed_by.name],
             [o.reason, h.reason],
             [o.due, h.due],
@@ -53,7 +61,7 @@ function acceptSheet(gap) {
     );
     async function run() {
         try {
-            await acceptWithPasskey(gap);
+            await acceptWithPasskey(gap, ch);
             panel.remove();
             go('#', { text: o.accepted(h.principal.name), ok: true });
         } catch (err) {

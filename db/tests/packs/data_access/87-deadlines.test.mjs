@@ -25,7 +25,7 @@ const users = {};
 let P;
 
 before(async () => {
-    for (const uid of ['p01', 'p02', 'p03', 'p04', 'p10', 'p11', 'p16', 'p17']) {
+    for (const uid of ['p01', 'p02', 'p03', 'p04', 'p05', 'p10', 'p11', 'p16', 'p17']) {
         users[uid] = await login(app, uid);
         users[uid].key = await registerPasskey(app, users[uid]);
     }
@@ -40,13 +40,14 @@ const submit = async (year, who = 'p04') =>
         .case_id;
 const view = (caseId, who = 'p04') => call(app, 'case_get', users[who].session, caseId);
 const sla = () => one(scheduler, 'select api_job.approval_sla_due() as r').then((x) => x.r);
-/** 模擬時間過去：這張單等待中的工作的起點（開始、認領、升級）往前移幾天。 */
+/** 模擬時間過去：這張單等待中的工作的起點（開始、認領、升級）與實際催辦的時間往前移幾天。 */
 const age = (caseId, days) =>
     admin.query(
         `update sgn.case_task
          set opened_at = opened_at - make_interval(days => $2),
              claimed_at = claimed_at - make_interval(days => $2),
-             sla_from = sla_from - make_interval(days => $2)
+             sla_from = sla_from - make_interval(days => $2),
+             sla_reminded_at = sla_reminded_at - make_interval(days => $2)
          where case_id = $1 and status in ('pending', 'unclaimed')`,
         [caseId, days],
     );
@@ -114,7 +115,12 @@ test('K-SLA-ESCALATE 升級：催辦後再逾期，升級給簽核人的上一�
     const caseId = await submit(7403);
     await age(caseId, 10);
     await sla(); // 催辦
+    // 催辦之後至少要隔升級天數才升級（升級期限從實際催辦的時間起算，即使原本的催辦期限早就過了）
+    await sla();
+    assert.equal((await events(caseId, 'case.task_escalated')).length, 0, '催辦剛寄出，不會接著升級');
+    assert.equal((await waitingTask(caseId)).assignee_person_id, users.p03.personId);
     const early = await issueChallenge(app, users.p03, caseId); // 原簽核人在升級前拿到挑戰值
+    await age(caseId, 5); // 催辦之後過了 5 天（一定超過 2 個工作天）
     const counts = await sla(); // 升級
     assert.ok(counts.escalate >= 1, JSON.stringify(counts));
     const task = await waitingTask(caseId);
@@ -124,7 +130,11 @@ test('K-SLA-ESCALATE 升級：催辦後再逾期，升級給簽核人的上一�
     assert.deepEqual(ev.rules, ['K-SLA-ESCALATE']);
     assert.equal(ev.from, users.p03.personId);
     assert.equal(ev.to, users.p02.personId);
-    assert.deepEqual(ev.settings, DEFAULTS);
+    assert.deepEqual(ev.settings, {
+        ...DEFAULTS,
+        'approval.manager_change_cooling_workdays': 1,
+        'approval.excluded_decider_roles': ['auditor', 'tech_ops'],
+    });
     assert.equal(ev.via, 'direct');
     assert.ok(ev.line.reporting_line_id, '寫明用哪一條主管關係');
     assert.deepEqual(await notified(caseId, 'case.task_escalated'), [users.p02.personId]);
@@ -164,6 +174,7 @@ test('K-SLA-ESCALATE 升級對象仍受每關不同人、不能是申請人約�
     assert.equal((await view(caseId, 'p10')).current_stage.code, 'data_owner');
     await age(caseId, 10);
     await sla();
+    await age(caseId, 10);
     await sla();
     const [ev] = await events(caseId, 'case.task_escalated');
     assert.equal(ev.from, users.p11.personId);
@@ -184,6 +195,7 @@ test('K-SLA-ESCALATE 主管關係在簽核途中被改：還在冷卻期的新�
     const caseId = await submit(7405);
     await age(caseId, 10);
     await sla();
+    await age(caseId, 10);
     // 同步剛把陳建宏（p03）的主管改成王志明（p05）：還在冷卻期
     const line = await one(admin, 'select id from sgn.reporting_line where person_id = $1 and valid_to is null', [users.p03.personId]);
     const p05 = await one(admin, `select person_id from sgn.person_identity where source = 'sim-ldap' and external_id = 'p05'`);
@@ -224,6 +236,7 @@ test('K-SLA-STALLED 往上找不到合格的人：開例外通知治理角色與
     try {
         await age(caseId, 10);
         await sla();
+        await age(caseId, 10);
         const counts = await sla();
         assert.equal(counts.stalled, 1, JSON.stringify(counts));
     } finally {
@@ -253,6 +266,7 @@ test('K-SLA-STALLED 升級對象也逾期：開例外通知治理角色與升級
     const caseId = await submit(7407);
     await age(caseId, 10);
     await sla();
+    await age(caseId, 10);
     await sla();
     assert.equal((await waitingTask(caseId)).assignee_person_id, users.p02.personId);
     await age(caseId, 10);
@@ -282,6 +296,9 @@ test('K-SLA-CLAIM 群組認領關沒人認領：催辦整個群組；再逾期�
     const [ev] = await events(caseId, 'case.task_reminded');
     assert.deepEqual(ev.rules, ['K-SLA-CLAIM']);
     assert.equal(ev.step, 'claim_remind');
+    await sla();
+    assert.deepEqual(await exceptions(caseId, 'K-SLA-CLAIM'), [], '催辦之後至少隔升級天數才開例外');
+    await age(caseId, 10);
     await sla();
     const [x] = await exceptions(caseId, 'K-SLA-CLAIM');
     assert.equal(x.detail.kind, 'unclaimed');
@@ -334,4 +351,173 @@ test('K-SLA-VIEW 待簽清單與單的頁面：已等幾個工作天、催辦與
     await sla();
     for (const id of [recent, late]) await withdraw(id, 'p04');
     await sla();
+});
+
+test('K-SLA-ESCALATE 升級對象在同一關已經有工作：不合格，繼續往上找（並行的關卡不能由同一個人簽兩件）', async () => {
+    // 客戶主檔（周文傑）與銷售訂單（張美玲）兩件資料擁有者工作。測試準備：周文傑的主管暫時是蘇慧敏（已生效的關係），
+    // 兩件都升級時，先升級的那件給蘇慧敏，另一件不能再給她，往上給高志遠
+    const content = {
+        ...salesOrderContent(7411),
+        environment: 'test',
+        scope: [
+            {
+                package: 'customer_master',
+                fields: ['customer_id', 'customer_name'],
+                row_filters: [{ filter: 'region', op: 'in', values: ['north'] }],
+            },
+            ...salesOrderContent(7411).scope,
+        ],
+    };
+    const p09 = await one(admin, `select person_id from sgn.person_identity where source = 'sim-ldap' and external_id = 'p09'`);
+    const line = await one(admin, 'select id from sgn.reporting_line where person_id = $1 and valid_to is null', [p09.person_id]);
+    await admin.query("update sgn.reporting_line set valid_to = clock_timestamp() - interval '10 days' where id = $1", [line.id]);
+    const temp = await one(
+        admin,
+        `insert into sgn.reporting_line (person_id, manager_person_id, valid_from, origin) values ($1, $2, clock_timestamp() - interval '10 days', 'baseline') returning id`,
+        [p09.person_id, users.p10.personId],
+    );
+    try {
+        const caseId = (await call(app, 'case_submit_new', users.p04.session, DA, content, bot(), OVERLAP_REASON)).case_id;
+        await decide(app, users.p03, caseId);
+        const owners = await admin.query(`select id from sgn.case_task where case_id = $1 and status = 'pending' order by id`, [caseId]);
+        assert.equal(owners.rowCount, 2, '資料擁有者關有兩件工作');
+        await age(caseId, 10);
+        await sla();
+        await age(caseId, 10);
+        await sla();
+        const evs = await events(caseId, 'case.task_escalated');
+        assert.equal(evs.length, 2);
+        assert.equal(evs[0].to, users.p10.personId, '先升級的那件給蘇慧敏');
+        assert.deepEqual(evs[1].path[0], { person_id: users.p10.personId, denied: 'SAME_STAGE' });
+        assert.equal(evs[1].to, users.p01.personId, '另一件往上給高志遠');
+        assert.deepEqual(Object.keys(evs[1].settings).sort(), [
+            'approval.escalate_after_workdays',
+            'approval.excluded_decider_roles',
+            'approval.manager_change_cooling_workdays',
+            'approval.remind_after_workdays',
+        ]);
+        await withdraw(caseId);
+    } finally {
+        await admin.query('delete from sgn.reporting_line where id = $1', [temp.id]);
+        await admin.query('update sgn.reporting_line set valid_to = null where id = $1', [line.id]);
+    }
+});
+
+test('K-SLA-STALLED 單被擋下（被授權者不能用）：時限暫停、例外不會被當成不再等待而結案；恢復之後期限往後移（被擋下的時間）', async () => {
+    const owned = (
+        await one(admin, `select sgn_internal.principal_upsert('db-test', $1, 'agent', '時限暫停測試', $2, '2027-12-31') as id`, [
+            `agent:sla-hold-${Date.now()}`,
+            users.p05.personId,
+        ])
+    ).id;
+    const caseId = (
+        await call(
+            app,
+            'case_submit_new',
+            users.p04.session,
+            DA,
+            { ...salesOrderContent(7412), environment: 'test' },
+            { ...bot(), principal_id: owned },
+            null,
+        )
+    ).case_id;
+    await decide(app, users.p05, caseId); // 負責人確認
+    await age(caseId, 10);
+    await sla();
+    await age(caseId, 10);
+    await sla();
+    await age(caseId, 10);
+    await sla();
+    const [x] = await exceptions(caseId, 'K-SLA-STALLED');
+    assert.equal(x.detail.kind, 'escalated_overdue');
+    // 測試準備：負責人不在職（直接改人員狀態，不經同步、不開缺口）
+    await admin.query('update sgn.person set active = false where id = $1', [users.p05.personId]);
+    try {
+        const held = await sla();
+        assert.ok(held.held >= 1);
+        assert.equal((await exceptions(caseId, 'K-SLA-STALLED'))[0].closed_at, null, '被擋下仍在等：不結案');
+        assert.equal((await view(caseId)).sla, null, '時限暫停');
+        await admin.query(
+            `update sgn.case_sla_hold set held_from = held_from - interval '3 days' where case_id = $1 and released_at is null`,
+            [caseId],
+        );
+    } finally {
+        await admin.query('update sgn.person set active = true where id = $1', [users.p05.personId]);
+    }
+    const before = await one(admin, `select sla_shift from sgn.case_task where case_id = $1 and status = 'pending'`, [caseId]);
+    const resumed = await sla();
+    assert.equal(resumed.resumed, 1);
+    const after = await one(
+        admin,
+        `select extract(epoch from sla_shift)::bigint as shift from sgn.case_task where case_id = $1 and status = 'pending'`,
+        [caseId],
+    );
+    assert.ok(Math.abs(after.shift - 3 * 86400) < 120, `起點往後移了被擋下的時間（${after.shift} 秒；之前 ${before.sla_shift}）`);
+    const [resumedEv] = await events(caseId, 'case.sla_resumed');
+    assert.ok(resumedEv.paused_seconds >= 3 * 86400);
+    assert.equal((await exceptions(caseId, 'K-SLA-STALLED'))[0].closed_at, null, '恢復之後仍在等同一個人：不結案');
+    await withdraw(caseId);
+});
+
+test('K-SLA-ESCALATE 簽核與升級同時發生：各自鎖單，只會有一個結果（簽了就不升級；升級了原簽核人就簽不了）', async () => {
+    const caseId = await submit(7413);
+    await age(caseId, 10);
+    await sla();
+    await age(caseId, 10);
+    const ch = await issueChallenge(app, users.p03, caseId);
+    // 測試準備：先鎖住這張單，讓排程與簽核都排在鎖後面，再同時放行
+    const holder = await admin.connect();
+    try {
+        await holder.query('begin');
+        await holder.query('select id from sgn.request_case where id = $1 for update', [caseId]);
+        const racing = [
+            sla(),
+            decidePasskey(app, ch.challenge_id, 'approve', users.p03.key.assert(ch.challenge)).then(
+                () => 'approved',
+                (err) => err.message,
+            ),
+        ];
+        await new Promise((r) => setTimeout(r, 300));
+        await holder.query('commit');
+        const [, decided] = await Promise.all(racing);
+        const escalated = (await events(caseId, 'case.task_escalated')).length;
+        if (decided === 'approved') assert.equal(escalated, 0, '簽了就不升級');
+        else {
+            assert.match(decided, /NOT_APPROVER/);
+            assert.equal(escalated, 1);
+        }
+        const manager = await one(
+            admin,
+            `select t.status from sgn.case_task t join sgn.case_stage s on s.id = t.stage_id where t.case_id = $1 and s.seq = 10`,
+            [caseId],
+        );
+        assert.ok(['approved', 'pending'].includes(manager.status));
+    } finally {
+        holder.release();
+    }
+    await withdraw(caseId);
+});
+
+test('K-SLA-STALLED 排程逐件隔離：一件工作處理失敗只回捲那一件並開例外（不重複開），其他工作照常催辦', async () => {
+    const good = await submit(7414);
+    const bad = await submit(7415);
+    await age(good, 10);
+    await age(bad, 10);
+    // 測試準備：讓「bad」那張單讀到壞掉的時限（單號範圍的參數不存在，改用級別：這兩張都是 L3，所以把 bad 的級別換成一個只給它的值）
+    await admin.query(`update sgn.request_case set tier = 'L9' where id = $1`, [bad]);
+    await setSetting(admin, 'approval.remind_after_workdays', 'x', `tier:${DA}:L9`);
+    try {
+        const counts = await sla();
+        assert.ok(counts.remind >= 1 && counts.failed >= 1, JSON.stringify(counts));
+        assert.ok((await notified(good, 'case.task_reminder')).length === 1, '其他工作照常催辦');
+        const [x] = (await exceptions(bad, 'K-SLA-STALLED')).filter((e) => e.detail.kind === 'job_error');
+        assert.ok(x && x.detail.error);
+        await sla();
+        assert.equal((await exceptions(bad, 'K-SLA-STALLED')).filter((e) => e.detail.kind === 'job_error').length, 1, '不重複開');
+    } finally {
+        await admin.query(`update sgn.request_case set tier = 'L3' where id = $1`, [bad]);
+    }
+    for (const id of [good, bad]) await withdraw(id);
+    await sla();
+    assert.ok((await exceptions(bad, 'K-SLA-STALLED'))[0].closed_at, '工作不再等待：結案');
 });

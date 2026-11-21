@@ -188,7 +188,25 @@ test('K-EXPIRE-REMIND 到期前 N 天提醒申請人與被授權者負責人，�
     }
     assert.equal((await notified('grant.expiry_reminder', far)).length, 2);
     assert.deepEqual(await notified('grant.expiry_reminder', revoked), [], '已撤銷的不提醒');
-    for (const id of [caseId, far]) await call(app, 'case_revoke', users.p04.session, id, '還原');
+    // 別人（不是原申請人、也不是負責人）送的重疊單不算續期：照常提醒
+    const other = await activeCase('p04', 'p05', bot, 2504);
+    await admin.query(`update sgn.grant_record set valid_to = current_date + 10 where case_id = $1`, [other]);
+    const notRenewal = (
+        await call(
+            app,
+            'case_submit_new',
+            users.p06.session,
+            DA,
+            { ...salesOrderContent(2504, undefined, ['north', 'central']), environment: 'test' },
+            terms(bot, 60),
+            '別人的申請',
+        )
+    ).case_id;
+    assert.equal((await view(notRenewal, 'p06')).overlap.level, 'partial');
+    await remind();
+    assert.equal((await notified('grant.expiry_reminder', other)).length, 2, '別人的單不能讓這筆授權收不到提醒');
+    await decide(app, users.p06, notRenewal, 'recall', { reason: '還原' });
+    for (const id of [caseId, far, other]) await call(app, 'case_revoke', users.p04.session, id, '還原');
     await drain(delivery, dc);
 });
 
@@ -199,6 +217,8 @@ test('K-OWNER-CONTINUITY K-OWNER-SOD 負責人被同步停用：開例外通知�
     const live = await activeCase('p04', 'p05', bot, 2511);
     const pending = (await call(app, 'case_submit_new', users.p04.session, DA, content(2512), terms(bot), OVERLAP_REASON)).case_id;
     await decide(app, users.p05, pending); // 負責人確認，停在主管關
+    // 還在等負責人確認的單：改指派之後要交給新負責人
+    const confirming = (await call(app, 'case_submit_new', users.p04.session, DA, content(2513), terms(bot), OVERLAP_REASON)).case_id;
     await setActive('p05', false);
     const gap = await gapOf(bot);
     assert.equal(gap.status, 'open');
@@ -225,7 +245,7 @@ test('K-OWNER-CONTINUITY K-OWNER-SOD 負責人被同步停用：開例外通知�
     );
     assert.deepEqual(mine.actions, ['reassign']);
     assert.equal(mine.active_cases, 1);
-    assert.equal(mine.approving_cases, 1);
+    assert.equal(mine.approving_cases, 2);
     assert.ok(mine.candidates.some((c) => c.person.id === users.p07.personId && c.problem === null));
     assert.ok(
         mine.candidates.some((c) => c.person.id === users.p03.personId && c.problem === 'OWNER_CANDIDATE_SOD'),
@@ -233,7 +253,8 @@ test('K-OWNER-CONTINUITY K-OWNER-SOD 負責人被同步停用：開例外通知�
     );
     assert.ok(!mine.candidates.some((c) => c.person.id === users.p05.personId), '原負責人不在候選人裡');
     // 職責分離：這個被授權者的單的簽核人不能接手（陳建宏簽了生效中那張的主管關，張美玲簽了資料擁有者關）
-    await rejectsWith(call(app, 'principal_owner_propose', users.p03.session, gap.id, users.p03.personId, '接手'), 'OWNER_CANDIDATE_SOD');
+    // 提議的人不能指定自己（一律要第二個人）
+    await rejectsWith(call(app, 'principal_owner_propose', users.p03.session, gap.id, users.p03.personId, '接手'), 'OWNER_CANDIDATE_SELF');
     await rejectsWith(call(app, 'principal_owner_propose', users.p03.session, gap.id, users.p11.personId, '接手'), 'OWNER_CANDIDATE_SOD');
     await rejectsWith(
         call(app, 'principal_owner_propose', users.p03.session, gap.id, users.p05.personId, '接手'),
@@ -268,29 +289,66 @@ test('K-OWNER-CONTINUITY K-OWNER-SOD 負責人被同步停用：開例外通知�
     assert.equal((await view(pending, 'p03')).hold, null);
     assert.ok((await view(pending, 'p03')).actions.includes('approve'));
     assert.equal((await grantOf(live)).status, 'active');
+    // 新負責人不能簽同一被授權者進行中的單的其他關（K-OWNER-SOD；決定者資格入口）
+    const stage = await one(admin, `select id from sgn.case_stage where case_id = $1 and status = 'open'`, [pending]);
+    assert.equal(
+        (await one(admin, 'select sgn_internal.decider_denial($1, $2, $3) as d', [pending, users.p06.personId, stage.id])).d,
+        'SOD_PRINCIPAL_OWNER',
+    );
+    // 還在等的負責人確認交給新負責人（進鏈、重新計時），他可以確認
+    const handed = await one(admin, `select assignee_person_id, sla_round from sgn.case_task where case_id = $1 and status = 'pending'`, [
+        confirming,
+    ]);
+    assert.equal(handed.assignee_person_id, users.p06.personId);
+    assert.equal(handed.sla_round, 1);
+    const [moved] = (await events('case.task_reassigned')).filter((e) => e.case_id === confirming);
+    assert.equal(moved.data.from, users.p05.personId);
+    assert.deepEqual(moved.data.rules, ['K-OWNER-CONTINUITY', 'K-PRINCIPAL-OWNER-CONFIRM']);
+    await decide(app, users.p06, confirming);
+    assert.equal((await view(confirming)).current_stage.code, 'manager');
+    await decide(app, users.p04, confirming, 'recall', { reason: '還原' });
     await decide(app, users.p04, pending, 'recall', { reason: '還原' });
     await call(app, 'case_revoke', users.p04.session, live, '還原');
     await drain(delivery, dc);
 });
 
-test('K-OWNER-CONTINUITY 逾期沒有改指派：排程撤銷名下所有生效中的授權並交付撤回（進鏈、寫明參數值）；原負責人在寬限期內恢復在職則結案不撤銷', async () => {
+test('K-OWNER-CONTINUITY 逾期沒有改指派：生效中、執行中與驗證中的單都撤銷並交付撤回，簽核中的單開例外（進鏈、寫明參數值）；寬限期內不能確認生效；撤銷後不重開缺口；寬限期過了不能接下；原負責人恢復在職則結案', async () => {
     const team = await newPrincipal('project', 'p02');
-    const a = await activeCase('p02', 'p02', team, 2521);
-    const b = await activeCase('p02', 'p02', team, 2522);
+    const a = await activeCase('p04', 'p02', team, 2521);
+    const b = await activeCase('p04', 'p02', team, 2522);
+    // 驗證中（等申請人確認）與簽核中的單
+    const verifying = (await call(app, 'case_submit_new', users.p04.session, DA, content(2523), terms(team), OVERLAP_REASON)).case_id;
+    await decide(app, users.p02, verifying);
+    await signRest(verifying, 'p04');
+    await drain(delivery, dc);
+    assert.equal((await view(verifying)).state, 'verifying');
+    const approving = (await call(app, 'case_submit_new', users.p04.session, DA, content(2524), terms(team), OVERLAP_REASON)).case_id;
+    await decide(app, users.p02, approving);
     await setActive('p02', false);
     const gap = await gapOf(team);
+    // 寬限期內：不能確認生效（授權不能在沒有負責人的時候生效）
+    await rejectsWith(call(app, 'case_confirm_verification', users.p04.session, verifying), 'PRINCIPAL_UNAVAILABLE');
     assert.equal((await checks()).gaps_expired, 0, '寬限期內不撤銷');
     assert.equal((await grantOf(a)).status, 'active');
-    // 模擬寬限期已過（測試準備）
+    // 模擬寬限期已過（測試準備）：不能再接下
     await admin.query(`update sgn.principal_owner_gap set due_at = clock_timestamp() - interval '1 minute' where id = $1`, [gap.id]);
+    await rejectsWith(call(app, 'principal_owner_propose', users.p01.session, gap.id, users.p03.personId, '太晚了'), 'OWNER_GAP_STATE');
     const done = await checks();
     assert.equal(done.gaps_expired, 1);
     for (const id of [a, b]) assert.equal((await grantOf(id)).status, 'revoked');
+    assert.equal((await view(verifying)).state, 'revoked', '驗證中的單也撤銷');
+    assert.equal((await view(approving)).state, 'in_approval');
+    const blocked = await one(admin, `select detail from sgn.exception_record where case_id = $1 and rule_code = 'K-OWNER-CONTINUITY'`, [
+        approving,
+    ]);
+    assert.equal(blocked.detail.kind, 'in_approval_blocked');
     const [ev] = await events('principal.owner_gap_expired', { gap_id: gap.id });
     assert.deepEqual(ev.data.rules, ['K-OWNER-CONTINUITY']);
     assert.deepEqual(ev.data.settings, { 'grant.owner_grace_days': 14 });
-    assert.equal(ev.data.revoked_cases.length, 2);
-    const revokedEvents = (await events('grant.revoked')).filter((e) => [a, b].includes(e.case_id));
+    assert.equal(ev.data.revoked_cases.length, 3);
+    assert.equal(ev.data.blocked_cases.length, 1);
+    const revokedEvents = (await events('grant.revoked')).filter((e) => [a, b, verifying].includes(e.case_id));
+    assert.equal(revokedEvents.length, 3);
     assert.ok(revokedEvents.every((e) => e.data.rules.includes('K-OWNER-CONTINUITY')));
     assert.equal((await gapOf(team)).status, 'revoked');
     assert.equal((await checks()).gaps_expired, 0, '只撤一次');
@@ -299,13 +357,22 @@ test('K-OWNER-CONTINUITY 逾期沒有改指派：排程撤銷名下所有生效�
         dc.store.get(String((await one(admin, 'select case_no from sgn.request_case where id = $1', [a])).case_no)).withdrawn,
         true,
     );
-    // 另一個被授權者：負責人恢復在職 → 結案，不撤銷
+    // 另一個被授權者：排程補開它的缺口，但撤銷過的那個不重開（同一位負責人）
     const other = await newPrincipal('agent', 'p02');
-    assert.ok((await checks()).gaps_opened >= 1, '排程補開（負責人已經不在職）');
+    assert.equal((await checks()).gaps_opened, 1, '只補開新的那一個；撤銷過的不重開');
     assert.equal((await gapOf(other)).status, 'open');
+    assert.equal((await gapOf(team)).status, 'revoked');
+    // 寬限期過了不能接下：先指定，期限過了再確認
+    const otherGap = await gapOf(other);
+    await call(app, 'principal_owner_propose', users.p01.session, otherGap.id, users.p03.personId, '陳建宏接手');
+    await admin.query(`update sgn.principal_owner_gap set due_at = clock_timestamp() - interval '1 second' where id = $1`, [otherGap.id]);
+    await rejectsWith(call(app, 'principal_owner_challenge', users.p03.session, otherGap.id), 'OWNER_GAP_STATE');
+    await admin.query(`update sgn.principal_owner_gap set due_at = clock_timestamp() + interval '14 days' where id = $1`, [otherGap.id]);
+    // 原負責人恢復在職 → 結案，不撤銷
     await reactivate('p02');
     assert.ok((await checks()).gaps_restored >= 1);
     assert.equal((await gapOf(other)).status, 'restored');
+    await decide(app, users.p04, approving, 'recall', { reason: '還原' });
 });
 
 test('K-PRINCIPAL-END 被授權者結束：專案過了結束日 → 授權到期失效；團隊解散 → 撤銷；簽核中的單不能再核准', async () => {

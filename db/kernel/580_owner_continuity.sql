@@ -26,7 +26,9 @@ insert into sgn.error_catalog (code, message, http_status) values
     ('OWNER_HANDOVER_NONE', '還沒有指定新的負責人', 409),
     ('OWNER_CANDIDATE_INVALID', '新的負責人必須是在職的人，而且不能是原負責人', 422),
     ('OWNER_CANDIDATE_SOD', '新的負責人是這個被授權者進行中或生效中的單的簽核人，接手負責人會讓每關不同人失效', 422),
-    ('OWNER_REASON_REQUIRED', '請寫指定的原因', 422);
+    ('OWNER_REASON_REQUIRED', '請寫指定的原因', 422),
+    ('OWNER_CANDIDATE_SELF', '不能指定自己當新的負責人：要接手時請由另一位有權指定的人（主管或治理角色）指定你', 422),
+    ('SOD_PRINCIPAL_OWNER', '你是這張單的被授權者目前的負責人，不能簽這張單的其他關卡', 403);
 
 select sgn_internal.register_setting_definition(d.key, d.value_type, d.default_value::jsonb, d.scope_kinds, d.description)
 from (values
@@ -114,7 +116,8 @@ as $$
     select case
         when p_action not in ('owner.reassign', 'owner.accept') then 'ACTION_UNKNOWN'
         when p_gap.id is null then 'OWNER_GAP_UNKNOWN'
-        when p_gap.status <> 'open' then 'OWNER_GAP_STATE'
+        -- 寬限期內才能改指派（rules.md「在寬限期內改指派」）；期限一到就等排程撤銷
+        when p_gap.status <> 'open' or p_gap.due_at <= sgn_internal.now() then 'OWNER_GAP_STATE'
         when not coalesce((select p.active from sgn.person as p where p.id = p_person_id), false) then 'PERSON_UNKNOWN'
         when p_action = 'owner.accept' and (sgn_internal.owner_handover_open(p_gap.id)).id is null then 'OWNER_HANDOVER_NONE'
         when p_action = 'owner.accept'
@@ -186,6 +189,20 @@ as $$
       and sgn_internal.case_principal_id(c) = p_principal_id
 $$;
 
+-- 這張單還在等的負責人確認工作（負責人確認關，K-PRINCIPAL-OWNER-CONFIRM）。
+create function sgn_internal.owner_confirm_tasks(p_case_id uuid)
+returns setof sgn.case_task
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select t.*
+    from sgn_internal.approval_tasks_waiting(p_case_id) as t
+    join sgn.case_stage as s on s.id = t.stage_id
+    join sgn.policy_stage as ps on ps.policy_id = s.policy_id and ps.seq = s.seq
+    where ps.resolver_kind = 'principal_owner' and t.status = 'pending'
+$$;
+
 -- 新負責人的檢查（K-OWNER-SOD）：回傳錯誤代碼，可以時回傳 null。
 create function sgn_internal.owner_candidate_problem(p_gap sgn.principal_owner_gap, p_candidate uuid)
 returns text
@@ -202,6 +219,13 @@ as $$
             from sgn_internal.principal_live_cases(p_gap.principal_id) as c
             join sgn.case_task as t on t.case_id = c.id
             where t.assignee_person_id = p_candidate and t.status in ('pending', 'approved', 'completed')
+        ) then 'OWNER_CANDIDATE_SOD'
+        -- 負責人確認還在等的單：工作會交給新負責人，他不能是那張單的申請人（不能簽自己的單）
+        when exists (
+            select 1
+            from sgn_internal.principal_live_cases(p_gap.principal_id) as c
+            where c.applicant_person_id = p_candidate
+              and exists (select 1 from sgn_internal.owner_confirm_tasks(c.id) as t)
         ) then 'OWNER_CANDIDATE_SOD'
     end
 $$;
@@ -307,6 +331,11 @@ begin
           and (x.ends_on is null or x.ends_on >= sgn_internal.today())
           and (p_person_id is null or x.owner_person_id = p_person_id)
           and not exists (select 1 from sgn.principal_owner_gap as g where g.principal_id = x.id and g.status = 'open')
+          -- 同一位負責人的缺口已經逾期撤銷過：不再重開（否則每過一次寬限期就重來一次）
+          and not exists (
+              select 1 from sgn.principal_owner_gap as g
+              where g.principal_id = x.id and g.departed_person_id = x.owner_person_id and g.status = 'revoked'
+          )
         order by x.id
         for update of x
     loop
@@ -381,48 +410,75 @@ begin
 end;
 $$;
 
--- 逾期沒有改指派：名下所有生效中的授權撤銷並交付撤回（既有入口 grant_end）。
+-- 逾期沒有改指派（一筆缺口）：名下生效中的授權、執行中與驗證中的單都撤銷並交付撤回（既有入口 grant_end）；
+-- 簽核中的單沒有可以作廢的轉移（申請人可以撤回、簽核人可以退回），每張開例外讓人處理，它們仍不能核准。
+create function sgn_internal.owner_gap_expire(p_gap sgn.principal_owner_gap)
+returns void
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_case sgn.request_case;
+    v_revoked jsonb := '[]'::jsonb;
+    v_blocked jsonb := '[]'::jsonb;
+    v_reason text := sgn_internal.message_text('OWNER_GAP_EXPIRED_REASON', array[p_gap.grace_days::text]);
+    v_settings jsonb := jsonb_build_object('grant.owner_grace_days', p_gap.grace_days);
+begin
+    for v_case in
+        select c.* from sgn_internal.principal_live_cases(p_gap.principal_id) as c order by c.case_no
+    loop
+        v_case := sgn_internal.case_lock(v_case.id);
+        if v_case.state in ('active', 'pending_fulfilment', 'verifying') then
+            perform sgn_internal.grant_end(v_case, 'revoked', null, v_reason, 'K-OWNER-CONTINUITY');
+            v_revoked := v_revoked || to_jsonb(v_case.case_no);
+        elsif v_case.state = 'in_approval' then
+            perform sgn_internal.exception_open('K-OWNER-CONTINUITY', v_case.id, jsonb_build_object(
+                'kind', 'in_approval_blocked', 'gap_id', p_gap.id, 'principal', p_gap.principal_id, 'person', p_gap.departed_person_id,
+                'settings', v_settings, 'rules', jsonb_build_array('K-OWNER-CONTINUITY')
+            ));
+            v_blocked := v_blocked || to_jsonb(v_case.case_no);
+        end if;
+    end loop;
+    perform sgn_internal.audit_append('principal.owner_gap_expired', null, null, jsonb_build_object(
+        'gap_id', p_gap.id, 'principal', p_gap.principal_id, 'person', p_gap.departed_person_id, 'due_at', p_gap.due_at,
+        'revoked_cases', v_revoked, 'blocked_cases', v_blocked, 'settings', v_settings,
+        'rules', jsonb_build_array('K-OWNER-CONTINUITY')
+    ));
+    perform sgn_internal.owner_gap_close(p_gap, 'revoked', jsonb_build_object(
+        'revoked_cases', v_revoked, 'blocked_cases', v_blocked, 'rules', jsonb_build_array('K-OWNER-CONTINUITY')
+    ));
+end;
+$$;
+
+-- 排程：逐筆處理逾期的缺口；每筆自己一個 savepoint，失敗只回捲那一筆並開例外。
 create function sgn_internal.owner_gaps_expire()
 returns int
 language plpgsql
 set search_path = pg_catalog, pg_temp
 as $$
 declare
+    v_gap_id uuid;
     v_gap sgn.principal_owner_gap;
-    v_case_id uuid;
-    v_revoked jsonb;
-    v_reason text;
     v_count int := 0;
 begin
-    for v_gap in
-        select g.* from sgn.principal_owner_gap as g
-        where g.status = 'open' and g.due_at < sgn_internal.now()
-        order by g.due_at, g.id
-        for update skip locked
+    for v_gap_id in
+        select g.id from sgn.principal_owner_gap as g where g.status = 'open' and g.due_at < sgn_internal.now() order by g.due_at, g.id
     loop
-        v_revoked := '[]'::jsonb;
-        v_reason := sgn_internal.message_text('OWNER_GAP_EXPIRED_REASON', array[v_gap.grace_days::text]);
-        for v_case_id in
-            select g.case_id from sgn.grant_record as g
-            where g.principal_id = v_gap.principal_id and g.status = 'active'
-            order by g.case_id
-        loop
-            perform sgn_internal.grant_end(sgn_internal.case_lock(v_case_id), 'revoked', null, v_reason, 'K-OWNER-CONTINUITY');
-            v_revoked := v_revoked || to_jsonb((select c.case_no from sgn.request_case as c where c.id = v_case_id));
-        end loop;
-        perform sgn_internal.audit_append('principal.owner_gap_expired', null, null, jsonb_build_object(
-            'gap_id', v_gap.id, 'principal', v_gap.principal_id, 'person', v_gap.departed_person_id, 'due_at', v_gap.due_at,
-            'revoked_cases', v_revoked, 'settings', jsonb_build_object('grant.owner_grace_days', v_gap.grace_days),
-            'rules', jsonb_build_array('K-OWNER-CONTINUITY')
-        ));
-        perform sgn_internal.owner_gap_close(v_gap, 'revoked', jsonb_build_object(
-            'revoked_cases', v_revoked, 'rules', jsonb_build_array('K-OWNER-CONTINUITY')
-        ));
-        v_count := v_count + 1;
+        begin
+            select * into v_gap from sgn.principal_owner_gap where id = v_gap_id for update skip locked;
+            -- 鎖住之後重新確認：仍開著、仍逾期、負責人仍不在職
+            continue when v_gap.id is null or v_gap.status <> 'open' or v_gap.due_at >= sgn_internal.now()
+                or coalesce((select o.active from sgn.principal as x join sgn.person as o on o.id = x.owner_person_id where x.id = v_gap.principal_id), false);
+            perform sgn_internal.owner_gap_expire(v_gap);
+            v_count := v_count + 1;
+        exception when others then
+            perform sgn_internal.job_failed('K-OWNER-CONTINUITY', null, jsonb_build_object('gap_id', v_gap_id), sqlerrm);
+        end;
     end loop;
     return v_count;
 end;
 $$;
+
 
 insert into sgn.error_catalog (code, message, kind) values
     ('OWNER_GAP_EXPIRED_REASON', '被授權者的負責人離職或停用，%s 天的寬限期內沒有改指派新負責人（K-OWNER-CONTINUITY）', 'notice'),
@@ -454,14 +510,19 @@ set search_path = pg_catalog, pg_temp
 as $$
 declare
     v_row record;
+    v_case sgn.request_case;
     v_count int := 0;
 begin
     for v_row in select * from sgn_internal.principal_end_pending() as p order by p.since, p.case_id loop
-        continue when not exists (select 1 from sgn.grant_record as g where g.case_id = v_row.case_id and g.status = 'active');
-        perform sgn_internal.grant_end(
-            sgn_internal.case_lock(v_row.case_id), v_row.event, null, sgn_internal.message_text('PRINCIPAL_ENDED_REASON'), 'K-PRINCIPAL-END'
-        );
-        v_count := v_count + 1;
+        begin
+            v_case := sgn_internal.case_lock(v_row.case_id);
+            -- 鎖住之後重新確認仍有生效中的授權
+            continue when not exists (select 1 from sgn.grant_record as g where g.case_id = v_case.id and g.status = 'active');
+            perform sgn_internal.grant_end(v_case, v_row.event, null, sgn_internal.message_text('PRINCIPAL_ENDED_REASON'), 'K-PRINCIPAL-END');
+            v_count := v_count + 1;
+        exception when others then
+            perform sgn_internal.job_failed('K-PRINCIPAL-END', v_row.case_id, jsonb_build_object('case_id', v_row.case_id), sqlerrm);
+        end;
     end loop;
     return v_count;
 end;
@@ -566,6 +627,10 @@ begin
     if nullif(btrim(coalesce(p_reason, '')), '') is null then
         perform sgn_internal.raise_error('OWNER_REASON_REQUIRED');
     end if;
+    -- 一律要第二個人：提議的人不能指定自己（主管要自己接手，由治理角色指定他）
+    if p_new_owner = v_person_id then
+        perform sgn_internal.raise_error('OWNER_CANDIDATE_SELF');
+    end if;
     v_problem := sgn_internal.owner_candidate_problem(v_gap, p_new_owner);
     if v_problem is not null then
         perform sgn_internal.raise_error(v_problem);
@@ -620,6 +685,45 @@ $$;
 comment on function api.principal_owner_challenge(text, uuid) is
     '被指定的新負責人要確認接下時，取得一次性亂數與要簽的顯示摘要。呼叫者：被指定的新負責人。規則：K-OWNER-CONTINUITY';
 
+-- 換了負責人之後，還在等「負責人確認」的工作交給新負責人（K-PRINCIPAL-OWNER-CONFIRM 的那一關要由現在的負責人確認）；
+-- 重新計時（新的一輪），進鏈並通知。新負責人不是這些單的申請人（owner_candidate_problem 已檢查）。
+create function sgn_internal.owner_confirm_handover(p_gap sgn.principal_owner_gap, p_handover sgn.principal_owner_handover, p_seq bigint)
+returns void
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_case sgn.request_case;
+    v_task sgn.case_task;
+begin
+    for v_case in select c.* from sgn_internal.principal_live_cases(p_gap.principal_id) as c where c.state = 'in_approval' order by c.case_no loop
+        v_case := sgn_internal.case_lock(v_case.id);
+        for v_task in select * from sgn_internal.owner_confirm_tasks(v_case.id) loop
+            update sgn.case_task
+            set assignee_person_id = p_handover.new_owner_person_id,
+                sla_round = sla_round + 1,
+                sla_restart_at = sgn_internal.now(),
+                sla_from = null,
+                sla_reminded_at = null,
+                sla_shift = '0',
+                basis = basis || jsonb_build_object('handovers', coalesce(basis -> 'handovers', '[]'::jsonb) || jsonb_build_object(
+                    'from', v_task.assignee_person_id, 'to', p_handover.new_owner_person_id, 'at', sgn_internal.now(),
+                    'owner_event_seq', p_seq, 'rules', jsonb_build_array('K-OWNER-CONTINUITY')
+                ))
+            where id = v_task.id;
+            perform sgn_internal.audit_append('case.task_reassigned', v_case.id, null, jsonb_build_object(
+                'task_id', v_task.id, 'from', v_task.assignee_person_id, 'to', p_handover.new_owner_person_id,
+                'gap_id', p_gap.id, 'owner_event_seq', p_seq, 'rules', jsonb_build_array('K-OWNER-CONTINUITY', 'K-PRINCIPAL-OWNER-CONFIRM')
+            ));
+            perform sgn_internal.notify('case.task_assigned', array[p_handover.new_owner_person_id], v_case.id, jsonb_build_object(
+                'case_no', v_case.case_no,
+                'stage_name', (select ps.name from sgn.case_stage as s join sgn.policy_stage as ps on ps.policy_id = s.policy_id and ps.seq = s.seq where s.id = v_task.stage_id)
+            ));
+        end loop;
+    end loop;
+end;
+$$;
+
 -- 換負責人的唯一入口（被授權者的負責人只在這裡改；種子與匯入用 principal_upsert）。
 create function sgn_internal.principal_owner_set(p_gap sgn.principal_owner_gap, p_handover sgn.principal_owner_handover, p_proof jsonb)
 returns void
@@ -642,6 +746,7 @@ begin
     perform sgn_internal.exception_close(p_gap.exception_id, jsonb_build_object(
         'gap_id', p_gap.id, 'status', 'reassigned', 'event_seq', v_seq, 'rules', jsonb_build_array('K-OWNER-CONTINUITY')
     ));
+    perform sgn_internal.owner_confirm_handover(p_gap, p_handover, v_seq);
     perform sgn_internal.notify(
         'principal.owner_reassigned', array[p_handover.proposed_by, p_gap.manager_person_id], null, jsonb_build_object(
             'principal_name', (select x.name from sgn.principal as x where x.id = p_gap.principal_id),
@@ -703,7 +808,7 @@ comment on function api.principal_owner_accept_passkey(uuid, text, text, text, t
     '被指定的新負責人用通行金鑰確認接下被授權者（簽的是資料庫產生的顯示摘要）；確認時重新檢查新負責人的資格與職責分離，'
     '通過才換負責人、缺口與例外結案。呼叫者：被指定的新負責人（行為人來自驗過的簽章）。規則：K-OWNER-CONTINUITY、K-OWNER-SOD';
 
--- ── 授權入口（同 480 的簽章）：被授權者不能用時不能再核准（PRINCIPAL_UNAVAILABLE）；退回、駁回、撤回照常 ──
+-- ── 授權入口（同 480 的簽章）：被授權者不能用時不能再核准、標記已套用、確認生效（PRINCIPAL_UNAVAILABLE）；退回、駁回、撤回、撤銷照常 ──
 
 create or replace function sgn_internal.denial_reason(p_person_id uuid, p_action text, p_case sgn.request_case)
 returns text
@@ -747,7 +852,9 @@ as $$
         when a.actor_rule = 'claimant'
              and (sgn_internal.person_claimable_task(p_case.id, p_person_id)).id is null then 'NOT_CLAIMABLE'
         -- 原則 ④：被授權者沒有在職的負責人或已結束，不能再往下核准（K-OWNER-CONTINUITY、K-PRINCIPAL-END）
-        when a.action in ('approve', 'approve_reduced') and not sgn_internal.case_principal_usable(p_case) then 'PRINCIPAL_UNAVAILABLE'
+        -- 執行完成與確認生效也擋：不能在沒有負責人的期間讓授權生效
+        when a.action in ('approve', 'approve_reduced', 'fulfil', 'confirm_verification')
+             and not sgn_internal.case_principal_usable(p_case) then 'PRINCIPAL_UNAVAILABLE'
         when a.actor_rule in ('assignee', 'fulfiller') then sgn_internal.decider_denial(
             p_case.id,
             p_person_id,
@@ -760,24 +867,186 @@ as $$
     left join sgn.action as a on a.action = p_action
 $$;
 
--- 還在等的簽核工作（同 570 的簽章）：被授權者不能用的單暫停計時（不能核准，催辦與升級沒有意義）。
-create or replace function sgn_internal.waiting_approval_tasks(p_case_id uuid default null)
-returns setof sgn.case_task
+-- 決定者資格（同 150 的簽章）：多了「是這張單的被授權者目前的負責人」——負責人確認關以外的關卡都不合格
+-- （每關不同人：負責人確認是路徑上的一關；改指派後的新負責人不能再簽同一被授權者進行中的單；K-OWNER-SOD）。
+create or replace function sgn_internal.decider_denial(p_case_id uuid, p_person_id uuid, p_stage_id bigint)
+returns text
 language sql
 stable
 set search_path = pg_catalog, pg_temp
 as $$
-    select t.*
-    from sgn.case_task as t
-    join sgn.case_stage as s on s.id = t.stage_id
-    join sgn.policy_stage as ps on ps.policy_id = s.policy_id and ps.seq = s.seq
-    join sgn.request_case as c on c.id = t.case_id
-    where s.status = 'open'
-      and ps.phase = 'approval'
-      and c.state = 'in_approval'
-      and t.status in ('pending', 'unclaimed')
-      and (p_case_id is null or t.case_id = p_case_id)
-      and sgn_internal.case_principal_usable(c)
+    select case
+        when not coalesce((select p.active from sgn.person as p where p.id = p_person_id), false) then 'PERSON_UNKNOWN'
+        when p_person_id = c.applicant_person_id then 'SELF_APPROVAL'
+        when exists (
+            select 1
+            from jsonb_array_elements_text(sgn_internal.setting('approval.excluded_decider_roles')) as r (role_code)
+            where sgn_internal.has_role(p_person_id, r.role_code)
+        ) then 'DECIDER_ROLE_EXCLUDED'
+        when exists (
+            select 1
+            from sgn.case_task as t
+            join sgn.case_stage as s on s.id = t.stage_id
+            where t.case_id = p_case_id
+              and t.assignee_person_id = p_person_id
+              and t.status in ('pending', 'approved', 'completed')
+              and s.status not in ('cancelled', 'returned')
+              and s.id <> p_stage_id
+        ) then 'SOD_DISTINCT'
+        when p_person_id = sgn_internal.case_principal_owner(c)
+             and not exists (
+                 select 1 from sgn.case_stage as s
+                 join sgn.policy_stage as ps on ps.policy_id = s.policy_id and ps.seq = s.seq
+                 where s.id = p_stage_id and ps.resolver_kind = 'principal_owner'
+             ) then 'SOD_PRINCIPAL_OWNER'
+    end
+    from sgn.request_case as c
+    where c.id = p_case_id
+$$;
+
+-- 授權生效（同 560 的簽章）：被授權者不能用時不生效。
+create or replace function sgn_internal.grant_activate(p_case sgn.request_case)
+returns void
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_terms jsonb := (select v.terms from sgn.case_version as v where v.case_id = p_case.id and v.version = p_case.current_version);
+    v_grant_id uuid := gen_random_uuid();
+    v_seq bigint;
+    v_item jsonb;
+    v_people uuid[];
+begin
+    -- 原則 ④：被授權者沒有在職的負責人或已結束時不生效（授權入口已擋下確認與標記已套用，這裡是最後一道）
+    if not sgn_internal.case_principal_usable(p_case) then
+        perform sgn_internal.raise_error('PRINCIPAL_UNAVAILABLE', p_case.case_no::text);
+    end if;
+    v_seq := sgn_internal.audit_append(
+        'grant.activated', p_case.id, null,
+        jsonb_build_object('grant_id', v_grant_id, 'version', p_case.current_version, 'terms', v_terms, 'rules', jsonb_build_array('K-FULFIL'))
+    );
+    insert into sgn.grant_record (id, case_id, process_type, principal_id, valid_from, valid_to, version, status, created_at, event_seq)
+    values (
+        v_grant_id,
+        p_case.id,
+        p_case.process_type,
+        (v_terms ->> 'principal_id')::uuid,
+        sgn_internal.try_date(v_terms ->> 'valid_from'),
+        sgn_internal.try_date(v_terms ->> 'valid_to'),
+        p_case.current_version,
+        'active',
+        sgn_internal.now(),
+        v_seq
+    );
+    perform sgn_internal.notify(
+        'case.activated', array[p_case.applicant_person_id], p_case.id, jsonb_build_object('case_no', p_case.case_no)
+    );
+    for v_item in select x from jsonb_array_elements(sgn_internal.hook_after_grant_activated(p_case.process_type, p_case.id)) as x loop
+        v_people := array(select (p #>> '{}')::uuid from jsonb_array_elements(coalesce(v_item -> 'people', '[]'::jsonb)) as p);
+        perform sgn_internal.exception_open_due(v_item ->> 'rule_code', p_case.id,
+            coalesce(v_item -> 'detail', '{}'::jsonb) || jsonb_build_object('rules', jsonb_build_array(v_item ->> 'rule_code', 'K-GRANT-FOLLOWUP')),
+            sgn_internal.add_workdays(sgn_internal.now(), (v_item ->> 'due_workdays')::int), v_people);
+        perform sgn_internal.notify('grant.followup', v_people, p_case.id, jsonb_build_object(
+            'case_no', p_case.case_no::text, 'what', coalesce(v_item ->> 'what', v_item ->> 'rule_code')));
+    end loop;
+end;
+$$;
+
+-- 要計時的簽核工作（同 570 的簽章）：被授權者不能用的單暫停計時（不能核准，催辦與升級沒有意義）。
+-- 例外的結案用 approval_tasks_waiting（不看能不能用），所以被擋下的單上的時限例外不會被當成「不再等待」結案。
+create or replace function sgn_internal.waiting_approval_tasks(p_case_id uuid default null)
+returns setof sgn.case_task
+language plpgsql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_task sgn.case_task;
+    v_case_id uuid;
+    v_usable boolean;
+begin
+    for v_task in select * from sgn_internal.approval_tasks_waiting(p_case_id) as w order by w.case_id, w.id loop
+        if v_case_id is distinct from v_task.case_id then
+            v_case_id := v_task.case_id;
+            v_usable := sgn_internal.case_principal_usable((select c from sgn.request_case as c where c.id = v_case_id));
+        end if;
+        if v_usable then
+            return next v_task;
+        end if;
+    end loop;
+end;
+$$;
+
+-- 被擋下的期間（暫停計時）：開始時記一筆，恢復時把這段時間加進還在等的工作的起點與實際催辦時間（期限一起往後移）。
+create table sgn.case_sla_hold (
+    id bigint generated always as identity primary key,
+    case_id uuid not null references sgn.request_case (id),
+    held_from timestamptz not null,
+    released_at timestamptz,
+    event_seq bigint not null
+);
+
+create unique index case_sla_hold_open_idx on sgn.case_sla_hold (case_id) where released_at is null;
+
+create function sgn_internal.sla_holds_sync()
+returns jsonb
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_case sgn.request_case;
+    v_hold sgn.case_sla_hold;
+    v_held int := 0;
+    v_resumed int := 0;
+    v_paused interval;
+begin
+    for v_case in
+        select c.* from sgn.request_case as c
+        where c.state = 'in_approval'
+          and exists (select 1 from sgn_internal.approval_tasks_waiting(c.id))
+          and not sgn_internal.case_principal_usable(c)
+          and not exists (select 1 from sgn.case_sla_hold as h where h.case_id = c.id and h.released_at is null)
+        order by c.case_no
+    loop
+        insert into sgn.case_sla_hold (case_id, held_from, event_seq)
+        values (v_case.id, sgn_internal.now(), sgn_internal.audit_append('case.sla_held', v_case.id, null, jsonb_build_object(
+            'principal', sgn_internal.case_principal_id(v_case), 'rules', jsonb_build_array('K-OWNER-CONTINUITY', 'K-SLA-REMIND')
+        )));
+        v_held := v_held + 1;
+    end loop;
+    for v_hold in
+        select h.* from sgn.case_sla_hold as h
+        join sgn.request_case as c on c.id = h.case_id
+        where h.released_at is null and (c.state <> 'in_approval' or sgn_internal.case_principal_usable(c))
+        order by h.id
+        for update of h
+    loop
+        v_paused := sgn_internal.now() - v_hold.held_from;
+        update sgn.case_task as t
+        set sla_shift = t.sla_shift + v_paused,
+            sla_reminded_at = t.sla_reminded_at + v_paused
+        from sgn_internal.approval_tasks_waiting(v_hold.case_id) as w
+        where t.id = w.id;
+        update sgn.case_sla_hold set released_at = sgn_internal.now() where id = v_hold.id;
+        perform sgn_internal.audit_append('case.sla_resumed', v_hold.case_id, null, jsonb_build_object(
+            'hold', v_hold.id, 'held_from', v_hold.held_from, 'paused_seconds', floor(extract(epoch from v_paused))::bigint,
+            'rules', jsonb_build_array('K-OWNER-CONTINUITY', 'K-SLA-REMIND')
+        ));
+        v_resumed := v_resumed + 1;
+    end loop;
+    return jsonb_build_object('held', v_held, 'resumed', v_resumed);
+end;
+$$;
+
+-- 排程的入口（同 570 的簽章）：先記下被擋下與恢復的單（恢復的單期限往後移），再做到期的步驟、結案不再等待的例外。
+create or replace function sgn_internal.approval_sla_due()
+returns jsonb
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    return sgn_internal.sla_holds_sync() || sgn_internal.approval_sla_run() || jsonb_build_object('closed', sgn_internal.task_sla_settle());
+end;
 $$;
 
 -- 單的頁面上「為什麼不能往下簽」：簽核中、被授權者不能用時的原因與（有缺口時）改指派的期限。
@@ -931,6 +1200,52 @@ begin
     return query
     select 'principal_end'::text, e.case_id, e.since
     from sgn_internal.principal_end_pending(p_case_id) as e;
+end;
+$$;
+
+-- 背景程式的存活（同 525 的簽章）：先讀心跳再做檢查。這一批的逾期工作多了幾種，檢查變久；原本先檢查再讀心跳，
+-- 檢查期間每 2 秒回報一次的程式（錨定）會在畫面上變成「沒停擺」，和檢查剛開的例外對不上。
+create or replace function api.program_health(p_session text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_check jsonb;
+    v_programs jsonb;
+begin
+    perform sgn_internal.authorize(sgn_internal.session_person(p_session), 'audit.read');
+    -- 先讀各程式的心跳（打開頁面那一刻的狀態），再做檢查：檢查要算全公司的逾期工作，期間別的程式回報的心跳
+    -- 不應該讓這一頁看到的狀態和檢查開的例外對不上
+    v_programs := (
+            select coalesce(jsonb_agg(jsonb_build_object(
+                'code', p.code, 'name', p.name, 'last_seen', p.last_seen,
+                'max_seconds', sgn_internal.setting_int_in('program.heartbeat_max_seconds', 'program:' || p.code),
+                'stalled', sgn_internal.program_seen_baseline(p)
+                    < sgn_internal.now() - make_interval(secs => sgn_internal.setting_int_in('program.heartbeat_max_seconds', 'program:' || p.code))
+            ) order by p.code), '[]'::jsonb)
+            from sgn.program as p
+    );
+    v_check := sgn_internal.program_stall_check(true);
+    return jsonb_build_object(
+        'programs', v_programs,
+        'overdue', (
+            select coalesce(jsonb_agg(jsonb_build_object(
+                'kind', w.kind, 'count', w.n, 'oldest_since', w.since,
+                'oldest_case_no', (select c.case_no from sgn.request_case as c where c.id = w.case_id),
+                'max_seconds', sgn_internal.setting_int_in('program.overdue_max_seconds', 'work:' || w.kind),
+                'stalled', w.since < sgn_internal.now() - make_interval(secs => sgn_internal.setting_int_in('program.overdue_max_seconds', 'work:' || w.kind))
+            ) order by w.kind), '[]'::jsonb)
+            from (
+                select distinct on (o.kind) o.kind, o.case_id, o.since, count(*) over (partition by o.kind) as n
+                from sgn_internal.overdue_work() as o
+                order by o.kind, o.since, o.case_id
+            ) as w
+        ),
+        'opened', (v_check ->> 'opened')::int,
+        'closed', (v_check ->> 'closed')::int
+    );
 end;
 $$;
 

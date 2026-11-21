@@ -24,11 +24,12 @@
 
 ### 1.1 期限怎麼算（`task_sla_next` 是唯一的計算入口，排程、逾期工作、畫面共用）
 
-- 起點：等人決定的工作＝升級的時間（`sla_from`）、認領的時間或開始的時間；等認領的工作＝開始的時間。
-- 催辦期限＝起點＋`approval.remind_after_workdays` 個工作天；升級期限＝催辦期限＋`approval.escalate_after_workdays` 個工作天（rules.md「催辦後再 2 個工作天」）。參數依「級別 → 流程類型 → 全域 → 預設值」取。
-- 步驟：等認領 `claim_remind` → `claim_stalled`；等人決定 `remind` → `escalate`；升級過的 `stalled`。每件工作每步驟最多一筆（唯一鍵），排程一輪每件工作只做一步，所以一定先催辦、下一輪才升級。
+- 起點：等人決定的工作＝升級的時間（`sla_from`）、改交給新負責人的時間（`sla_restart_at`）、認領的時間或開始的時間；等認領的工作＝開始的時間；再加上被擋下的累計時間（`sla_shift`）。
+- 催辦期限＝起點＋`approval.remind_after_workdays` 個工作天；升級期限＝max（催辦期限, 實際催辦時間 `sla_reminded_at`）＋`approval.escalate_after_workdays` 個工作天（rules.md「催辦後再 2 個工作天」：催辦晚寄，升級跟著晚）。參數依「級別 → 流程類型 → 全域 → 預設值」取。
+- 步驟：等認領 `claim_remind` → `claim_stalled`；等人決定 `remind` → `escalate`；升級過的 `stalled`。每件工作每一輪（`sla_round`，改交給另一個人時加一）每步驟最多一筆（唯一鍵），排程重跑不重複。
+- 排程逐件隔離：每件工作自己一個 savepoint，先不鎖單看有沒有到期的步驟，有才鎖單、重新確認仍在等同一個人再做；失敗只回捲那一件並開 `K-SLA-STALLED`（kind `job_error`，同一件不重複開）。到期前提醒、負責人缺口的逾期撤銷、被授權者結束也一樣逐筆隔離（`job_failed`）。
 - 只算簽核關（phase = approval）。執行關由既有的交付卡住檢查（`K-DELIVERY-STUCK`）與人工執行的後續處理。
-- 被授權者不能用的單暫停（不催、不升級）；恢復之後照原本的起點算，可能立刻逾期。
+- 被授權者不能用的單暫停（不催、不升級；`sgn.case_sla_hold` 記下開始）；恢復時把被擋下的時間加進還在等的工作的起點與實際催辦時間，期限一起往後移。擋下期間時限例外不結案（結案判斷用不看「能否使用」的 `approval_tasks_waiting`）。
 
 ### 1.2 新畫面動作的步數（390px，`e2e/tests/system-zz-deadlines.test.mjs` 量的）
 
@@ -38,6 +39,24 @@
 | 看目前這關的期限、是否已升級 | 1 | 點開單的頁面 |
 | 主管指定新的負責人 | 3 | 首頁的「負責人離職」區塊：選新的負責人 → 寫原因 → 按「指定為新的負責人」 |
 | 新負責人確認接下 | 2 | 首頁按「確認接下負責人」→ 用通行金鑰確認 |
+
+### 1.3 獨立審查後的修正（2026-11-21）
+
+| # | 審查的問題 | 怎麼修 | 測試 |
+| --- | --- | --- | --- |
+| 1 | 撤銷後缺口每 14 天重開；缺口期間交付中的單照樣生效 | 同一位離職者已有 revoked 缺口就不重開；缺口期間擋「標記已套用」「確認生效」（授權入口），`grant_activate` 也檢查被授權者能用；逾期時執行中、驗證中的單一併撤銷並交付撤回，簽核中的單（沒有作廢的轉移）每張開例外 `in_approval_blocked` | `88` K-OWNER-CONTINUITY（逾期；`gaps_opened` 精確為 1） |
+| 2 | 擋下期間時限例外被當成「不再等待」結案 | 結案改用不含「能否使用」的等待查詢 | `87` K-SLA-STALLED（擋下再恢復） |
+| 3 | 催辦後連續兩輪就升級；擋下期間不順延 | 升級期限從 max（催辦期限, 實際催辦時間）起算；恢復時平移起點與實際催辦時間 | `87` K-SLA-ESCALATE（催辦後不立刻升級）、K-SLA-STALLED（擋下再恢復） |
+| 4 | 新負責人可簽同一被授權者進行中的單 | `decider_denial` 加 `SOD_PRINCIPAL_OWNER`：負責人確認關以外，被授權者目前的負責人不合格 | `88` K-OWNER-CONTINUITY K-OWNER-SOD |
+| 5 | 改指派後「負責人確認」工作仍在原負責人身上 | 接下時交給新負責人（新的一輪、重新計時、事件 `case.task_reassigned`、通知）；新負責人不能是那些單的申請人 | `88` K-OWNER-CONTINUITY K-OWNER-SOD |
+| 6 | 升級事件缺參數值 | 升級與升級失敗事件加 `approval.manager_change_cooling_workdays`、`approval.excluded_decider_roles` | `87` K-SLA-ESCALATE |
+| 7 | 確認面板畫的不是簽的那一份 | `owners.js` 先取挑戰值，面板只從 `ch.display` 畫，簽的也是它 | `e2e` K-OWNER-CONTINUITY |
+| 8 | 提議人可指定自己 | `OWNER_CANDIDATE_SELF`（錯誤目錄） | `88` |
+| 9 | 升級對象在同一關已有工作 | 視為不合格（`SAME_STAGE`）繼續往上；升級對象的找法改成逐人過 `decider_denial`＋同關檢查，再到 top_resolver | `87` K-SLA-ESCALATE（同一關） |
+| 10 | 排程整輪回捲 | 逐件 savepoint、鎖單後重新確認、失敗開例外 | `87` K-SLA-STALLED（逐件隔離）、K-SLA-ESCALATE（簽核與升級同時） |
+| 11 | 寬限期過了仍能接下 | 缺口的授權入口在 `due_at <= now()` 時回 `OWNER_GAP_STATE`（指定與接下都是） | `88` K-OWNER-CONTINUITY（逾期） |
+| 12 | 「已續期」太寬 | 只認原申請人或被授權者負責人本人送出、仍在進行的單；駁回、撤回之後下一輪補寄 | `88` K-EXPIRE-REMIND |
+| 55 | 紅隊 55 回 1 | `program_health` 原本先做檢查（要算全公司的逾期工作，這一批變多）再讀心跳，檢查期間每 2 秒回報的錨定程式會變成「沒停擺」；改成先讀心跳再檢查 | 紅隊 55 |
 
 ## 2. 怎麼執行
 

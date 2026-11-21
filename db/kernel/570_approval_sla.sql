@@ -30,16 +30,26 @@ from (values
         '關卡升級不了（往上找不到人、升級後仍逾期）或群組沒人認領時，例外通知的治理角色')
 ) as d (key, value_type, default_value, scope_kinds, description);
 
--- 升級之後重新起算的時間（升級對象的期限從這裡算）；沒有升級過是 null
+-- 工作上的計時欄位（都可以由排程改；改的時候都有事件）：
+--   sla_from        升級的時間（升級對象的期限從這裡算）；沒有升級過是 null，也是「升級過」的標記
+--   sla_restart_at  工作改交給另一個人（負責人改指派後的負責人確認）時重新起算的時間
+--   sla_reminded_at 實際催辦的時間：升級期限＝max（催辦期限, 實際催辦時間）＋升級天數，催辦之後一定至少隔升級天數
+--   sla_shift       單被擋下（被授權者不能用）的累計時間：恢復之後起點與實際催辦時間一起往後移
+--   sla_round       第幾輪：改交給另一個人時加一，步驟紀錄以（工作, 輪, 步驟）唯一
 alter table sgn.case_task
-    add column sla_from timestamptz;
+    add column sla_from timestamptz,
+    add column sla_restart_at timestamptz,
+    add column sla_reminded_at timestamptz,
+    add column sla_shift interval not null default '0',
+    add column sla_round int not null default 0;
 
 -- 每件工作做過的時限步驟。remind／escalate：等人決定的工作；claim_remind／claim_stalled：等認領的工作；
--- stalled：升級不了或升級後仍逾期（開例外）。to_person：升級對象（找不到是 null）。
+-- stalled：升級不了或升級後仍逾期（開例外）；job_error：這件工作處理失敗（開例外，不影響其他工作）。to_person：升級對象。
 create table sgn.case_task_sla (
     id bigint generated always as identity primary key,
     task_id bigint not null references sgn.case_task (id),
     case_id uuid not null references sgn.request_case (id),
+    round int not null,
     step text not null check (step in ('remind', 'escalate', 'stalled', 'claim_remind', 'claim_stalled')),
     due_at timestamptz not null,
     done_at timestamptz not null,
@@ -47,7 +57,7 @@ create table sgn.case_task_sla (
     to_person uuid references sgn.person (id),
     exception_id bigint references sgn.exception_record (id),
     event_seq bigint not null,
-    unique (task_id, step)
+    unique (task_id, round, step)
 );
 
 create index case_task_sla_case_idx on sgn.case_task_sla (case_id);
@@ -79,17 +89,20 @@ begin
 end;
 $$;
 
--- 計時的起點（見檔頭第 2 點）。
+-- 計時的起點（見檔頭第 2 點），加上被擋下的累計時間。
 create function sgn_internal.task_sla_start(p_task sgn.case_task)
 returns timestamptz
 language sql
 immutable
 set search_path = pg_catalog, pg_temp
 as $$
-    select case when p_task.status = 'unclaimed' then p_task.opened_at else coalesce(p_task.sla_from, p_task.claimed_at, p_task.opened_at) end
+    select case
+        when p_task.status = 'unclaimed' then p_task.opened_at
+        else coalesce(p_task.sla_from, p_task.sla_restart_at, p_task.claimed_at, p_task.opened_at)
+    end + p_task.sla_shift
 $$;
 
--- 一件工作的期限：起點、催辦期限、升級期限。
+-- 一件工作的期限：起點、催辦期限、升級期限（從催辦期限與實際催辦時間較晚的那一個起算）。
 -- 這幾個時限 function 用 PL/pgSQL：每張單的摘要與逾期工作都會呼叫，PL/pgSQL 的執行計畫會快取（SQL function 每次呼叫都重新規劃）。
 create function sgn_internal.task_sla_due(p_task sgn.case_task, p_settings jsonb)
 returns table (started_at timestamptz, remind_at timestamptz, escalate_at timestamptz)
@@ -100,7 +113,9 @@ as $$
 begin
     started_at := sgn_internal.task_sla_start(p_task);
     remind_at := sgn_internal.add_workdays(started_at, (p_settings ->> 'approval.remind_after_workdays')::int);
-    escalate_at := sgn_internal.add_workdays(remind_at, (p_settings ->> 'approval.escalate_after_workdays')::int);
+    escalate_at := sgn_internal.add_workdays(
+        greatest(remind_at, p_task.sla_reminded_at), (p_settings ->> 'approval.escalate_after_workdays')::int
+    );
     return next;
 end;
 $$;
@@ -114,7 +129,7 @@ stable
 set search_path = pg_catalog, pg_temp
 as $$
 declare
-    v_done text[] := array(select x.step from sgn.case_task_sla as x where x.task_id = p_task.id);
+    v_done text[] := array(select x.step from sgn.case_task_sla as x where x.task_id = p_task.id and x.round = p_task.sla_round);
     v_due record;
 begin
     select * into v_due from sgn_internal.task_sla_due(p_task, p_settings);
@@ -135,26 +150,64 @@ begin
 end;
 $$;
 
--- 還在等的簽核工作（開著的簽核關裡等人決定或等認領的工作）。
+-- 還在等的簽核工作（開著的簽核關裡等人決定或等認領的工作），不管單能不能往下簽。例外的結案依這個判斷。
+-- PL/pgSQL、指定單與全部分開兩段：每張單的摘要都會呼叫，「p_case_id is null or …」的通用執行計畫會掃全部的工作。
+create function sgn_internal.approval_tasks_waiting(p_case_id uuid default null)
+returns setof sgn.case_task
+language plpgsql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    if p_case_id is not null then
+        return query
+        select t.*
+        from sgn.case_task as t
+        join sgn.case_stage as s on s.id = t.stage_id
+        join sgn.policy_stage as ps on ps.policy_id = s.policy_id and ps.seq = s.seq
+        join sgn.request_case as c on c.id = t.case_id
+        where t.case_id = p_case_id and s.status = 'open' and ps.phase = 'approval' and c.state = 'in_approval'
+          and t.status in ('pending', 'unclaimed');
+        return;
+    end if;
+    return query
+    select t.*
+    from sgn.case_task as t
+    join sgn.case_stage as s on s.id = t.stage_id
+    join sgn.policy_stage as ps on ps.policy_id = s.policy_id and ps.seq = s.seq
+    join sgn.request_case as c on c.id = t.case_id
+    where s.status = 'open' and ps.phase = 'approval' and c.state = 'in_approval' and t.status in ('pending', 'unclaimed');
+end;
+$$;
+
+-- 要計時的簽核工作（580 再排除被擋下的單）。
 create function sgn_internal.waiting_approval_tasks(p_case_id uuid default null)
 returns setof sgn.case_task
 language sql
 stable
 set search_path = pg_catalog, pg_temp
 as $$
-    select t.*
-    from sgn.case_task as t
-    join sgn.case_stage as s on s.id = t.stage_id
-    join sgn.policy_stage as ps on ps.policy_id = s.policy_id and ps.seq = s.seq
-    join sgn.request_case as c on c.id = t.case_id
-    where s.status = 'open'
-      and ps.phase = 'approval'
-      and c.state = 'in_approval'
-      and t.status in ('pending', 'unclaimed')
-      and (p_case_id is null or t.case_id = p_case_id)
+    select * from sgn_internal.approval_tasks_waiting(p_case_id)
 $$;
 
--- ── 升級對象（K-SLA-ESCALATE）：經主管 resolver 與決定者資格入口，從簽核人的上一層主管往上找 ──
+-- ── 升級對象（K-SLA-ESCALATE）：經主管 resolver 往上找，每個人都過決定者資格入口（decider_denial）；
+--    另外在同一關已經有工作的人也不合格（並行的關卡不能由同一個人簽兩件），最後到路徑的 top_resolver ──
+
+create function sgn_internal.escalation_denial(p_case_id uuid, p_task sgn.case_task, p_person_id uuid)
+returns text
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select coalesce(
+        sgn_internal.decider_denial(p_case_id, p_person_id, p_task.stage_id),
+        case when p_person_id = p_task.assignee_person_id or exists (
+            select 1 from sgn.case_task as t
+            where t.stage_id = p_task.stage_id and t.id <> p_task.id and t.assignee_person_id = p_person_id
+              and t.status in ('pending', 'approved', 'completed')
+        ) then 'SAME_STAGE' end
+    )
+$$;
 
 create function sgn_internal.task_escalation_target(p_case sgn.request_case, p_task sgn.case_task)
 returns jsonb
@@ -165,24 +218,40 @@ as $$
 declare
     v_line sgn.reporting_line := sgn_internal.resolve_manager(p_task.assignee_person_id);
     v_top text := (select p.top_resolver_role from sgn.approval_policy as p join sgn.case_stage as s on s.policy_id = p.id where s.id = p_task.stage_id);
-    v_resolved jsonb := sgn_internal.resolve_eligible(p_case.id, p_task.stage_id, v_line.manager_person_id, v_top);
+    v_candidate uuid := v_line.manager_person_id;
+    v_seen uuid[] := array[p_task.assignee_person_id];
+    v_path jsonb := '[]'::jsonb;
+    v_denial text;
+    v_holder uuid;
+    v_line_json jsonb := case when v_line.id is not null then jsonb_build_object(
+        'reporting_line_id', v_line.id, 'manager', v_line.manager_person_id, 'origin', v_line.origin, 'valid_from', v_line.valid_from
+    ) end;
 begin
-    -- 主管關係繞回原簽核人：同一關不算他自己的其他關卡，資格入口擋不到，在這裡擋
-    if v_resolved ->> 'person_id' = p_task.assignee_person_id::text then
-        v_resolved := v_resolved || jsonb_build_object('person_id', null, 'via', 'none');
+    while v_candidate is not null and not v_candidate = any (v_seen) loop
+        v_denial := sgn_internal.escalation_denial(p_case.id, p_task, v_candidate);
+        if v_denial is null then
+            return jsonb_build_object('person_id', v_candidate,
+                'via', case when jsonb_array_length(v_path) = 0 then 'direct' else 'manager_chain' end, 'path', v_path, 'line', v_line_json);
+        end if;
+        v_path := v_path || jsonb_build_object('person_id', v_candidate, 'denied', v_denial);
+        v_seen := v_seen || v_candidate;
+        v_candidate := (sgn_internal.resolve_manager(v_candidate)).manager_person_id;
+    end loop;
+    if v_top is not null then
+        foreach v_holder in array sgn_internal.role_holders(v_top) loop
+            continue when v_holder = any (v_seen);
+            v_denial := sgn_internal.escalation_denial(p_case.id, p_task, v_holder);
+            if v_denial is null then
+                return jsonb_build_object('person_id', v_holder, 'via', 'top_resolver', 'path', v_path, 'line', v_line_json);
+            end if;
+            v_path := v_path || jsonb_build_object('person_id', v_holder, 'denied', v_denial);
+        end loop;
     end if;
-    return v_resolved || jsonb_build_object(
-        'line', case when v_line.id is not null then jsonb_build_object(
-            'reporting_line_id', v_line.id,
-            'manager', v_line.manager_person_id,
-            'origin', v_line.origin,
-            'valid_from', v_line.valid_from
-        ) end
-    );
+    return jsonb_build_object('person_id', null, 'via', 'none', 'path', v_path, 'line', v_line_json);
 end;
 $$;
 
--- ── 各步驟（只由 approval_sla_due 在鎖住單之後呼叫）──
+-- ── 各步驟（只由 task_sla_apply 在鎖住單之後呼叫）──
 
 create function sgn_internal.task_sla_record(
     p_task sgn.case_task,
@@ -196,8 +265,8 @@ returns void
 language sql
 set search_path = pg_catalog, pg_temp
 as $$
-    insert into sgn.case_task_sla (task_id, case_id, step, due_at, done_at, from_person, to_person, exception_id, event_seq)
-    values (p_task.id, p_task.case_id, p_step, p_due_at, sgn_internal.now(), p_task.assignee_person_id, p_to, p_exception, p_seq)
+    insert into sgn.case_task_sla (task_id, case_id, round, step, due_at, done_at, from_person, to_person, exception_id, event_seq)
+    values (p_task.id, p_task.case_id, p_task.sla_round, p_step, p_due_at, sgn_internal.now(), p_task.assignee_person_id, p_to, p_exception, p_seq)
 $$;
 
 -- 通知用的內容：單號、關卡名稱、期限、已等幾個工作天。
@@ -217,7 +286,7 @@ as $$
     )
 $$;
 
--- 事件的共同欄位：工作、關卡、期限、參數值、規則代碼。
+-- 事件的共同欄位：工作、關卡、輪、期限、參數值、規則代碼。
 create function sgn_internal.task_sla_event(p_task sgn.case_task, p_due_at timestamptz, p_settings jsonb, p_rule text)
 returns jsonb
 language sql
@@ -226,15 +295,17 @@ set search_path = pg_catalog, pg_temp
 as $$
     select jsonb_build_object(
         'task_id', p_task.id,
+        'round', p_task.sla_round,
         'stage_seq', (select s.seq from sgn.case_stage as s where s.id = p_task.stage_id),
         'started_at', sgn_internal.task_sla_start(p_task),
+        'reminded_at', p_task.sla_reminded_at,
         'due_at', p_due_at,
         'settings', p_settings,
         'rules', jsonb_build_array(p_rule)
     )
 $$;
 
--- 催辦（K-SLA-REMIND）或催辦整個群組（K-SLA-CLAIM）。
+-- 催辦（K-SLA-REMIND）或催辦整個群組（K-SLA-CLAIM）；記下實際催辦的時間（升級期限從它起算）。
 create function sgn_internal.task_sla_remind(p_case sgn.request_case, p_task sgn.case_task, p_step text, p_due_at timestamptz, p_settings jsonb)
 returns void
 language plpgsql
@@ -253,6 +324,7 @@ begin
         sgn_internal.task_sla_event(p_task, p_due_at, p_settings, v_rule) || jsonb_build_object('step', p_step, 'recipients', to_jsonb(v_people))
     );
     perform sgn_internal.task_sla_record(p_task, p_step, p_due_at, null, null, v_seq);
+    update sgn.case_task set sla_reminded_at = sgn_internal.now() where id = p_task.id;
     perform sgn_internal.notify(
         case when p_step = 'claim_remind' then 'case.claim_reminder' else 'case.task_reminder' end,
         v_people, p_case.id, sgn_internal.task_sla_payload(p_case, p_task, p_due_at)
@@ -260,7 +332,7 @@ begin
 end;
 $$;
 
--- 開例外（K-SLA-STALLED、K-SLA-CLAIM）並通知：治理角色，加上指定的人。
+-- 開例外（K-SLA-STALLED、K-SLA-CLAIM）並通知：治理角色，加上指定的人。p_step 是 null 時不記步驟（處理失敗）。
 create function sgn_internal.task_sla_stall(
     p_case sgn.request_case,
     p_task sgn.case_task,
@@ -287,12 +359,27 @@ begin
     v_seq := sgn_internal.audit_append(
         'case.task_stalled', p_case.id, null, v_detail || jsonb_build_object('step', p_step, 'exception', v_exception, 'recipients', to_jsonb(v_people))
     );
-    perform sgn_internal.task_sla_record(p_task, p_step, p_due_at, null, v_exception, v_seq);
+    if p_step is not null then
+        perform sgn_internal.task_sla_record(p_task, p_step, p_due_at, null, v_exception, v_seq);
+    end if;
     perform sgn_internal.notify(
         case when p_step = 'claim_stalled' then 'case.claim_stalled' else 'case.task_stalled' end,
         v_people, p_case.id, sgn_internal.task_sla_payload(p_case, p_task, p_due_at)
     );
 end;
+$$;
+
+-- 升級用到的參數值：時限、主管異動的冷卻期（決定用哪一條主管關係）、排除的決定者角色。
+create function sgn_internal.escalation_settings(p_settings jsonb)
+returns jsonb
+language sql
+stable
+set search_path = pg_catalog, pg_temp
+as $$
+    select p_settings || jsonb_build_object(
+        'approval.manager_change_cooling_workdays', sgn_internal.setting('approval.manager_change_cooling_workdays'),
+        'approval.excluded_decider_roles', sgn_internal.setting('approval.excluded_decider_roles')
+    )
 $$;
 
 -- 升級（K-SLA-ESCALATE）：找得到升級對象就改指派；找不到就開 K-SLA-STALLED，工作留給原簽核人。
@@ -304,28 +391,31 @@ as $$
 declare
     v_target jsonb := sgn_internal.task_escalation_target(p_case, p_task);
     v_to uuid := (v_target ->> 'person_id')::uuid;
+    v_settings jsonb := sgn_internal.escalation_settings(p_settings);
     v_seq bigint;
 begin
     if v_to is null then
         v_seq := sgn_internal.audit_append(
             'case.task_escalation_failed', p_case.id, null,
-            sgn_internal.task_sla_event(p_task, p_due_at, p_settings, 'K-SLA-ESCALATE') || jsonb_build_object('from', p_task.assignee_person_id, 'target', v_target)
+            sgn_internal.task_sla_event(p_task, p_due_at, v_settings, 'K-SLA-ESCALATE') || jsonb_build_object('from', p_task.assignee_person_id, 'target', v_target)
         );
         perform sgn_internal.task_sla_record(p_task, 'escalate', p_due_at, null, null, v_seq);
         perform sgn_internal.task_sla_stall(
-            p_case, p_task, 'stalled', p_due_at, p_settings, 'no_escalation_target', jsonb_build_object('target', v_target), array[p_case.applicant_person_id]
+            p_case, p_task, 'stalled', p_due_at, v_settings, 'no_escalation_target', jsonb_build_object('target', v_target), array[p_case.applicant_person_id]
         );
         return false;
     end if;
     v_seq := sgn_internal.audit_append(
         'case.task_escalated', p_case.id, null,
-        sgn_internal.task_sla_event(p_task, p_due_at, p_settings, 'K-SLA-ESCALATE')
+        sgn_internal.task_sla_event(p_task, p_due_at, v_settings, 'K-SLA-ESCALATE')
             || jsonb_build_object('from', p_task.assignee_person_id, 'to', v_to, 'via', v_target -> 'via', 'path', v_target -> 'path', 'line', v_target -> 'line')
     );
     perform sgn_internal.task_sla_record(p_task, 'escalate', p_due_at, v_to, null, v_seq);
     update sgn.case_task
     set assignee_person_id = v_to,
         sla_from = sgn_internal.now(),
+        sla_reminded_at = null,
+        sla_shift = '0',
         basis = basis || jsonb_build_object('escalations', coalesce(basis -> 'escalations', '[]'::jsonb) || jsonb_build_object(
             'from', p_task.assignee_person_id, 'to', v_to, 'at', sgn_internal.now(), 'event_seq', v_seq,
             'via', v_target -> 'via', 'path', v_target -> 'path', 'line', v_target -> 'line', 'rules', jsonb_build_array('K-SLA-ESCALATE')
@@ -358,7 +448,8 @@ begin
 end;
 $$;
 
--- 一件工作的到期步驟（鎖住單之後重新讀工作，確認仍在等、步驟仍沒做）。回傳做了的步驟，沒做是 null。
+-- 一件工作的到期步驟：鎖住單之後重新讀工作，確認仍在等（單仍在簽核中、這一關仍開著、工作仍等同一個人）、步驟仍沒做。
+-- 回傳做了的步驟，沒做是 null。
 create function sgn_internal.task_sla_apply(p_task_id bigint)
 returns text
 language plpgsql
@@ -398,7 +489,32 @@ begin
 end;
 $$;
 
--- 例外結案：工作不再等待（已決定、退回、作廢），或等待的人換了（升級、認領）。
+-- 一件工作處理失敗：這件工作的變更回捲（savepoint），開例外讓人知道，其他工作照常處理。
+create function sgn_internal.task_sla_failed(p_task_id bigint, p_error text)
+returns void
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+    v_task sgn.case_task;
+begin
+    select * into v_task from sgn.case_task where id = p_task_id;
+    -- 同一件工作每一輪都會再失敗：已經有沒結案的就不再開
+    if exists (
+        select 1 from sgn.exception_record as x
+        where x.rule_code = 'K-SLA-STALLED' and x.closed_at is null and x.detail ->> 'kind' = 'job_error'
+          and (x.detail ->> 'task_id')::bigint = p_task_id
+    ) then
+        return;
+    end if;
+    perform sgn_internal.task_sla_stall(
+        (select c from sgn.request_case as c where c.id = v_task.case_id), v_task, null, sgn_internal.now(), '{}'::jsonb, 'job_error',
+        jsonb_build_object('error', left(p_error, 500)), '{}'
+    );
+end;
+$$;
+
+-- 例外結案：工作不再等待（已決定、退回、作廢），或等待的人換了（升級、認領）。被擋下的單仍在等，不結案。
 create function sgn_internal.task_sla_settle()
 returns int
 language plpgsql
@@ -409,15 +525,16 @@ declare
     v_count int := 0;
 begin
     for v_row in
-        select x.id, x.rule_code, (x.detail ->> 'task_id')::bigint as task_id, x.detail ->> 'person' as person
+        select x.id, x.rule_code, (x.detail ->> 'task_id')::bigint as task_id, x.detail ->> 'person' as person, x.detail ->> 'kind' as kind
         from sgn.exception_record as x
         where x.rule_code in ('K-SLA-STALLED', 'K-SLA-CLAIM') and x.closed_at is null
         order by x.id
     loop
+        -- 處理失敗的例外：工作不再等待才結案（失敗的原因要有人看過）
         continue when exists (
-            select 1 from sgn_internal.waiting_approval_tasks((select t.case_id from sgn.case_task as t where t.id = v_row.task_id)) as w
+            select 1 from sgn_internal.approval_tasks_waiting((select t.case_id from sgn.case_task as t where t.id = v_row.task_id)) as w
             where w.id = v_row.task_id
-              and w.assignee_person_id is not distinct from sgn_internal.try_uuid(v_row.person)
+              and (v_row.kind = 'job_error' or w.assignee_person_id is not distinct from sgn_internal.try_uuid(v_row.person))
         );
         if sgn_internal.exception_close(v_row.id, jsonb_build_object(
             'task_id', v_row.task_id, 'reason', 'no_longer_waiting', 'rules', jsonb_build_array(v_row.rule_code)
@@ -429,31 +546,51 @@ begin
 end;
 $$;
 
--- 排程的入口：逐件做到期的步驟（每件工作各自鎖單；步驟只做一次），再結案不再等待的例外。
-create function sgn_internal.approval_sla_due()
+-- 逐件做到期的步驟：每件工作自己一個 savepoint（失敗只回捲這一件並開例外），各自鎖單、重新確認。
+create function sgn_internal.approval_sla_run()
 returns jsonb
 language plpgsql
 set search_path = pg_catalog, pg_temp
 as $$
 declare
     v_task sgn.case_task;
+    v_task_id bigint;
     v_step text;
     v_counts jsonb := '{}'::jsonb;
 begin
-    for v_task in
-        select w.* from sgn_internal.waiting_approval_tasks() as w
-        join sgn.request_case as c on c.id = w.case_id
-        where exists (
-            select 1 from sgn_internal.task_sla_next(w, sgn_internal.task_sla_settings(c)) as n where n.due_at <= sgn_internal.now()
-        )
-        order by w.id
-    loop
-        v_step := sgn_internal.task_sla_apply(v_task.id);
+    for v_task in select w.* from sgn_internal.waiting_approval_tasks() as w order by w.id loop
+        v_task_id := v_task.id;
+        begin
+            -- 先不鎖單看有沒有到期的步驟（大部分的工作沒有）；有才鎖單、重新確認、做
+            v_step := null;
+            if exists (
+                select 1 from sgn_internal.task_sla_next(
+                    v_task, sgn_internal.task_sla_settings((select c from sgn.request_case as c where c.id = v_task.case_id))
+                ) as n
+                where n.due_at <= sgn_internal.now()
+            ) then
+                v_step := sgn_internal.task_sla_apply(v_task_id);
+            end if;
+        exception when others then
+            v_step := 'failed';
+            perform sgn_internal.task_sla_failed(v_task_id, sqlerrm);
+        end;
         if v_step is not null then
             v_counts := v_counts || jsonb_build_object(v_step, coalesce((v_counts ->> v_step)::int, 0) + 1);
         end if;
     end loop;
-    return v_counts || jsonb_build_object('closed', sgn_internal.task_sla_settle());
+    return v_counts;
+end;
+$$;
+
+-- 排程的入口：做到期的步驟，再結案不再等待的例外。
+create function sgn_internal.approval_sla_due()
+returns jsonb
+language plpgsql
+set search_path = pg_catalog, pg_temp
+as $$
+begin
+    return sgn_internal.approval_sla_run() || jsonb_build_object('closed', sgn_internal.task_sla_settle());
 end;
 $$;
 
