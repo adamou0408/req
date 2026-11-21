@@ -105,7 +105,7 @@ test('K-PROGRAM-STALLED 逾期的工作沒人處理（授權到期、確認逾�
     const view = (caseId) => call(app, 'case_get', applicant.session, caseId);
     // 授權迄日已過（模擬排程停擺期間過了迄日）
     const active = await activeSalesOrderCase(app, admin, applicant, 2091);
-    await admin.query('update sgn.grant_record set valid_to = current_date - 1 where case_id = $1', [active]);
+    await admin.query('update sgn.grant_record set valid_to = sgn_internal.today() - 1 where case_id = $1', [active]);
     // 列 S5：單的頁面與首頁清單都有 overdue（資料庫算）
     assert.equal((await view(active)).overdue.kind, 'grant_expiry');
     assert.equal((await call(app, 'case_list_mine', applicant.session)).find((c) => c.case_id === active).overdue.kind, 'grant_expiry');

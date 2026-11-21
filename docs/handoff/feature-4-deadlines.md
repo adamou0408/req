@@ -58,6 +58,14 @@
 | 12 | 「已續期」太寬 | 只認原申請人或被授權者負責人本人送出、仍在進行的單；駁回、撤回之後下一輪補寄 | `88` K-EXPIRE-REMIND |
 | 55 | 紅隊 55 回 1 | `program_health` 原本先做檢查（要算全公司的逾期工作，這一批變多）再讀心跳，檢查期間每 2 秒回報的錨定程式會變成「沒停擺」；改成先讀心跳再檢查 | 紅隊 55 |
 
+### 1.4 業務日（複核發現，2026-11-22 台北時間）
+
+- 根因：`88` 的測試準備用 `current_date + 10` 設迄日。資料庫工作階段的時區是 UTC，`current_date` 是 UTC 的日期；平台的業務日是 `sgn_internal.today()`（參數 `calendar.timezone`，Asia/Taipei）。UTC 16:00–24:00 台北已經是隔天，兩者差一天，`days_left` 算成 9。**產品程式沒有這個問題**：570、575、580 與既有 migration 逐一 grep `current_date`、`now()::date`、`::date`、`at time zone`，判斷「今天」的地方都經 `sgn_internal.today()`（或以 `calendar.timezone` 換算）；`at time zone 'UTC'` 只出現在簽章與顯示的 ISO 時間字串（410、380、500），不是日期判斷。
+- 測試裡同樣的假設（只在某些鐘點才對）一併改成 `sgn_internal.today()`：`88`（迄日、結束日）、`db/tests/kernel/92-program-stall.test.mjs`、`db/tests/packs/data_access/50-delivery.test.mjs`、`e2e/tests/path.test.mjs`（`current_date - 1` 在 UTC 16:00 之後變成「前天」，結果碰巧仍對，但語意錯）；`87` 寫死的 `'Asia/Taipei'` 改讀參數。
+- 測試的 JS 端日期（`db/tests/packs/data_access/lib.mjs` 的 `today()`、`e2e/tests/lib/ui.mjs` 的 `day()`）共用一個常數 `BUSINESS_TIMEZONE`（這個檔案也被紅隊腳本匯入，不能在匯入時連資料庫）；新測試 `89-business-day` 檢查它等於資料庫的 `calendar.timezone`、`today()` 等於 `sgn_internal.today()`。
+- `89-business-day`：工作階段時區設成 UTC、Asia/Taipei、Etc/GMT+12、Pacific/Kiritimati（後兩個在任何時刻至少有一個和台北不同一天），逐一確認到期前提醒的判定、迄日今天不到期、昨天到期都相同；在跨日的時區真的跑排程，剩餘天數是 10、到期判定正確。
+- 已知：sim/dc（外部系統）的「今天」是它自己資料庫的 `current_date`，時區由 `SIM_DC_TIMEZONE`（Asia/Taipei）設定；正式環境使用方系統的時區要和平台的 `calendar.timezone` 一致（使用方義務），平台沒有檢查。
+
 ## 2. 怎麼執行
 
 ```bash

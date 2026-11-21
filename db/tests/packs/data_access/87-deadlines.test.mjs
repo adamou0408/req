@@ -330,7 +330,7 @@ test('K-SLA-VIEW 待簽清單與單的頁面：已等幾個工作天、催辦與
     assert.equal(lateSla.stage_name, inbox[i(late)].current_stage.name);
     const expected = await one(
         admin,
-        `select sgn_internal.workdays_between((opened_at at time zone 'Asia/Taipei')::date, sgn_internal.today()) as n
+        `select sgn_internal.workdays_between((opened_at at time zone sgn_internal.setting_text('calendar.timezone'))::date, sgn_internal.today()) as n
          from sgn.case_task where case_id = $1 and status = 'pending'`,
         [late],
     );

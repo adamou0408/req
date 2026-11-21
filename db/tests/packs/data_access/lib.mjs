@@ -3,10 +3,17 @@ import { call, decidePasskey, issueChallenge } from '../../kernel/lib/harness.mj
 
 export const DA = 'data_access';
 
-/** 營業日期（參數 calendar.timezone 的預設 Asia/Taipei），YYYY-MM-DD。 */
+/**
+ * 營業日的時區：必須等於資料庫的參數 calendar.timezone（業務日的唯一入口 sgn_internal.today() 用它）。
+ * 這個檔案也被紅隊腳本匯入，不能在匯入時連資料庫，所以寫成常數；`89-business-day` 檢查它和資料庫的參數一致、
+ * today() 和 sgn_internal.today() 是同一天。資料庫端的測試準備一律用 sgn_internal.today()，不用 current_date。
+ */
+export const BUSINESS_TIMEZONE = 'Asia/Taipei';
+
+/** 營業日期（YYYY-MM-DD），可加減天數。 */
 export function today(offsetDays = 0) {
     const d = new Date(Date.now() + offsetDays * 86400000);
-    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(d);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: BUSINESS_TIMEZONE }).format(d);
 }
 
 /** YYYY-MM-DD 加幾個月再加幾天（UTC 計算，日期字串不受時區影響）。 */

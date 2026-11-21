@@ -497,7 +497,7 @@ test('K-GRANT-REDUCE 生效後只做縮小：不用重簽，新的一版自動�
 test('K-GRANT-EXPIRE 授權迄日過了：排程結束授權並排清除（到期的權限從外部系統的目錄上拿掉）', async () => {
     // 年份和其他測試不相鄰：到期只改了平台的授權迄日，模擬的外部系統上這份規則的有效迄日沒變（聯集仍放行）
     const caseId = await active(2050);
-    await admin.query(`update sgn.grant_record set valid_to = current_date - 1 where case_id = $1`, [caseId]);
+    await admin.query(`update sgn.grant_record set valid_to = sgn_internal.today() - 1 where case_id = $1`, [caseId]);
     assert.ok((await one(scheduler, 'select api_job.grant_expire_due() as r')).r.expired >= 1);
     const v = await view(caseId);
     assert.equal(v.state, 'expired');
@@ -931,7 +931,7 @@ test('K-DELIVERY-MANUAL K-GRANT-EXPIRE 人工的受管系統授權到期：開�
     assert.equal(await decide(app, users.p30, c.case_id, 'fulfil'), 'verifying');
     assert.equal(await confirmed(c.case_id), 'active');
     // 測試準備：模擬授權迄日已過
-    await admin.query(`update sgn.grant_record set valid_to = current_date - 1 where case_id = $1`, [c.case_id]);
+    await admin.query(`update sgn.grant_record set valid_to = sgn_internal.today() - 1 where case_id = $1`, [c.case_id]);
     assert.ok((await one(scheduler, 'select api_job.grant_expire_due() as r')).r.expired >= 1);
     assert.equal((await view(c.case_id)).state, 'expired');
     const manual = await admin.query(
@@ -951,8 +951,8 @@ test('K-GRANT-LATE 過了授權迄日才標記已套用（人工）或確認（�
     // 測試準備：模擬「核准後很久都沒人執行」——這一版的授權期間整個移到過去
     const lapse = (caseId) =>
         admin.query(
-            `update sgn.case_version set terms = jsonb_set(jsonb_set(terms, '{valid_from}', to_jsonb((current_date - 40)::text)),
-                                                         '{valid_to}', to_jsonb((current_date - 2)::text))
+            `update sgn.case_version set terms = jsonb_set(jsonb_set(terms, '{valid_from}', to_jsonb((sgn_internal.today() - 40)::text)),
+                                                         '{valid_to}', to_jsonb((sgn_internal.today() - 2)::text))
              where case_id = $1`,
             [caseId],
         );

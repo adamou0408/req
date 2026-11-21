@@ -145,7 +145,7 @@ test('K-EXPIRE-REMIND 到期前 N 天提醒申請人與被授權者負責人，�
     const caseId = await activeCase('p04', 'p05', bot, 2501);
     assert.equal((await remind()).reminded, 0, '迄日還遠');
     // 模擬時間過去：迄日只剩 10 天（測試準備）
-    await admin.query(`update sgn.grant_record set valid_to = current_date + 10 where case_id = $1`, [caseId]);
+    await admin.query(`update sgn.grant_record set valid_to = sgn_internal.today() + 10 where case_id = $1`, [caseId]);
     // 同一個被授權者有一張送審後、迄日較晚、重疊檢查列了這筆授權的單：當作已續期，不提醒
     const renewal = (
         await call(
@@ -174,10 +174,10 @@ test('K-EXPIRE-REMIND 到期前 N 天提醒申請人與被授權者負責人，�
     assert.equal((await notified('grant.expiry_reminder', caseId)).length, 2, '每筆一次');
     // 已撤銷的不提醒；天數依級別（L3 改 30 天，迄日 20 天後的也提醒）
     const revoked = await activeCase('p04', 'p05', bot, 2502);
-    await admin.query(`update sgn.grant_record set valid_to = current_date + 5 where case_id = $1`, [revoked]);
+    await admin.query(`update sgn.grant_record set valid_to = sgn_internal.today() + 5 where case_id = $1`, [revoked]);
     await call(app, 'case_revoke', users.p04.session, revoked, '不用了');
     const far = await activeCase('p04', 'p05', bot, 2503);
-    await admin.query(`update sgn.grant_record set valid_to = current_date + 20 where case_id = $1`, [far]);
+    await admin.query(`update sgn.grant_record set valid_to = sgn_internal.today() + 20 where case_id = $1`, [far]);
     await remind();
     assert.deepEqual(await notified('grant.expiry_reminder', far), []);
     await setSetting(admin, 'validity.remind_before_days', 30, `tier:${DA}:L3`);
@@ -190,7 +190,7 @@ test('K-EXPIRE-REMIND 到期前 N 天提醒申請人與被授權者負責人，�
     assert.deepEqual(await notified('grant.expiry_reminder', revoked), [], '已撤銷的不提醒');
     // 別人（不是原申請人、也不是負責人）送的重疊單不算續期：照常提醒
     const other = await activeCase('p04', 'p05', bot, 2504);
-    await admin.query(`update sgn.grant_record set valid_to = current_date + 10 where case_id = $1`, [other]);
+    await admin.query(`update sgn.grant_record set valid_to = sgn_internal.today() + 10 where case_id = $1`, [other]);
     const notRenewal = (
         await call(
             app,
@@ -383,7 +383,7 @@ test('K-PRINCIPAL-END 被授權者結束：專案過了結束日 → 授權到�
     const pending = (await call(app, 'case_submit_new', users.p04.session, DA, content(2533), terms(project), OVERLAP_REASON)).case_id;
     assert.equal((await checks()).principal_ended, 0);
     // 測試準備：專案的結束日改成昨天；團隊標為解散（團隊的來源同步還沒有，見交接）
-    await admin.query(`update sgn.principal set ends_on = current_date - 1 where id = $1`, [project]);
+    await admin.query(`update sgn.principal set ends_on = sgn_internal.today() - 1 where id = $1`, [project]);
     await admin.query(`update sgn.principal set status = 'ended' where id = $1`, [team]);
     assert.equal((await view(p)).overdue.kind, 'principal_end');
     await rejectsWith(call(app, 'challenge_issue', users.p03.session, pending, 'approve', {}), 'PRINCIPAL_UNAVAILABLE');

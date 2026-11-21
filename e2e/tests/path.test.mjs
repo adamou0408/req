@@ -591,7 +591,7 @@ test('K-PROGRAM-STALLED 排程停擺期間授權迄日過了：申請人的首�
     process.kill(jobsPid, 'SIGSTOP');
     try {
         // 測試準備：模擬「排程停擺期間過了迄日」
-        await admin.query('update sgn.grant_record set valid_to = current_date - 1 where case_id = $1', [grant.case_id]);
+        await admin.query('update sgn.grant_record set valid_to = sgn_internal.today() - 1 where case_id = $1', [grant.case_id]);
         const applicant = await loggedIn('p04');
         await home(applicant);
         const card = applicant.page.locator(`[data-testid=mine-item][data-case-no="${grant.case_no}"] [data-testid=overdue]`);

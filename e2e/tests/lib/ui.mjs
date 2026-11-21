@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { approveEnrollment, call, closePools, pool, rememberKey, settlePasskey } from '../../../db/tests/kernel/lib/harness.mjs';
 import { RUN_DIR, loadConfig } from '../../../db/tools/lib/env.mjs';
+import { BUSINESS_TIMEZONE } from '../../../db/tests/packs/data_access/lib.mjs';
 import { groupedCode, shortCode } from '../../../web/lib/signing.js';
 import { readQr } from './qr-read.mjs';
 
@@ -32,9 +33,9 @@ export async function stopBrowser() {
 }
 export const theBrowser = () => browser;
 
-/** 營業日期（Asia/Taipei），YYYY-MM-DD；可加減月數與天數。 */
+/** 營業日期（時區同資料庫的 calendar.timezone，見 db/tests/packs/data_access/lib.mjs），YYYY-MM-DD；可加減月數與天數。 */
 export function day(months = 0, days = 0) {
-    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei' }).format(new Date());
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: BUSINESS_TIMEZONE }).format(new Date());
     const d = new Date(`${today}T00:00:00Z`);
     d.setUTCMonth(d.getUTCMonth() + months);
     d.setUTCDate(d.getUTCDate() + days);
